@@ -32,7 +32,8 @@ import kotlin.math.sqrt
 enum class RecordingStatus {
     IDLE,
     RECORDING,
-    PAUSED
+    PAUSED,
+    SAVING
 }
 
 data class RecordedLap(
@@ -70,7 +71,7 @@ data class RecordingSnapshot(
     val stepCount: Int? = null
 ) {
     val isActive: Boolean
-        get() = status == RecordingStatus.RECORDING || status == RecordingStatus.PAUSED
+        get() = status != RecordingStatus.IDLE
 }
 
 /**
@@ -81,6 +82,7 @@ data class RecordingSnapshot(
 object TrackRecorder {
     private const val CLIENT_ID = "track_recorder"
     private const val MAX_ACCURACY_METERS = 35f
+    private const val BAROMETER_CALIBRATION_VERTICAL_ACCURACY_M = 20f
     private const val MIN_STEP_DISTANCE_M = 1.5
     private const val MIN_ARM_DISTANCE_M = 25.0
     private const val GATE_RADIUS_M = 18.0
@@ -238,13 +240,16 @@ object TrackRecorder {
 
     suspend fun stopAndSave(context: Context): Long? {
         val toSave: Triple<TrackSessionEntity, List<TrackPointEntity>, List<TrackLapEntity>>?
+        val mode: ActivityMode
 
         synchronized(lock) {
-            if (_snapshot.value.status == RecordingStatus.IDLE) return null
+            val snapshot = _snapshot.value
+            if (snapshot.status == RecordingStatus.IDLE || snapshot.status == RecordingStatus.SAVING) return null
 
             val totalDurationMs = computeActiveElapsedMsLocked()
-            val mode = _snapshot.value.mode
-            val stepCount = HikingStepSensor.stop()
+            mode = snapshot.mode
+            HikingStepSensor.pause()
+            _snapshot.value = snapshot.copy(status = RecordingStatus.SAVING, elapsedMs = totalDurationMs)
             val pointsCopy = recordedPoints.toList()
             val lapsCopy = recordedLaps.toList()
 
@@ -276,8 +281,7 @@ object TrackRecorder {
                     maxHeartRate = maxHr,
                     pointCount = pointsCopy.size,
                     peakTotalG = peakTotalG,
-                    peakLateralG = peakLateralG,
-                    stepCount = stepCount
+                    peakLateralG = peakLateralG
                 )
                 val lapEntities = lapsCopy.map { lap ->
                     TrackLapEntity(
@@ -299,31 +303,40 @@ object TrackRecorder {
             gpsCollectJob = null
             timerJob?.cancel()
             timerJob = null
-            resetStateLocked()
-            _snapshot.value = RecordingSnapshot(status = RecordingStatus.IDLE, mode = mode)
         }
 
-        GpsRepository.stopTracking(CLIENT_ID)
-        EnvironmentSensorManager.stopPressureListening(CLIENT_ID)
-        MotionSensorManager.setTrackVibrationCapture(false)
-        GForceRepository.stopListening(CLIENT_ID)
-        FloatingGpsService.stopRecordingKeepAlive(context.applicationContext)
+        try {
+            GpsRepository.stopTracking(CLIENT_ID)
+            EnvironmentSensorManager.stopPressureListening(CLIENT_ID)
+            MotionSensorManager.setTrackVibrationCapture(false)
+            GForceRepository.stopListening(CLIENT_ID)
 
-        val payload = toSave ?: return null
-        return withContext(Dispatchers.IO) {
-            TrackDatabase.getInstance(context)
-                .trackDao()
-                .saveCompleteSession(payload.first, payload.second, payload.third)
+            val (session, points, laps) = toSave ?: return null
+            val stepCount = HikingStepSensor.awaitFinalCount()
+            return withContext(Dispatchers.IO) {
+                TrackDatabase.getInstance(context)
+                    .trackDao()
+                    .saveCompleteSession(session.copy(stepCount = stepCount), points, laps)
+            }
+        } finally {
+            HikingStepSensor.stop()
+            FloatingGpsService.stopRecordingKeepAlive(context.applicationContext)
+            synchronized(lock) {
+                resetStateLocked()
+                _snapshot.value = RecordingSnapshot(mode = mode)
+            }
         }
     }
 
     private fun onGpsSample(data: GpsData) {
-        if (!data.hasFix) return
-        val lat = data.latitude ?: return
-        val lng = data.longitude ?: return
-
         synchronized(lock) {
             if (_snapshot.value.status != RecordingStatus.RECORDING) return
+            if (!data.hasFix) {
+                elevation.breakInterval()
+                return
+            }
+            val lat = data.latitude ?: return
+            val lng = data.longitude ?: return
             if (data.lastUpdateElapsedRealtimeMs <= lastFixElapsedMs && lastFixElapsedMs != 0L) return
 
             val accuracy = data.accuracyMeters
@@ -331,6 +344,11 @@ object TrackRecorder {
                 return
             }
 
+            if (lastFixElapsedMs != 0L &&
+                data.lastUpdateElapsedRealtimeMs - lastFixElapsedMs >= GpsRepository.GPS_FRESHNESS_WINDOW_MS
+            ) {
+                elevation.breakInterval()
+            }
             lastFixElapsedMs = data.lastUpdateElapsedRealtimeMs
             val speed = (data.speedMps ?: 0f).coerceAtLeast(0f)
             val prevLat = lastLat
@@ -356,10 +374,14 @@ object TrackRecorder {
 
             val legDurationMs = data.lastUpdateElapsedRealtimeMs - lastTrackPointFixElapsedMs
             val isContinuous = lastTrackPointFixElapsedMs != 0L && legDurationMs in 1L..MAX_CONTINUOUS_TRACK_INTERVAL_MS
-            if (!isContinuous) elevation.breakInterval()
             lastTrackPointFixElapsedMs = data.lastUpdateElapsedRealtimeMs
             val pressure = EnvironmentSensorManager.telemetry.value.freshPressureHpa(SystemClock.elapsedRealtime())
-            val altitude = elevation.record(data.altitudeMeters, pressure)
+            val horizontalAccuracyGood = accuracy?.let { it in 0f..MAX_ACCURACY_METERS }
+            val verticalAccuracyGood = data.verticalAccuracyMeters?.let { it in 0f..BAROMETER_CALIBRATION_VERTICAL_ACCURACY_M }
+            val gpsAltitude = data.altitudeMeters.takeUnless {
+                pressure != null && (horizontalAccuracyGood == false || verticalAccuracyGood == false)
+            }
+            val altitude = elevation.record(gpsAltitude, pressure, horizontalAccuracyGood == true && verticalAccuracyGood == true)
             val vibrationG = MotionSensorManager.takeTrackVibrationRmsG()
                 ?.takeIf { isContinuous && speed >= 1f && stepMeters >= 0.5 }
 

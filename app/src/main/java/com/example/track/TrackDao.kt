@@ -15,6 +15,12 @@ interface TrackDao {
     @Query("SELECT * FROM track_sessions WHERE id = :sessionId")
     suspend fun getSessionById(sessionId: Long): TrackSessionEntity?
 
+    @Query("SELECT * FROM track_sessions WHERE name = :name AND mode = :mode AND stepCount IS NULL")
+    suspend fun getSessionsMissingStepCount(name: String, mode: String): List<TrackSessionEntity>
+
+    @Query("UPDATE track_sessions SET stepCount = :stepCount WHERE id = :sessionId AND stepCount IS NULL")
+    suspend fun setMissingStepCount(sessionId: Long, stepCount: Int): Int
+
     @Query("SELECT * FROM track_points WHERE sessionId = :sessionId ORDER BY timestampMs ASC")
     suspend fun getPointsForSession(sessionId: Long): List<TrackPointEntity>
 

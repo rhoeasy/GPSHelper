@@ -20,6 +20,7 @@ object SampleTrackSeeder {
     private const val KEY_SEEDED_V1 = "sample_tracks_seeded_v1"
     private const val KEY_SEEDED_OFFROAD_V1 = "sample_offroad_seeded_v1"
     private const val KEY_SEEDED_KARTING_F1_V2 = "sample_karting_f1_v2"
+    private const val KEY_BACKFILLED_HIKING_STEPS_V1 = "sample_hiking_steps_v1"
 
     private const val LEGACY_SAMPLE_KARTING_NAME = "卡丁车 · 示例赛道（3 圈）"
     const val SAMPLE_KARTING_NAME = "卡丁车 · 示例赛道（4 圈）"
@@ -27,6 +28,7 @@ object SampleTrackSeeder {
     const val SAMPLE_OFFROAD_NAME = "越野穿越 · 示例翻山穿越"
 
     private const val METERS_PER_DEG_LAT = 111_320.0
+    private const val SAMPLE_HIKING_STEP_LENGTH_M = 0.72
 
     suspend fun seedOnceIfNeeded(context: Context, dao: TrackDao): Boolean {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -57,6 +59,25 @@ object SampleTrackSeeder {
             dao.saveCompleteSession(offroad.session, offroad.points, offroad.laps)
             prefs.edit().putBoolean(KEY_SEEDED_OFFROAD_V1, true).apply()
             seededAny = true
+        }
+
+        if (!prefs.getBoolean(KEY_BACKFILLED_HIKING_STEPS_V1, false)) {
+            val candidates = dao.getSessionsMissingStepCount(SAMPLE_HIKING_NAME, ActivityMode.HIKING.name)
+            if (candidates.isNotEmpty()) {
+                val sample = buildSampleHikingTrack(endTimeMs = nowMs)
+                val steps = requireNotNull(sample.session.stepCount)
+                for (candidate in candidates) {
+                    if (candidate.pointCount != sample.points.size) continue
+                    val points = dao.getPointsForSession(candidate.id)
+                    // Legacy examples have no sample flag. Check the generated route, not just its name.
+                    val matches = points.size == sample.points.size && points.indices.all { i ->
+                        abs(points[i].latitude - sample.points[i].latitude) < 0.000001 &&
+                            abs(points[i].longitude - sample.points[i].longitude) < 0.000001
+                    }
+                    if (matches && dao.setMissingStepCount(candidate.id, steps) > 0) seededAny = true
+                }
+            }
+            prefs.edit().putBoolean(KEY_BACKFILLED_HIKING_STEPS_V1, true).apply()
         }
 
         return seededAny
@@ -452,7 +473,8 @@ object SampleTrackSeeder {
             maxHeartRate = maxHr.takeIf { it > 0 },
             pointCount = points.size,
             peakTotalG = peakTotalG,
-            peakLateralG = peakLatG
+            peakLateralG = peakLatG,
+            stepCount = (totalDist / SAMPLE_HIKING_STEP_LENGTH_M).roundToInt()
         )
         return TrackSessionDetail(session = session, points = points, laps = emptyList())
     }

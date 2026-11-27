@@ -831,6 +831,11 @@ private fun DashboardActiveRecordingPill(
 ) {
     val cs = MaterialTheme.colorScheme
     val isPaused = snapshot.status == RecordingStatus.PAUSED
+    val statusLabel = if (snapshot.status == RecordingStatus.SAVING) {
+        R.string.record_status_saving
+    } else {
+        R.string.dashboard_recording_active_pill
+    }
     Surface(
         onClick = onClick,
         modifier = Modifier
@@ -857,7 +862,7 @@ private fun DashboardActiveRecordingPill(
                     modifier = Modifier.size(12.dp)
                 )
                 Text(
-                    text = "${snapshot.mode.labelZh} · ${stringResource(R.string.dashboard_recording_active_pill)}",
+                    text = "${snapshot.mode.labelZh} · ${stringResource(statusLabel)}",
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                     color = if (isPaused) cs.onSecondaryContainer else cs.onErrorContainer
                 )

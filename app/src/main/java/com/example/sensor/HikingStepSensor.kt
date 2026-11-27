@@ -13,42 +13,64 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.delay
 
 internal class HikingStepCount(initialCount: Int? = null) {
+    private data class ActiveInterval(val startNs: Long, var endNs: Long? = null)
+    private data class CounterReading(val total: Int, val timestampNs: Long)
+
     var count: Int? = initialCount
         private set
-    private var activeSinceNs: Long? = null
-    private var counterBaseline: Int? = null
+    val lastActiveEndNs: Long?
+        get() = intervals.lastOrNull()?.endNs
+    private val intervals = mutableListOf<ActiveInterval>()
+    private var lastCounter: CounterReading? = null
 
     fun resume(nowNs: Long) {
-        activeSinceNs = nowNs
-        counterBaseline = null
+        intervals.add(ActiveInterval(nowNs))
     }
 
-    fun pause() {
-        activeSinceNs = null
+    fun pause(nowNs: Long) {
+        val interval = intervals.lastOrNull() ?: return
+        if (interval.endNs == null) interval.endNs = nowNs
     }
 
     fun detectStep(timestampNs: Long) {
-        val since = activeSinceNs ?: return
-        if (timestampNs >= since) count = (count ?: 0) + 1
+        if (intervalAt(timestampNs) != null) count = (count ?: 0) + 1
     }
 
     fun readCounter(total: Int, timestampNs: Long) {
-        val since = activeSinceNs ?: return
         if (total < 0) return
-        val previous = counterBaseline
-        counterBaseline = total
-        if (timestampNs < since) return
-        count = (count ?: 0) + if (previous != null && total >= previous) total - previous else 0
+        val previous = lastCounter
+        lastCounter = CounterReading(total, timestampNs)
+        val interval = intervalAt(timestampNs) ?: return
+        val delta = if (previous != null && total > previous.total) {
+            if (interval === intervals.first() || previous.timestampNs >= interval.startNs) {
+                total - previous.total
+            } else {
+                // An aggregate straddling a pause only identifies when its last step happened.
+                1
+            }
+        } else {
+            0
+        }
+        count = (count ?: 0) + delta
+    }
+
+    private fun intervalAt(timestampNs: Long): ActiveInterval? = intervals.lastOrNull {
+        timestampNs >= it.startNs && timestampNs < (it.endNs ?: Long.MAX_VALUE)
     }
 }
 
 internal object HikingStepSensor : SensorEventListener {
+    private const val STEP_DETECTOR_LATENCY_MS = 2_000L
+    private const val STEP_COUNTER_LATENCY_MS = 10_000L
     private val lock = Any()
     private val handler = Handler(Looper.getMainLooper())
     private var manager: SensorManager? = null
     private var stepCount: HikingStepCount? = null
+    private var reportLatencyMs = 0L
 
     fun hasSensor(context: Context): Boolean = sensorManager(context)?.let { findSensor(it) } != null
 
@@ -66,23 +88,35 @@ internal object HikingStepSensor : SensorEventListener {
             }.getOrDefault(false)
             if (!registered) return
             manager = sensors
-            val initialCount = if (sensor.type == Sensor.TYPE_STEP_DETECTOR) 0 else null
+            val isDetector = sensor.type == Sensor.TYPE_STEP_DETECTOR
+            reportLatencyMs = if (isDetector) STEP_DETECTOR_LATENCY_MS else STEP_COUNTER_LATENCY_MS
+            val initialCount = if (isDetector) 0 else null
             stepCount = HikingStepCount(initialCount).apply { resume(SystemClock.elapsedRealtimeNanos()) }
         }
     }
 
-    fun pause() = synchronized(lock) { stepCount?.pause() }
+    fun pause() = synchronized(lock) { stepCount?.pause(SystemClock.elapsedRealtimeNanos()) }
 
     fun resume() = synchronized(lock) { stepCount?.resume(SystemClock.elapsedRealtimeNanos()) }
 
     fun currentCount(): Int? = synchronized(lock) { stepCount?.count }
 
-    fun stop(): Int? = synchronized(lock) {
-        manager?.unregisterListener(this)
-        manager = null
-        val count = stepCount?.count
-        stepCount = null
-        count
+    suspend fun awaitFinalCount(): Int? {
+        val remainingMs = synchronized(lock) {
+            val endNs = stepCount?.lastActiveEndNs ?: return null
+            val elapsedMs = TimeUnit.NANOSECONDS.toMillis(SystemClock.elapsedRealtimeNanos() - endNs)
+            (reportLatencyMs - elapsedMs).coerceAtLeast(0L)
+        }
+        delay(remainingMs)
+        return currentCount()
+    }
+
+    fun stop() {
+        synchronized(lock) {
+            manager?.unregisterListener(this)
+            manager = null
+            stepCount = null
+        }
     }
 
     override fun onSensorChanged(event: SensorEvent) {

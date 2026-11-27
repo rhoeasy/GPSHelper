@@ -139,6 +139,7 @@
     <string name="record_set_gate">重设起终点</string>
     <string name="record_status_recording">录制中</string>
     <string name="record_status_paused">已暂停</string>
+    <string name="record_status_saving">保存中</string>
     <string name="record_hint_karting">自动识别绕圈起终点，实时记录圈速与最高时速</string>
     <string name="record_hint_hiking">持续记录路线轨迹、累计爬升与海拔变化</string>
     <string name="record_hint_offroad">记录摩托车翻山越岭路线、海拔爬升、时速、压弯 G 力与心率</string>

@@ -584,6 +584,7 @@ private fun ActiveRecordingBannerInTracks(
 ) {
     val cs = MaterialTheme.colorScheme
     val isPaused = snapshot.status == RecordingStatus.PAUSED
+    val isSaving = snapshot.status == RecordingStatus.SAVING
     val blink = rememberInfiniteTransition(label = "tracks_rec_blink")
     val dotAlpha by blink.animateFloat(
         initialValue = 0.28f,
@@ -630,7 +631,11 @@ private fun ActiveRecordingBannerInTracks(
                     Text(
                         text = "${snapshot.mode.labelZh} · ${
                             stringResource(
-                                if (isPaused) R.string.record_status_paused else R.string.tracks_recording_active_label
+                                when {
+                                    isSaving -> R.string.record_status_saving
+                                    isPaused -> R.string.record_status_paused
+                                    else -> R.string.tracks_recording_active_label
+                                }
                             )
                         }",
                         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
@@ -650,6 +655,7 @@ private fun ActiveRecordingBannerInTracks(
 
             IconButton(
                 onClick = { if (isPaused) onResume() else onPause() },
+                enabled = !isSaving,
                 modifier = Modifier.testTag("btn_banner_toggle_pause")
             ) {
                 Icon(

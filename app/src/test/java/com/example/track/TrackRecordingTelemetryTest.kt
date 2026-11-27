@@ -15,7 +15,7 @@ class TrackRecordingTelemetryTest {
         val elevation = TrackElevation()
         assertNull(elevation.record(gpsAltitudeM = null, pressureHpa = 1000f))
 
-        val start = requireNotNull(elevation.record(gpsAltitudeM = 200.0, pressureHpa = 1000f))
+        val start = requireNotNull(elevation.record(gpsAltitudeM = 200.0, pressureHpa = 1000f, canCalibrateBarometer = true))
         assertEquals(200.0, start.meters, 0.1)
         assertTrue(start.fromBarometer)
 
@@ -31,7 +31,7 @@ class TrackRecordingTelemetryTest {
     @Test
     fun sourceTransitionsKeepTheProfileContinuousWithoutInventingClimb() {
         val elevation = TrackElevation()
-        val pressure = requireNotNull(elevation.record(gpsAltitudeM = 200.0, pressureHpa = 1000f))
+        val pressure = requireNotNull(elevation.record(gpsAltitudeM = 200.0, pressureHpa = 1000f, canCalibrateBarometer = true))
         val fallback = requireNotNull(elevation.record(gpsAltitudeM = 300.0, pressureHpa = null))
         assertFalse(fallback.fromBarometer)
         assertEquals(pressure.meters, fallback.meters, 0.01)

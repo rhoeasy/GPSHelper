@@ -110,7 +110,7 @@ object GpsRepository {
 
     private const val MIN_TIME_MS = 500L
     private const val MIN_DISTANCE_M = 0f
-    private const val GPS_FRESHNESS_WINDOW_MS = 8_000L
+    internal const val GPS_FRESHNESS_WINDOW_MS = 8_000L
 
     private val lock = Any()
     private val activeClients = mutableSetOf<String>()
@@ -518,6 +518,7 @@ object GpsRepository {
                 speedMps = null,
                 altitudeMeters = null,
                 smoothedAltitudeMeters = null,
+                verticalAccuracyMeters = null,
                 accuracyMeters = null,
                 bearingDegrees = null,
                 provider = null,
@@ -693,6 +694,7 @@ object GpsRepository {
                 speedMps = newSpeed,
                 altitudeMeters = newAltitude,
                 smoothedAltitudeMeters = displayAltitude,
+                verticalAccuracyMeters = vAcc,
                 accuracyMeters = newAccuracy,
                 bearingDegrees = newBearing,
                 provider = if (isGpsPrimary) LocationManager.GPS_PROVIDER else "fused",

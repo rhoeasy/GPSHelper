@@ -38,7 +38,8 @@ data class GpsData(
     val provider: String? = null,
     val fixStatus: GpsFixStatus = GpsFixStatus.SEARCHING,
     val lastUpdateElapsedRealtimeMs: Long = 0L,
-    val smoothedAltitudeMeters: Double? = null
+    val smoothedAltitudeMeters: Double? = null,
+    val verticalAccuracyMeters: Float? = null
 ) {
     val displayAltitudeMeters: Double?
         get() = if (hasFix) altitudeMeters?.takeIf { it.isFinite() }?.let { smoothedAltitudeMeters ?: it } else null

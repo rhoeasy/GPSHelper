@@ -774,6 +774,8 @@ class ExampleRobolectricTest {
         assertTrue("Expected hiking distance > 3500m, got ${hiking.session.distanceMeters}", hiking.session.distanceMeters > 3_500.0)
         assertTrue("Expected hiking elevation gain > 200m, got ${hiking.session.elevationGainMeters}", hiking.session.elevationGainMeters > 200.0)
         assertTrue("Expected hiking max altitude > 550m", (hiking.session.maxAltitudeMeters ?: 0.0) > 550.0)
+        val hikingSteps = requireNotNull(hiking.session.stepCount) { "Hiking sample should include steps" }
+        assertTrue("Expected a realistic hiking step count", hikingSteps in 5_000..10_000)
 
         // Ensure GPX & structured JSON export succeed cleanly on both sample tracks
         val gpx = GpxExporter.buildGpxXml(hiking.session, hiking.points)

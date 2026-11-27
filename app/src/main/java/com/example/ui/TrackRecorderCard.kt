@@ -126,10 +126,10 @@ fun TrackRecorderCard(
                         )
                         Text(
                             text = stringResource(
-                                if (snapshot.status == RecordingStatus.RECORDING) {
-                                    R.string.record_status_recording
-                                } else {
-                                    R.string.record_status_paused
+                                when (snapshot.status) {
+                                    RecordingStatus.RECORDING -> R.string.record_status_recording
+                                    RecordingStatus.SAVING -> R.string.record_status_saving
+                                    else -> R.string.record_status_paused
                                 }
                             ),
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
@@ -377,6 +377,7 @@ fun TrackRecorderCard(
                     val isPaused = snapshot.status == RecordingStatus.PAUSED
                     FilledTonalButton(
                         onClick = { if (isPaused) onResumeRecording() else onPauseRecording() },
+                        enabled = snapshot.status != RecordingStatus.SAVING,
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
@@ -401,6 +402,7 @@ fun TrackRecorderCard(
 
                     Button(
                         onClick = onFinishRecording,
+                        enabled = snapshot.status != RecordingStatus.SAVING,
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)

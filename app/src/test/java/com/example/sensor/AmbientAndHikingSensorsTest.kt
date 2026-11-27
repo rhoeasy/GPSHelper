@@ -40,7 +40,7 @@ class AmbientAndHikingSensorsTest {
         steps.resume(100L)
         steps.detectStep(95L)
         steps.detectStep(110L)
-        steps.pause()
+        steps.pause(120L)
         steps.detectStep(130L)
         steps.resume(200L)
         steps.detectStep(180L)
@@ -58,7 +58,7 @@ class AmbientAndHikingSensorsTest {
         steps.readCounter(802, 110L)
         assertEquals(2, steps.count)
 
-        steps.pause()
+        steps.pause(120L)
         steps.readCounter(825, 130L)
         steps.resume(200L)
         steps.readCounter(826, 190L)
@@ -69,6 +69,20 @@ class AmbientAndHikingSensorsTest {
         steps.readCounter(4, 220L)
         steps.readCounter(6, 230L)
         assertEquals(5, steps.count)
+    }
+
+    @Test
+    fun cumulativeCounterCountsTheFirstConfirmedStepAfterResume() {
+        val steps = HikingStepCount()
+        steps.resume(100L)
+        steps.readCounter(800, 90L)
+        steps.readCounter(802, 110L)
+
+        steps.pause(120L)
+        steps.resume(200L)
+        steps.readCounter(803, 210L)
+
+        assertEquals(3, steps.count)
     }
 
     @Test

@@ -26,11 +26,12 @@ internal class TrackElevation {
     var maxMeters: Double? = null
         private set
 
-    fun record(gpsAltitudeM: Double?, pressureHpa: Float?): RecordedAltitude? {
+    fun record(gpsAltitudeM: Double?, pressureHpa: Float?, canCalibrateBarometer: Boolean = false): RecordedAltitude? {
         val gps = gpsAltitudeM?.takeIf { it.isFinite() }
         val pressure = pressureHpa?.takeIf { it in 200f..1200f }
-        if (seaLevelPressureHpa == null && pressure != null && gps != null) {
+        if (seaLevelPressureHpa == null && pressure != null && gps != null && canCalibrateBarometer) {
             seaLevelPressureHpa = CompassMath.calibrateSeaLevelPressureHpa(pressure, gps)
+            breakInterval()
         }
         val qnh = seaLevelPressureHpa
         val reading = when {
