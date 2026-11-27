@@ -16,7 +16,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.roundToInt
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 data class GForceSample(
@@ -42,6 +46,7 @@ data class GForceData(
     val peakG: Float = 0f,
     val peakLateralG: Float = 0f,
     val peakLongitudinalG: Float = 0f,
+    val peakEnvelope: List<Float> = emptyList(),
     val yawRateDegPerSec: Float = 0f,
     val rawImu: ImuRawData = ImuRawData(),
     val trail: List<GForceSample> = emptyList(),
@@ -66,6 +71,8 @@ data class GForceData(
 class GForceFusionEngine {
     companion object {
         const val STANDARD_GRAVITY = SensorManager.STANDARD_GRAVITY // 9.80665 m/s²
+        const val PEAK_ENVELOPE_SECTORS = 36 // 10° per sector around 360° friction circle
+        private const val ENVELOPE_MIN_G = 0.04f
         private const val GYRO_TRUST_STEADY = 0.96f
         private const val GYRO_TRUST_DYNAMIC = 0.992f
         private const val ACCEL_ONLY_LPF_ALPHA = 0.85f
@@ -104,6 +111,8 @@ class GForceFusionEngine {
     private var peakHoldDurationMs: Long = DEFAULT_PEAK_HOLD_MS
     private var displayRotation: Int = Surface.ROTATION_0
 
+    private val sectorPeakG = FloatArray(PEAK_ENVELOPE_SECTORS)
+    private val sectorPeakTsMs = LongArray(PEAK_ENVELOPE_SECTORS)
     private val trailBuffer = ArrayDeque<GForceSample>()
 
     fun setPeakHoldDurationMs(durationMs: Long) {
@@ -122,9 +131,11 @@ class GForceFusionEngine {
         }
         if (displayRotation != normalized) {
             displayRotation = normalized
-            // Clear short trail & smoothing state so old-axis vectors do not smear sideways
+            // Clear short trail & envelope so old-orientation vectors do not smear sideways
             filteredLatG = 0f
             filteredLongG = 0f
+            sectorPeakG.fill(0f)
+            sectorPeakTsMs.fill(0L)
             trailBuffer.clear()
         }
     }
@@ -149,6 +160,8 @@ class GForceFusionEngine {
         peakLatGValue = 0f
         peakLongGValue = 0f
         peakTimestampMs = 0L
+        sectorPeakG.fill(0f)
+        sectorPeakTsMs.fill(0L)
         trailBuffer.clear()
     }
 
@@ -171,6 +184,8 @@ class GForceFusionEngine {
         peakLatGValue = 0f
         peakLongGValue = 0f
         peakTimestampMs = 0L
+        sectorPeakG.fill(0f)
+        sectorPeakTsMs.fill(0L)
         trailBuffer.clear()
     }
 
@@ -179,6 +194,8 @@ class GForceFusionEngine {
         peakLatGValue = 0f
         peakLongGValue = 0f
         peakTimestampMs = 0L
+        sectorPeakG.fill(0f)
+        sectorPeakTsMs.fill(0L)
     }
 
     /**
@@ -346,15 +363,69 @@ class GForceFusionEngine {
         val totalHorizG = hypot(cleanLat, cleanLong)
         val total3DG = sqrt(cleanLat * cleanLat + cleanLong * cleanLong + cleanVert * cleanVert)
 
+        // Expire stale polar envelope sectors according to configured peakHoldDurationMs
+        var hasEnvelopePeak = false
+        if (peakHoldDurationMs > 0L) {
+            for (i in 0 until PEAK_ENVELOPE_SECTORS) {
+                val ts = sectorPeakTsMs[i]
+                if (ts > 0L && (elapsedRealtimeMs - ts) > peakHoldDurationMs) {
+                    sectorPeakG[i] = 0f
+                    sectorPeakTsMs[i] = 0L
+                } else if (sectorPeakG[i] >= ENVELOPE_MIN_G) {
+                    hasEnvelopePeak = true
+                }
+            }
+        } else {
+            for (i in 0 until PEAK_ENVELOPE_SECTORS) {
+                if (sectorPeakG[i] >= ENVELOPE_MIN_G) {
+                    hasEnvelopePeak = true
+                    break
+                }
+            }
+        }
+
+        // Record current directional vector into its 10° polar friction-circle sector
+        if (totalHorizG >= ENVELOPE_MIN_G) {
+            val angleDeg = (Math.toDegrees(atan2(-cleanLong.toDouble(), cleanLat.toDouble())) + 360.0) % 360.0
+            val sectorIdx = (angleDeg / (360.0 / PEAK_ENVELOPE_SECTORS)).roundToInt() % PEAK_ENVELOPE_SECTORS
+            if (totalHorizG >= sectorPeakG[sectorIdx]) {
+                sectorPeakG[sectorIdx] = totalHorizG
+                sectorPeakTsMs[sectorIdx] = elapsedRealtimeMs
+            }
+            hasEnvelopePeak = true
+        }
+
         val peakExpired = peakHoldDurationMs > 0L &&
             peakTimestampMs > 0L &&
             (elapsedRealtimeMs - peakTimestampMs) > peakHoldDurationMs
 
-        if (totalHorizG >= peakGValue || peakExpired) {
+        if (totalHorizG >= peakGValue) {
             peakGValue = totalHorizG
             peakLatGValue = cleanLat
             peakLongGValue = cleanLong
             peakTimestampMs = elapsedRealtimeMs
+        } else if (peakExpired) {
+            // Fall back to the strongest still-unexpired envelope sector, or current live G
+            var bestIdx = -1
+            var bestVal = totalHorizG
+            for (i in 0 until PEAK_ENVELOPE_SECTORS) {
+                if (sectorPeakG[i] > bestVal) {
+                    bestVal = sectorPeakG[i]
+                    bestIdx = i
+                }
+            }
+            if (bestIdx >= 0) {
+                val rad = bestIdx * (360.0 / PEAK_ENVELOPE_SECTORS) * PI / 180.0
+                peakGValue = bestVal
+                peakLatGValue = (cos(rad) * bestVal).toFloat()
+                peakLongGValue = (-sin(rad) * bestVal).toFloat()
+                peakTimestampMs = sectorPeakTsMs[bestIdx]
+            } else {
+                peakGValue = totalHorizG
+                peakLatGValue = cleanLat
+                peakLongGValue = cleanLong
+                peakTimestampMs = elapsedRealtimeMs
+            }
         }
 
         if (recordTrail) {
@@ -373,6 +444,7 @@ class GForceFusionEngine {
             peakG = peakGValue,
             peakLateralG = peakLatGValue,
             peakLongitudinalG = peakLongGValue,
+            peakEnvelope = if (hasEnvelopePeak) sectorPeakG.toList() else emptyList(),
             yawRateDegPerSec = yawRateDegPerSec,
             rawImu = ImuRawData(
                 accelX = ax,
@@ -552,6 +624,7 @@ object MotionSensorManager : SensorEventListener {
                 peakG = 0f,
                 peakLateralG = 0f,
                 peakLongitudinalG = 0f,
+                peakEnvelope = emptyList(),
                 trail = emptyList()
             )
         }
@@ -565,7 +638,8 @@ object MotionSensorManager : SensorEventListener {
             cur.copy(
                 peakG = cur.totalG,
                 peakLateralG = cur.lateralG,
-                peakLongitudinalG = cur.longitudinalG
+                peakLongitudinalG = cur.longitudinalG,
+                peakEnvelope = emptyList()
             )
         }
         _gForceData.value = updated

@@ -71,6 +71,7 @@ import com.example.gps.OverlayDisplayConfig
 import com.example.gps.SafetyAlertConfig
 import com.example.gps.SpeedUnit
 import com.example.sensor.GForceData
+import com.example.ui.drawGForcePeakEnvelope
 import com.example.ui.theme.GpsHudTheme
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalTelemetryColors
@@ -593,27 +594,18 @@ private fun OverlayGForceDial(
             return Offset(cx + nx * scale * maxTravel, cy + ny * scale * maxTravel)
         }
 
-        // Peak G ring & directional max-G marker (when enabled)
+        // Recorded 360° max G-Force envelope shape & peak vertex marker (when enabled)
         if (showPeakOnDial && gForceData.peakG >= 0.05f) {
-            val peakRingRadius = ((gForceData.peakG / maxScaleG).coerceIn(0f, 1f)) * maxTravel
-            if (peakRingRadius > 2.dp.toPx()) {
-                drawCircle(
-                    color = peakColor.copy(alpha = 0.45f),
-                    radius = peakRingRadius,
-                    center = Offset(cx, cy),
-                    style = Stroke(
-                        width = 1.1.dp.toPx(),
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
-                    )
-                )
-            }
-            val peakPos = mapPoint(gForceData.peakLateralG, gForceData.peakLongitudinalG)
-            val peakDotRadius = if (size.minDimension < 46.dp.toPx()) 2.8.dp.toPx() else 3.6.dp.toPx()
-            drawCircle(
-                color = peakColor,
-                radius = peakDotRadius,
-                center = peakPos,
-                style = Stroke(width = 1.5.dp.toPx())
+            val peakDotRadius = if (size.minDimension < 46.dp.toPx()) 2.6.dp.toPx() else 3.4.dp.toPx()
+            drawGForcePeakEnvelope(
+                gForceData = gForceData,
+                cx = cx,
+                cy = cy,
+                maxTravel = maxTravel,
+                maxScaleG = maxScaleG,
+                peakColor = peakColor,
+                strokeWidthPx = 1.4.dp.toPx(),
+                peakDotRadiusPx = peakDotRadius
             )
         }
 

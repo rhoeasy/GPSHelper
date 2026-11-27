@@ -121,18 +121,25 @@ fun SettingsScreen(
         }
     }
 
-    // Show a realistic G-Force peak preview while stationary indoors so users see peak ring toggles live
+    // Show a realistic asymmetric max-G envelope preview while stationary indoors so users see shape toggles live
     val previewGForce = remember(gForceData) {
-        if (gForceData.peakG >= 0.08f) {
+        if (gForceData.peakG >= 0.08f && gForceData.peakEnvelope.isNotEmpty()) {
             gForceData
         } else {
+            val sampleEnvelope = listOf(
+                1.05f, 0.98f, 0.88f, 0.78f, 0.72f, 0.74f, 0.82f, 0.92f, 1.02f, // right -> braking
+                1.12f, 1.04f, 0.90f, 0.76f, 0.70f, 0.75f, 0.86f, 0.96f, 1.00f, // braking -> left
+                0.98f, 0.92f, 0.80f, 0.66f, 0.56f, 0.50f, 0.48f, 0.50f, 0.54f, // left -> accel
+                0.58f, 0.54f, 0.50f, 0.54f, 0.62f, 0.72f, 0.84f, 0.95f, 1.02f  // accel -> right
+            )
             gForceData.copy(
-                lateralG = 0.36f,
-                longitudinalG = 0.24f,
-                totalG = 0.43f,
-                peakG = 1.08f,
-                peakLateralG = -0.92f,
-                peakLongitudinalG = 0.56f
+                lateralG = 0.38f,
+                longitudinalG = -0.26f,
+                totalG = 0.46f,
+                peakG = 1.12f,
+                peakLateralG = 0.0f,
+                peakLongitudinalG = -1.12f,
+                peakEnvelope = sampleEnvelope
             )
         }
     }

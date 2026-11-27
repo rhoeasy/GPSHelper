@@ -326,24 +326,15 @@ private fun ComposeGForceRadar(
             }
 
             if (showPeakOnDial && gForceData.peakG >= 0.05f) {
-                val peakRingRadius = ((gForceData.peakG / maxScaleG).coerceIn(0f, 1f)) * maxTravel
-                if (peakRingRadius > 2.dp.toPx()) {
-                    drawCircle(
-                        color = peakColor.copy(alpha = 0.48f),
-                        radius = peakRingRadius,
-                        center = Offset(cx, cy),
-                        style = Stroke(
-                            width = 1.2.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 4f), 0f)
-                        )
-                    )
-                }
-                val peakPos = mapPoint(gForceData.peakLateralG, gForceData.peakLongitudinalG)
-                drawCircle(
-                    color = peakColor,
-                    radius = 4.dp.toPx(),
-                    center = peakPos,
-                    style = Stroke(width = 1.8.dp.toPx())
+                drawGForcePeakEnvelope(
+                    gForceData = gForceData,
+                    cx = cx,
+                    cy = cy,
+                    maxTravel = maxTravel,
+                    maxScaleG = maxScaleG,
+                    peakColor = peakColor,
+                    strokeWidthPx = 1.6.dp.toPx(),
+                    peakDotRadiusPx = 3.8.dp.toPx()
                 )
             }
 

@@ -533,4 +533,63 @@ class ExampleRobolectricTest {
         assertEquals(80 to 1400, GpsRepository.loadOverlayPosition(app, isLandscape = false))
         assertEquals(1850 to 40, GpsRepository.loadOverlayPosition(app, isLandscape = true))
     }
+
+    @Test
+    fun `gforce engine records 36-sector directional max envelope shape and expires sectors independently`() {
+        val engine = GForceFusionEngine()
+        val g = GForceFusionEngine.STANDARD_GRAVITY
+        engine.setPeakHoldDurationMs(60_000L)
+
+        // Flat phone initialized at t = 1_000ms
+        engine.onAccelerometerSample(0f, 0f, g, elapsedRealtimeMs = 1_000L, hasGyroscope = true)
+        engine.onGyroscopeSample(0f, 0f, 0f, timestampNs = 1_000_000_000L)
+
+        // 1. Right turn (+1.0G lateral, sector 0 = 0°) at t ~ 1.4s
+        var state = engine.onAccelerometerSample(g, 0f, g, elapsedRealtimeMs = 1_020L, hasGyroscope = true)
+        repeat(20) { i ->
+            val tMs = 1_040L + i * 20L
+            engine.onGyroscopeSample(0f, 0f, 0f, timestampNs = tMs * 1_000_000L)
+            state = engine.onAccelerometerSample(g, 0f, g, elapsedRealtimeMs = tMs, hasGyroscope = true)
+        }
+        assertEquals(GForceFusionEngine.PEAK_ENVELOPE_SECTORS, state.peakEnvelope.size)
+        assertTrue("Expected right sector (0) > 0.80G, got ${state.peakEnvelope[0]}", state.peakEnvelope[0] > 0.80f)
+
+        // Return to neutral before braking
+        repeat(20) { i ->
+            val tMs = 2_000L + i * 20L
+            engine.onGyroscopeSample(0f, 0f, 0f, timestampNs = tMs * 1_000_000L)
+            state = engine.onAccelerometerSample(0f, 0f, g, elapsedRealtimeMs = tMs, hasGyroscope = true)
+        }
+
+        // 2. Hard braking (-0.8G longitudinal => -Y_dev on flat phone, sector 9 = 90°) at t = 35s
+        repeat(20) { i ->
+            val tMs = 35_000L + i * 20L
+            engine.onGyroscopeSample(0f, 0f, 0f, timestampNs = tMs * 1_000_000L)
+            state = engine.onAccelerometerSample(0f, -0.8f * g, g, elapsedRealtimeMs = tMs, hasGyroscope = true)
+        }
+        // Both right turn (sector 0) AND braking (sector 9) are simultaneously recorded in the envelope!
+        assertTrue("Right turn lobe preserved: ${state.peakEnvelope[0]}", state.peakEnvelope[0] > 0.80f)
+        assertTrue("Braking lobe recorded at sector 9: ${state.peakEnvelope[9]}", state.peakEnvelope[9] > 0.65f)
+        assertTrue("Untouched accel sector (27) stays near 0, got ${state.peakEnvelope[27]}", state.peakEnvelope[27] < 0.05f)
+        assertTrue("Opposite left sector (18) stays minimal, got ${state.peakEnvelope[18]}", state.peakEnvelope[18] < 0.20f)
+
+        // 3. At t = 70s (>60s after right turn, only 35s after braking):
+        //    right-turn sector expires to 0, while braking lobe stays intact and becomes active peakG!
+        repeat(15) { i ->
+            val tMs = 70_000L + i * 20L
+            engine.onGyroscopeSample(0f, 0f, 0f, timestampNs = tMs * 1_000_000L)
+            state = engine.onAccelerometerSample(0f, 0f, g, elapsedRealtimeMs = tMs, hasGyroscope = true)
+        }
+        assertEquals("Expired right sector clears cleanly", 0f, state.peakEnvelope[0], 0.001f)
+        assertTrue("Recent braking sector remains recorded", state.peakEnvelope[9] > 0.65f)
+        assertTrue("Overall peakG falls back to remaining braking lobe", state.peakG > 0.65f)
+
+        // 4. Manual resetPeak clears entire recorded envelope lobes cleanly
+        engine.resetPeak()
+        state = engine.onAccelerometerSample(0f, 0f, g, elapsedRealtimeMs = 71_000L, hasGyroscope = true)
+        assertTrue(
+            "Braking lobe should be cleared after resetPeak",
+            (state.peakEnvelope.getOrNull(9) ?: 0f) < 0.05f
+        )
+    }
 }
