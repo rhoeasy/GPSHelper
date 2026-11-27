@@ -128,6 +128,8 @@ fun SocialShareCardScreen(
                 showSpeed = true,
                 showHeartRate = detail.session.avgHeartRate != null,
                 showPeakG = (isKart || isOffroad) && detail.session.peakTotalG > 0.05f,
+                showClimbDifficulty = isOffroad,
+                showSurfaceComplexity = isOffroad,
                 showMiniProfile = true
             )
         )
@@ -552,6 +554,20 @@ fun SocialShareCardScreen(
                                     selected = config.showPeakG,
                                     onToggle = { config = config.copy(showPeakG = !config.showPeakG) },
                                     tag = "chip_overlay_peak_g"
+                                )
+                            }
+                            if (isOffroad) {
+                                OverlayDataChip(
+                                    label = stringResource(R.string.social_chip_climb_difficulty),
+                                    selected = config.showClimbDifficulty,
+                                    onToggle = { config = config.copy(showClimbDifficulty = !config.showClimbDifficulty) },
+                                    tag = "chip_overlay_climb_difficulty"
+                                )
+                                OverlayDataChip(
+                                    label = stringResource(R.string.social_chip_surface_complexity),
+                                    selected = config.showSurfaceComplexity,
+                                    onToggle = { config = config.copy(showSurfaceComplexity = !config.showSurfaceComplexity) },
+                                    tag = "chip_overlay_surface_complexity"
                                 )
                             }
                             OverlayDataChip(

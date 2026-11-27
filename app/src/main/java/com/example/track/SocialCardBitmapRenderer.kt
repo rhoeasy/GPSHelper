@@ -66,12 +66,14 @@ data class SocialCardConfig(
     val showSpeed: Boolean = true,
     val showHeartRate: Boolean = true,
     val showPeakG: Boolean = true,
+    val showClimbDifficulty: Boolean = false,
+    val showSurfaceComplexity: Boolean = false,
     val showMiniProfile: Boolean = true
 )
 
 /**
  * Pure Android Canvas renderer producing crisp ARGB_8888 social share posters & transparent PNG
- * telemetry stickers for both Hiking and Karting track records.
+ * telemetry stickers for Hiking, Karting, and Off-road Crossing track records.
  */
 object SocialCardBitmapRenderer {
 
@@ -80,6 +82,74 @@ object SocialCardBitmapRenderer {
         val value: String,
         val accentArgb: Int
     )
+
+    data class OffroadOverlayTag(
+        val category: String,
+        val headline: String,
+        val detailLine: String,
+        val accentArgb: Int
+    )
+
+    fun buildOffroadOverlayTags(
+        detail: TrackSessionDetail,
+        config: SocialCardConfig
+    ): List<OffroadOverlayTag> {
+        if (detail.session.activityMode != ActivityMode.OFFROAD_CROSSING) return emptyList()
+        if (!config.showClimbDifficulty && !config.showSurfaceComplexity) return emptyList()
+
+        val analysis = OffroadAnalysisEngine.analyze(detail.session, detail.points)
+        val tags = mutableListOf<OffroadOverlayTag>()
+
+        val climbAccent = when (analysis.climb.level) {
+            ClimbDifficultyLevel.EASY -> if (config.useLightInk) 0xFF81C995.toInt() else 0xFF137333.toInt()
+            ClimbDifficultyLevel.MODERATE -> if (config.useLightInk) 0xFF8AB4F8.toInt() else 0xFF1A73E8.toInt()
+            ClimbDifficultyLevel.CHALLENGING -> if (config.useLightInk) 0xFFFDD663.toInt() else 0xFFC56000.toInt()
+            ClimbDifficultyLevel.EXTREME -> if (config.useLightInk) 0xFFF28B82.toInt() else 0xFFD93025.toInt()
+        }
+        val surfaceAccent = when (analysis.surface.level) {
+            SurfaceComplexityLevel.SMOOTH -> if (config.useLightInk) 0xFF81C995.toInt() else 0xFF137333.toInt()
+            SurfaceComplexityLevel.TWISTY -> if (config.useLightInk) 0xFF8AB4F8.toInt() else 0xFF1A73E8.toInt()
+            SurfaceComplexityLevel.ROUGH -> if (config.useLightInk) 0xFFFDD663.toInt() else 0xFFC56000.toInt()
+            SurfaceComplexityLevel.EXTREME -> if (config.useLightInk) 0xFFF28B82.toInt() else 0xFFD93025.toInt()
+        }
+
+        if (config.showClimbDifficulty) {
+            val c = analysis.climb
+            tags.add(
+                OffroadOverlayTag(
+                    category = "爬升难度",
+                    headline = c.level.fullLabel,
+                    detailLine = String.format(
+                        Locale.US,
+                        "指数 %d · 最大坡度 %.1f%% · %.0fm/km",
+                        c.score,
+                        c.maxGradePct,
+                        c.gainPerKmMeters
+                    ),
+                    accentArgb = climbAccent
+                )
+            )
+        }
+
+        if (config.showSurfaceComplexity) {
+            val sf = analysis.surface
+            tags.add(
+                OffroadOverlayTag(
+                    category = "路面复杂度",
+                    headline = sf.level.fullLabel,
+                    detailLine = String.format(
+                        Locale.US,
+                        "指数 %d · 非铺装 %d%% · %.1f弯/km",
+                        sf.score,
+                        sf.technicalPct,
+                        sf.turnsPerKm
+                    ),
+                    accentArgb = surfaceAccent
+                )
+            )
+        }
+        return tags
+    }
 
     fun buildSelectedStats(
         detail: TrackSessionDetail,
@@ -259,15 +329,22 @@ object SocialCardBitmapRenderer {
             topCursorY += 66f * s
         }
 
-        // Compute bottom block height for stats + optional mini profile curve
+        // Compute bottom block height for offroad rating pills + stats + optional mini profile curve
+        val offroadTags = buildOffroadOverlayTags(detail, config)
         val stats = buildSelectedStats(detail, speedUnit, config)
         val hasMiniProfile = config.showMiniProfile && detail.points.size >= 2
+        val offroadBlockHeight = if (offroadTags.isNotEmpty()) 114f * s else 0f
         val statRows = if (stats.isEmpty()) 0 else ((stats.size + 2) / 3)
         val statsBlockHeight = if (statRows > 0) statRows * (112f * s) + 28f * s else 0f
         val profileBlockHeight = if (hasMiniProfile) 128f * s else 0f
         val bottomPad = 56f * s
-        val bottomPanelHeight = statsBlockHeight + profileBlockHeight +
-            if (statsBlockHeight > 0f && profileBlockHeight > 0f) 24f * s else 0f
+        var bottomPanelHeight = offroadBlockHeight + statsBlockHeight + profileBlockHeight
+        if (offroadBlockHeight > 0f && (statsBlockHeight > 0f || profileBlockHeight > 0f)) {
+            bottomPanelHeight += 20f * s
+        }
+        if (statsBlockHeight > 0f && profileBlockHeight > 0f) {
+            bottomPanelHeight += 24f * s
+        }
         val bottomPanelTop = (height - bottomPad - bottomPanelHeight).coerceAtLeast(topCursorY + 80f * s)
 
         // 3. Vector Route Overlay in the visual hero zone
@@ -287,7 +364,7 @@ object SocialCardBitmapRenderer {
             )
         }
 
-        // 4. Bottom Stats & Mini Profile Panel
+        // 4. Bottom Off-road Ratings, Stats & Mini Profile Panel
         if (bottomPanelHeight > 0f) {
             val panelRect = RectF(
                 padX - 16f * s,
@@ -304,6 +381,22 @@ object SocialCardBitmapRenderer {
             }
 
             var cursorY = bottomPanelTop
+            if (offroadTags.isNotEmpty()) {
+                drawOffroadRatingPills(
+                    canvas = canvas,
+                    tags = offroadTags,
+                    left = padX,
+                    top = cursorY,
+                    width = width - padX * 2f,
+                    height = offroadBlockHeight,
+                    scale = s,
+                    lightInk = config.useLightInk,
+                    inkSecondary = inkSecondary,
+                    isFrosted = config.overlayBackdrop == SocialOverlayBackdrop.FROSTED
+                )
+                cursorY += offroadBlockHeight + if (stats.isNotEmpty() || hasMiniProfile) 20f * s else 0f
+            }
+
             if (stats.isNotEmpty()) {
                 drawStatsGrid(
                     canvas = canvas,
@@ -335,6 +428,69 @@ object SocialCardBitmapRenderer {
         }
 
         return out
+    }
+
+    private fun drawOffroadRatingPills(
+        canvas: Canvas,
+        tags: List<OffroadOverlayTag>,
+        left: Float,
+        top: Float,
+        width: Float,
+        height: Float,
+        scale: Float,
+        lightInk: Boolean,
+        inkSecondary: Int,
+        isFrosted: Boolean
+    ) {
+        val gap = 16f * scale
+        val count = tags.size.coerceAtLeast(1)
+        val cellW = (width - gap * (count - 1)) / count.toFloat()
+
+        val cardBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = when {
+                isFrosted && lightInk -> 0x26FFFFFF
+                isFrosted && !lightInk -> 0x12000000
+                lightInk -> 0x4D0D131C
+                else -> 0xCCFFFFFF.toInt()
+            }
+        }
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 2f * scale
+        }
+        val catPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = inkSecondary
+            textSize = 21f * scale
+        }
+        val headPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 31f * scale
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = inkSecondary
+            textSize = 20f * scale
+            typeface = Typeface.MONOSPACE
+        }
+
+        tags.forEachIndexed { idx, tag ->
+            val x = left + idx * (cellW + gap)
+            val rect = RectF(x, top, x + cellW, top + height)
+            canvas.drawRoundRect(rect, 22f * scale, 22f * scale, cardBgPaint)
+
+            borderPaint.color = (tag.accentArgb and 0x00FFFFFF) or 0x66000000
+            canvas.drawRoundRect(rect, 22f * scale, 22f * scale, borderPaint)
+
+            val innerPad = 18f * scale
+            val maxTextW = (cellW - innerPad * 2f).coerceAtLeast(20f)
+            canvas.drawText(tag.category, x + innerPad, top + 28f * scale, catPaint)
+
+            headPaint.color = tag.accentArgb
+            val fitHead = ellipsize(tag.headline, headPaint, maxTextW)
+            canvas.drawText(fitHead, x + innerPad, top + 66f * scale, headPaint)
+
+            val fitSub = ellipsize(tag.detailLine, subPaint, maxTextW)
+            canvas.drawText(fitSub, x + innerPad, top + 96f * scale, subPaint)
+        }
     }
 
     private fun drawCenterCropPhoto(canvas: Canvas, photo: Bitmap, dstW: Int, dstH: Int) {

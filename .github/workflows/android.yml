@@ -1,22 +1,96 @@
-name: Build and Release Android APK
+name: Android Release & Auto Tag
 
 on:
   push:
     branches: [ "main", "master" ]
-    tags:
-      - "v*"
   workflow_dispatch:
+    inputs:
+      bump:
+        description: "版本号递增方式（auto 会按提交信息自动判断）"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
 
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout code (full history for tagging)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next semantic version tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          EXISTING_HEAD_TAG=$(git tag --points-at HEAD --list "v*.*.*" --sort=-v:refname | head -n 1 || true)
+          if [ -n "$EXISTING_HEAD_TAG" ]; then
+            echo "当前提交已存在 Tag: $EXISTING_HEAD_TAG"
+            echo "tag=$EXISTING_HEAD_TAG" >> "$GITHUB_OUTPUT"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          LATEST_TAG=$(git tag --list "v*.*.*" --sort=-v:refname | head -n 1 || true)
+          if [ -z "$LATEST_TAG" ]; then
+            NEXT_TAG="v1.0.0"
+          else
+            CLEAN_VER="${LATEST_TAG#v}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CLEAN_VER"
+            MAJOR=${MAJOR:-1}
+            MINOR=${MINOR:-0}
+            PATCH=${PATCH:-0}
+
+            BUMP_MODE="${{ github.event.inputs.bump || 'auto' }}"
+            COMMIT_MSG=$(git log -1 --pretty=%B)
+
+            if [ "$BUMP_MODE" = "auto" ]; then
+              if echo "$COMMIT_MSG" | grep -qiE '\[major\]|BREAKING CHANGE'; then
+                BUMP_MODE="major"
+              elif echo "$COMMIT_MSG" | grep -qiE '\[minor\]|^feat(\([^)]+\))?:'; then
+                BUMP_MODE="minor"
+              else
+                BUMP_MODE="patch"
+              fi
+            fi
+
+            case "$BUMP_MODE" in
+              major)
+                MAJOR=$((MAJOR + 1))
+                MINOR=0
+                PATCH=0
+                ;;
+              minor)
+                MINOR=$((MINOR + 1))
+                PATCH=0
+                ;;
+              *)
+                PATCH=$((PATCH + 1))
+                ;;
+            esac
+
+            NEXT_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          fi
+
+          echo "准备创建新 Tag: $NEXT_TAG"
+          echo "tag=$NEXT_TAG" >> "$GITHUB_OUTPUT"
+          echo "created=true" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -26,32 +100,108 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
 
-      - name: Find project root and build Debug APK
+      - name: Locate Android project root
+        id: project
+        shell: bash
         run: |
           PROJECT_DIR=$(find . -maxdepth 3 -name "settings.gradle*" -printf "%h\n" | head -n 1)
-          cd "$PROJECT_DIR"
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "::error::未找到 Android 工程目录（缺少 settings.gradle.kts）"
+            exit 1
+          fi
+          echo "找到工程目录: $PROJECT_DIR"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
+      - name: Run JVM & Robolectric unit tests
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: |
           if [ ! -f "debug.keystore" ]; then
-            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            if [ -f "debug.keystore.base64" ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            fi
           fi
 
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
-            ./gradlew assembleDebug
+            ./gradlew :app:testDebugUnitTest
           else
-            gradle assembleDebug
+            gradle :app:testDebugUnitTest
           fi
 
-      - name: Upload APK Artifact
+      - name: Verify Release signing secrets & build signed Release APK + AAB
+        working-directory: ${{ steps.project.outputs.dir }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::缺少正式版签名配置！请在 GitHub 仓库 Settings -> Secrets and variables -> Actions 中配置 KEYSTORE_BASE64、STORE_PASSWORD 和 KEY_PASSWORD（alias 必须为 upload）。详细步骤见 README.md。"
+            exit 1
+          fi
+
+          echo "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 -d > my-upload-key.jks
+          export KEYSTORE_PATH="$(pwd)/my-upload-key.jks"
+
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleRelease bundleRelease
+          else
+            gradle assembleRelease bundleRelease
+          fi
+
+          TAG="${{ steps.version.outputs.tag }}"
+          mkdir -p dist
+
+          APK_SRC=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          AAB_SRC=$(find app/build/outputs/bundle/release -name "*.aab" | head -n 1)
+
+          if [ -z "$APK_SRC" ] || [ -z "$AAB_SRC" ]; then
+            echo "::error::未找到生成的正式包（APK 或 AAB）"
+            exit 1
+          fi
+
+          cp "$APK_SRC" "dist/GPS-HUD-${TAG}-release.apk"
+          cp "$AAB_SRC" "dist/GPS-HUD-${TAG}-release.aab"
+          ls -lh dist/
+
+      - name: Cleanup temporary keystore
+        if: always()
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: rm -f my-upload-key.jks
+
+      - name: Push Git Tag
+        if: steps.version.outputs.created == 'true'
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+      - name: Upload Release Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: GPSHelper-debug-apk
-          path: "**/build/outputs/apk/debug/*.apk"
+          name: GPS-HUD-${{ steps.version.outputs.tag }}-release
+          path: "${{ steps.project.outputs.dir }}/dist/*"
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: "**/build/outputs/apk/debug/*.apk"
-          generate_release_notes: true
+      - name: Publish GitHub Release
+        working-directory: ${{ steps.project.outputs.dir }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "GPS 悬浮仪表 ${TAG}" \
+              --generate-notes
+          fi

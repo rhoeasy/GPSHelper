@@ -29,6 +29,7 @@ import com.example.sensor.CompassMath
 import com.example.sensor.GForceFusionEngine
 import com.example.track.ActivityMode
 import com.example.track.GpxExporter
+import com.example.track.OffroadAnalysisEngine
 import com.example.track.SampleTrackSeeder
 import com.example.track.SocialBgPreset
 import com.example.track.SocialCardBitmapRenderer
@@ -894,5 +895,117 @@ class ExampleRobolectricTest {
         assertTrue(aiPayload.contains("摩托车越野穿越"))
         assertTrue(aiPayload.contains("\"activity_type\": \"OFFROAD_CROSSING\""))
         assertTrue(aiPayload.contains("\"activity_label\": \"越野穿越\""))
+    }
+
+    @Test
+    fun `offroad analysis engine grades climb difficulty and surface complexity and feeds social overlays and json`() {
+        val now = 1_750_000_000_000L
+        val offroad = SampleTrackSeeder.buildSampleOffroadCrossingTrack(now)
+        val hiking = SampleTrackSeeder.buildSampleHikingTrack(now)
+
+        val analysis = OffroadAnalysisEngine.analyze(offroad.session, offroad.points)
+        assertTrue("Expected mountain climb score >= 45, got ${analysis.climb.score}", analysis.climb.score >= 45)
+        assertTrue("Expected positive max grade, got ${analysis.climb.maxGradePct}", analysis.climb.maxGradePct > 4.0)
+        assertTrue("Expected positive gain/km, got ${analysis.climb.gainPerKmMeters}", analysis.climb.gainPerKmMeters > 25.0)
+        assertEquals(
+            100,
+            analysis.surface.smoothPct + analysis.surface.twistyPct + analysis.surface.technicalPct
+        )
+        assertTrue(analysis.climb.summaryZh.isNotBlank())
+        assertTrue(analysis.surface.summaryZh.isNotBlank())
+
+        // Compare against a flat straight road: mountain off-road must score strictly higher on both axes
+        val flatPoints = (0..40).map { i ->
+            TrackPointEntity(
+                sessionId = 0L,
+                timestampMs = now + i * 2_000L,
+                latitude = 39.9000 + i * 0.0004,
+                longitude = 116.4000,
+                altitudeMeters = 50.0,
+                speedMps = 13.5f,
+                accuracyMeters = 3.0f,
+                bearingDegrees = 0f,
+                heartRateBpm = 95,
+                lapNumber = 0,
+                lateralG = 0.02f,
+                longitudinalG = 0.01f,
+                totalG = 0.03f
+            )
+        }
+        val flatSession = TrackSessionEntity(
+            name = "平路巡航测试",
+            mode = ActivityMode.OFFROAD_CROSSING.name,
+            startTimeMs = now,
+            endTimeMs = now + 80_000L,
+            durationMs = 80_000L,
+            distanceMeters = 1800.0,
+            maxSpeedMps = 14.0f,
+            avgSpeedMps = 13.5f,
+            elevationGainMeters = 2.0,
+            elevationLossMeters = 2.0,
+            minAltitudeMeters = 50.0,
+            maxAltitudeMeters = 50.0,
+            lapCount = 0,
+            bestLapMs = null,
+            avgHeartRate = 95,
+            maxHeartRate = 98,
+            pointCount = flatPoints.size
+        )
+        val flatAnalysis = OffroadAnalysisEngine.analyze(flatSession, flatPoints)
+        assertTrue(analysis.climb.score > flatAnalysis.climb.score)
+        assertTrue(analysis.surface.score > flatAnalysis.surface.score)
+
+        // Social card overlay tags respect mode and individual toggles
+        val bothTags = SocialCardBitmapRenderer.buildOffroadOverlayTags(
+            detail = offroad,
+            config = SocialCardConfig(
+                showClimbDifficulty = true,
+                showSurfaceComplexity = true
+            )
+        )
+        assertEquals(2, bothTags.size)
+        assertEquals("爬升难度", bothTags[0].category)
+        assertEquals("路面复杂度", bothTags[1].category)
+        assertTrue(bothTags[0].headline.contains(analysis.climb.level.code))
+        assertTrue(bothTags[1].headline.contains(analysis.surface.level.code))
+
+        val climbOnlyTags = SocialCardBitmapRenderer.buildOffroadOverlayTags(
+            detail = offroad,
+            config = SocialCardConfig(
+                showClimbDifficulty = true,
+                showSurfaceComplexity = false
+            )
+        )
+        assertEquals(1, climbOnlyTags.size)
+        assertEquals("爬升难度", climbOnlyTags[0].category)
+
+        // Non-offroad tracks do not emit off-road rating pills
+        assertTrue(
+            SocialCardBitmapRenderer.buildOffroadOverlayTags(
+                detail = hiking,
+                config = SocialCardConfig(showClimbDifficulty = true, showSurfaceComplexity = true)
+            ).isEmpty()
+        )
+
+        // Transparent PNG with offroad rating pills preserves alpha=0 corner pixel
+        val stickerBmp = SocialCardBitmapRenderer.renderBitmap(
+            detail = offroad,
+            speedUnit = SpeedUnit.KMH,
+            config = SocialCardConfig(
+                bgPreset = SocialBgPreset.TRANSPARENT,
+                showRoute = true,
+                showClimbDifficulty = true,
+                showSurfaceComplexity = true
+            ),
+            targetWidth = 540
+        )
+        assertEquals(0, Color.alpha(stickerBmp.getPixel(2, 2)))
+        stickerBmp.recycle()
+
+        // Structured JSON includes offroad_analysis block
+        val json = JSONObject(TelemetryJsonExporter.buildStructuredJson(offroad.session, offroad.points, offroad.laps))
+        val offroadAnalysisJson = json.getJSONObject("session").getJSONObject("offroad_analysis")
+        assertEquals(analysis.climb.score, offroadAnalysisJson.getJSONObject("climb_difficulty").getInt("score"))
+        assertEquals(analysis.surface.score, offroadAnalysisJson.getJSONObject("surface_complexity").getInt("score"))
     }
 }

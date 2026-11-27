@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.gps.SpeedUnit
 import com.example.track.ActivityMode
+import com.example.track.OffroadAnalysisEngine
 import com.example.track.TrackFormatters
 import com.example.track.TrackLapEntity
 import com.example.track.TrackSessionDetail
@@ -865,6 +866,13 @@ fun TrackDetailScreen(
                         }
                     }
                 }
+            }
+
+            if (session.activityMode == ActivityMode.OFFROAD_CROSSING) {
+                val offroadAnalysis = remember(detail.session.id, detail.points) {
+                    OffroadAnalysisEngine.analyze(session, detail.points)
+                }
+                OffroadAnalysisCard(analysis = offroadAnalysis)
             }
 
             TelemetryProfileChartCard(

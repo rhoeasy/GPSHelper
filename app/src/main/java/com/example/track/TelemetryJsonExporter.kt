@@ -85,6 +85,33 @@ object TelemetryJsonExporter {
                     put("best_lap_sec", session.bestLapMs?.let { round2(it / 1000.0) } ?: JSONObject.NULL)
                 })
             }
+
+            if (session.activityMode == ActivityMode.OFFROAD_CROSSING) {
+                val analysis = OffroadAnalysisEngine.analyze(session, points)
+                put("offroad_analysis", JSONObject().apply {
+                    put("climb_difficulty", JSONObject().apply {
+                        put("level_code", analysis.climb.level.code)
+                        put("level_label", analysis.climb.level.labelZh)
+                        put("score", analysis.climb.score)
+                        put("gain_per_km_m", round1(analysis.climb.gainPerKmMeters))
+                        put("max_grade_pct", round1(analysis.climb.maxGradePct))
+                        put("avg_climb_grade_pct", round1(analysis.climb.avgClimbGradePct))
+                        put("steep_distance_ratio_pct", analysis.climb.steepDistanceRatioPct)
+                    })
+                    put("surface_complexity", JSONObject().apply {
+                        put("level_code", analysis.surface.level.code)
+                        put("level_label", analysis.surface.level.labelZh)
+                        put("score", analysis.surface.score)
+                        put("turns_per_km", round2(analysis.surface.turnsPerKm))
+                        put("hairpin_count", analysis.surface.hairpinCount)
+                        put("vibration_index_g", round2(analysis.surface.vibrationIndexG.toDouble()))
+                        put("speed_variability_pct", analysis.surface.speedVariabilityPct)
+                        put("smooth_pct", analysis.surface.smoothPct)
+                        put("twisty_pct", analysis.surface.twistyPct)
+                        put("technical_offroad_pct", analysis.surface.technicalPct)
+                    })
+                })
+            }
         }
         root.put("session", sessionObj)
 
