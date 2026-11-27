@@ -80,6 +80,7 @@
     <string name="gforce_badge_gyro_fused">加速度计 + 陀螺仪融合</string>
     <string name="gforce_badge_accel_only">加速度计模式</string>
     <string name="gforce_badge_unavailable">无传感器</string>
+    <string name="gforce_badge_landscape">横屏坐标</string>
     <string name="gforce_label_total">即时合成</string>
     <string name="gforce_label_peak">峰值</string>
     <string name="gforce_label_lateral">横向</string>
@@ -210,7 +211,39 @@
     <string name="settings_section_general">通用与显示</string>
     <string name="settings_speed_unit_title">速度单位</string>
     <string name="toast_overlay_min_one_item">悬浮窗至少需保留一项显示内容</string>
-    <string name="toast_overlay_config_reset">已恢复悬浮窗默认显示项</string>
+    <string name="toast_overlay_config_reset">已恢复悬浮窗默认设置</string>
+
+    <!-- v1.0.0 Overlay Appearance, Riding Font, Peak G & Safety Alerts -->
+    <string name="settings_section_overlay_style">悬浮窗外观与字体（骑行优化）</string>
+    <string name="settings_scale_title">整体尺寸</string>
+    <string name="settings_font_size_title">文字大小</string>
+    <string name="settings_alpha_title">背景不透明度</string>
+    <string name="settings_position_memory_hint">竖屏与横屏分别自动记忆拖动位置，切换方向后自动回到顺手角落</string>
+
+    <string name="settings_section_gforce">G 力图峰值设置</string>
+    <string name="settings_gforce_peak_dial_title">G 力图显示最大值</string>
+    <string name="settings_gforce_peak_dial_desc">在圆形雷达图上以虚线环与峰值点标记最大 G 力方向</string>
+    <string name="settings_gforce_peak_hold_title">最大 G 力保留时长</string>
+    <string name="settings_gforce_peak_hold_desc">超时后自动刷新峰值，便于分段观察弯道与路段表现</string>
+    <string name="peak_hold_10s">10秒</string>
+    <string name="peak_hold_30s">30秒</string>
+    <string name="peak_hold_60s">1分钟</string>
+    <string name="peak_hold_180s">3分钟</string>
+    <string name="peak_hold_forever">永久</string>
+
+    <string name="settings_section_safety">安全预警（超速与心率）</string>
+    <string name="settings_alert_speed_title">超速预警</string>
+    <string name="settings_alert_speed_desc">速度达到阈值时悬浮窗与车速卡片柔和变红提醒</string>
+    <string name="settings_alert_speed_limit_label">超速阈值</string>
+    <string name="settings_alert_hr_title">心率上限预警</string>
+    <string name="settings_alert_hr_desc">连接蓝牙心率后超过设定上限时高亮提醒</string>
+    <string name="settings_alert_hr_limit_label">心率上限</string>
+    <string name="settings_alert_vibrate_title">预警时短震动提示</string>
+    <string name="settings_alert_vibrate_desc">触发超速或心率上限时轻震两下（每 5 秒最多提醒一次）</string>
+    <string name="alert_badge_overspeed">超速预警</string>
+    <string name="alert_badge_high_hr">心率偏高</string>
+
+    <string name="settings_version_footer">GPS 悬浮仪表 v1.0.0 · 纯本地离线版</string>
 
     <!-- Floating Window Control -->
     <string name="action_start_overlay">开启悬浮窗</string>
@@ -221,8 +254,10 @@
     <string name="overlay_searching">搜索卫星中…</string>
 
     <!-- Notification -->
-    <string name="notification_channel_name">GPS 悬浮窗服务</string>
-    <string name="notification_channel_desc">悬浮仪表运行时在后台保持实时 GPS 定位更新</string>
+    <string name="notification_channel_name">GPS 悬浮窗与轨迹保活服务</string>
+    <string name="notification_channel_desc">悬浮仪表或轨迹录制运行时在后台保持高精度 GPS 定位不中断</string>
     <string name="notification_title">GPS 悬浮仪表运行中</string>
+    <string name="notification_title_recording">轨迹录制中（后台定位保活）</string>
+    <string name="notification_title_both">悬浮仪表 · 轨迹录制中</string>
     <string name="notification_waiting_fix">正在搜索卫星信号…</string>
 </resources>

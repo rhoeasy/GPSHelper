@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -34,9 +35,11 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.alert.SafetyAlertMonitor
 import com.example.ble.HeartRateRepository
 import com.example.gps.GpsRepository
 import com.example.overlay.FloatingGpsService
+import com.example.sensor.MotionSensorManager
 import com.example.ui.BleDevicePickerDialog
 import com.example.ui.FocusModeDialog
 import com.example.ui.GpsDashboardViewModel
@@ -87,6 +90,7 @@ class MainActivity : ComponentActivity() {
                 val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
                 val autoFocusOnLaunch by viewModel.autoFocusOnLaunch.collectAsStateWithLifecycle()
                 val overlayConfig by viewModel.overlayConfig.collectAsStateWithLifecycle()
+                val safetyAlertConfig by viewModel.safetyAlertConfig.collectAsStateWithLifecycle()
                 val hasDndPolicyAccess by viewModel.hasDndPolicyAccess.collectAsStateWithLifecycle()
                 val isOverlayRunning by viewModel.isOverlayRunning.collectAsStateWithLifecycle()
                 val permissionStatus by viewModel.permissionStatus.collectAsStateWithLifecycle()
@@ -99,6 +103,24 @@ class MainActivity : ComponentActivity() {
                 val recordingSnapshot by viewModel.recordingSnapshot.collectAsStateWithLifecycle()
                 val savedSessions by viewModel.savedSessions.collectAsStateWithLifecycle()
                 val selectedSessionDetail by viewModel.selectedSessionDetail.collectAsStateWithLifecycle()
+
+                val alertState = SafetyAlertMonitor.evaluate(
+                    gpsData = gpsData,
+                    heartRateState = heartRateState,
+                    config = safetyAlertConfig
+                )
+
+                LaunchedEffect(
+                    gpsData.lastUpdateElapsedRealtimeMs,
+                    heartRateState.lastUpdatedMs,
+                    safetyAlertConfig
+                ) {
+                    SafetyAlertMonitor.maybeVibrate(
+                        context = this@MainActivity,
+                        alertState = alertState,
+                        config = safetyAlertConfig
+                    )
+                }
 
                 var activeTab by rememberSaveable { mutableStateOf(MainTab.DASHBOARD) }
                 var showBleDialog by rememberSaveable { mutableStateOf(false) }
@@ -189,6 +211,8 @@ class MainActivity : ComponentActivity() {
                     themeMode = themeMode,
                     autoFocusOnLaunch = autoFocusOnLaunch,
                     overlayConfig = overlayConfig,
+                    safetyAlertConfig = safetyAlertConfig,
+                    alertState = alertState,
                     isFocusLockActive = focusLockActiveState,
                     isOverlayRunning = isOverlayRunning,
                     permissionStatus = permissionStatus,
@@ -217,6 +241,9 @@ class MainActivity : ComponentActivity() {
                             getString(R.string.toast_overlay_config_reset),
                             Toast.LENGTH_SHORT
                         ).show()
+                    },
+                    onUpdateSafetyAlertConfig = { transform ->
+                        viewModel.updateSafetyAlertConfig(transform)
                     },
                     onOpenFocusDialog = { showFocusDialog = true },
                     onExitFocusLock = { exitFocusLockMode(showToast = true) },
@@ -448,6 +475,12 @@ class MainActivity : ComponentActivity() {
         viewModel.refreshPermissions()
         GpsRepository.startTracking(applicationContext, ACTIVITY_CLIENT_ID)
         viewModel.startMotionSensors()
+        MotionSensorManager.refreshDisplayRotation(this)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        MotionSensorManager.refreshDisplayRotation(this)
     }
 
     override fun onStop() {

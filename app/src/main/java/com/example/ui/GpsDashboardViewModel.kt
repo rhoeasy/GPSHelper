@@ -17,6 +17,7 @@ import com.example.ble.HeartRateState
 import com.example.gps.GpsData
 import com.example.gps.GpsRepository
 import com.example.gps.OverlayDisplayConfig
+import com.example.gps.SafetyAlertConfig
 import com.example.gps.SpeedUnit
 import com.example.sensor.GForceData
 import com.example.sensor.MotionSensorManager
@@ -60,6 +61,7 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     val themeMode: StateFlow<ThemeMode> = GpsRepository.themeMode
     val autoFocusOnLaunch: StateFlow<Boolean> = GpsRepository.autoFocusOnLaunch
     val overlayConfig: StateFlow<OverlayDisplayConfig> = GpsRepository.overlayConfig
+    val safetyAlertConfig: StateFlow<SafetyAlertConfig> = GpsRepository.safetyAlertConfig
     val isOverlayRunning: StateFlow<Boolean> = GpsRepository.isOverlayRunning
 
     val heartRateState: StateFlow<HeartRateState> = HeartRateRepository.heartRateState
@@ -118,6 +120,10 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
 
     fun resetOverlayConfig() {
         GpsRepository.resetOverlayConfig(getApplication())
+    }
+
+    fun updateSafetyAlertConfig(transform: (SafetyAlertConfig) -> SafetyAlertConfig) {
+        GpsRepository.updateSafetyAlertConfig(getApplication(), transform)
     }
 
     // IMU (Accelerometer + Gyroscope) G-Force controls

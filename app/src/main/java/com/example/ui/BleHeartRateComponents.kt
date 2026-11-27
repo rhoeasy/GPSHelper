@@ -1,5 +1,6 @@
 package com.example.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -65,10 +66,16 @@ fun HeartRateStripCard(
     hrState: HeartRateState,
     onOpenDevicePicker: () -> Unit,
     onDisconnect: () -> Unit,
+    isAlertActive: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
     val tc = LocalTelemetryColors.current
+
+    val cardBg by animateColorAsState(
+        targetValue = if (isAlertActive) cs.errorContainer else cs.surfaceContainerLow,
+        label = "hr_card_bg"
+    )
 
     val beatTransition = rememberInfiniteTransition(label = "hr_beat")
     val beatScale by beatTransition.animateFloat(
@@ -86,7 +93,7 @@ fun HeartRateStripCard(
             .fillMaxWidth()
             .testTag("heart_rate_card"),
         shape = RoundedCornerShape(22.dp),
-        color = cs.surfaceContainerLow
+        color = cardBg
     ) {
         Row(
             modifier = Modifier
@@ -99,13 +106,23 @@ fun HeartRateStripCard(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(if (hrState.isConnected) tc.heartContainer else cs.surfaceContainerHigh),
+                    .background(
+                        when {
+                            isAlertActive -> cs.error
+                            hrState.isConnected -> tc.heartContainer
+                            else -> cs.surfaceContainerHigh
+                        }
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Favorite,
                     contentDescription = null,
-                    tint = if (hrState.isConnected) tc.heart else cs.onSurfaceVariant,
+                    tint = when {
+                        isAlertActive -> cs.onError
+                        hrState.isConnected -> tc.heart
+                        else -> cs.onSurfaceVariant
+                    },
                     modifier = Modifier
                         .size(20.dp)
                         .scale(if (hrState.isConnected && hrState.bpm != null) beatScale else 1f)
@@ -117,13 +134,13 @@ fun HeartRateStripCard(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Row(
-                    verticalAlignment = Alignment.Bottom,
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
                         text = stringResource(R.string.hr_card_title),
                         style = MaterialTheme.typography.titleSmall,
-                        color = cs.onSurface
+                        color = if (isAlertActive) cs.onErrorContainer else cs.onSurface
                     )
                     if (hrState.isConnected) {
                         Text(
@@ -133,7 +150,7 @@ fun HeartRateStripCard(
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 21.sp
                             ),
-                            color = tc.heart,
+                            color = if (isAlertActive) cs.error else tc.heart,
                             modifier = Modifier.testTag("hr_bpm_value")
                         )
                         Text(
@@ -141,8 +158,25 @@ fun HeartRateStripCard(
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontFamily = JetBrainsMonoFontFamily
                             ),
-                            color = cs.onSurfaceVariant
+                            color = if (isAlertActive) cs.onErrorContainer else cs.onSurfaceVariant
                         )
+                    }
+                    if (isAlertActive) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = cs.error,
+                            modifier = Modifier.testTag("hr_high_alert_badge")
+                        ) {
+                            Text(
+                                text = stringResource(R.string.alert_badge_high_hr),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 10.sp
+                                ),
+                                color = cs.onError,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                     }
                 }
 

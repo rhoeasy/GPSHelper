@@ -45,6 +45,8 @@ import kotlin.math.hypot
 @Composable
 fun GForceTelemetryCard(
     gForceData: GForceData,
+    showPeakOnDial: Boolean,
+    peakHoldSeconds: Int,
     onCalibrateZero: () -> Unit,
     onResetPeak: () -> Unit,
     modifier: Modifier = Modifier
@@ -98,27 +100,50 @@ fun GForceTelemetryCard(
                     )
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = if (gForceData.hasGyroscope && gForceData.isAvailable) {
-                        cs.primaryContainer
-                    } else {
-                        cs.surfaceContainer
-                    }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = sensorBadgeText,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 11.sp
-                        ),
+                    if (gForceData.isLandscape) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = cs.secondaryContainer,
+                            modifier = Modifier.testTag("gforce_landscape_badge")
+                        ) {
+                            Text(
+                                text = stringResource(R.string.gforce_badge_landscape),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 10.5.sp
+                                ),
+                                color = cs.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(50),
                         color = if (gForceData.hasGyroscope && gForceData.isAvailable) {
-                            cs.onPrimaryContainer
+                            cs.primaryContainer
                         } else {
-                            cs.onSurfaceVariant
-                        },
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
+                            cs.surfaceContainer
+                        }
+                    ) {
+                        Text(
+                            text = sensorBadgeText,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 11.sp
+                            ),
+                            color = if (gForceData.hasGyroscope && gForceData.isAvailable) {
+                                cs.onPrimaryContainer
+                            } else {
+                                cs.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
 
@@ -131,6 +156,7 @@ fun GForceTelemetryCard(
                 ComposeGForceRadar(
                     gForceData = gForceData,
                     dotColor = gAccent,
+                    showPeakOnDial = showPeakOnDial,
                     modifier = Modifier.size(92.dp)
                 )
 
@@ -139,6 +165,11 @@ fun GForceTelemetryCard(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    val holdLabel = when {
+                        peakHoldSeconds <= 0 -> stringResource(R.string.peak_hold_forever)
+                        peakHoldSeconds < 60 -> "${peakHoldSeconds}s"
+                        else -> "${peakHoldSeconds / 60}m"
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -150,9 +181,9 @@ fun GForceTelemetryCard(
                             modifier = Modifier.weight(1f)
                         )
                         GForceMetricItem(
-                            label = stringResource(R.string.gforce_label_peak),
+                            label = "${stringResource(R.string.gforce_label_peak)} ($holdLabel)",
                             value = String.format(Locale.US, "%.2f G", gForceData.peakG),
-                            accent = cs.onSurface,
+                            accent = cs.tertiary,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -237,6 +268,7 @@ fun GForceTelemetryCard(
 private fun ComposeGForceRadar(
     gForceData: GForceData,
     dotColor: Color,
+    showPeakOnDial: Boolean,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -244,6 +276,7 @@ private fun ComposeGForceRadar(
     val ringOuter = cs.outline.copy(alpha = 0.45f)
     val ringInner = cs.outline.copy(alpha = 0.28f)
     val crosshair = cs.outlineVariant.copy(alpha = 0.5f)
+    val peakColor = cs.tertiary
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.matchParentSize()) {
@@ -290,6 +323,28 @@ private fun ComposeGForceRadar(
                 val mag = hypot(nx, ny)
                 val scale = if (mag > 1f) 1f / mag else 1f
                 return Offset(cx + nx * scale * maxTravel, cy + ny * scale * maxTravel)
+            }
+
+            if (showPeakOnDial && gForceData.peakG >= 0.05f) {
+                val peakRingRadius = ((gForceData.peakG / maxScaleG).coerceIn(0f, 1f)) * maxTravel
+                if (peakRingRadius > 2.dp.toPx()) {
+                    drawCircle(
+                        color = peakColor.copy(alpha = 0.48f),
+                        radius = peakRingRadius,
+                        center = Offset(cx, cy),
+                        style = Stroke(
+                            width = 1.2.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 4f), 0f)
+                        )
+                    )
+                }
+                val peakPos = mapPoint(gForceData.peakLateralG, gForceData.peakLongitudinalG)
+                drawCircle(
+                    color = peakColor,
+                    radius = 4.dp.toPx(),
+                    center = peakPos,
+                    style = Stroke(width = 1.8.dp.toPx())
+                )
             }
 
             val trail = gForceData.trail

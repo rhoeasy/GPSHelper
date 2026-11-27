@@ -1,6 +1,7 @@
 package com.example.overlay
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.os.Build
 import android.util.Log
@@ -60,10 +61,14 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.R
+import com.example.alert.SafetyAlertMonitor
+import com.example.alert.SafetyAlertState
 import com.example.ble.HeartRateState
 import com.example.gps.GpsData
 import com.example.gps.GpsFixStatus
+import com.example.gps.GpsRepository
 import com.example.gps.OverlayDisplayConfig
+import com.example.gps.SafetyAlertConfig
 import com.example.gps.SpeedUnit
 import com.example.sensor.GForceData
 import com.example.ui.theme.GpsHudTheme
@@ -76,9 +81,11 @@ import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
- * Jetpack Compose floating HUD component dynamically rendering user-selected telemetry
- * modules (Speed, G-Force radar & values, Altitude, Heart Rate, Bearing, Accuracy, Coordinates)
- * with Material 3 Day/Night/Auto theme sync.
+ * Jetpack Compose floating HUD component optimized for outdoor riding & driving visibility.
+ *
+ * Dynamically renders user-selected modules (Speed, G-Force radar + peak marker, Altitude,
+ * Heart Rate, Bearing, Accuracy, Coordinates) with adjustable scale, font size, background
+ * transparency, Day/Night/Auto sync, and gentle visual safety alert highlighting.
  */
 @Composable
 fun OverlayWindow(
@@ -87,6 +94,7 @@ fun OverlayWindow(
     speedUnit: SpeedUnit,
     heartRateState: HeartRateState,
     config: OverlayDisplayConfig,
+    alertState: SafetyAlertState = SafetyAlertState(),
     themeMode: ThemeMode,
     isMiniMode: Boolean,
     onToggleMiniMode: () -> Unit,
@@ -98,16 +106,32 @@ fun OverlayWindow(
         val cs = MaterialTheme.colorScheme
         val tc = LocalTelemetryColors.current
 
+        val s = config.scale.factor
+        val fs = config.fontScale * s
+        val bgAlpha = config.backgroundAlpha.coerceIn(0.45f, 0.98f)
+
         val gAccent = when {
             gForceData.totalG >= 1.0f -> cs.error
             gForceData.totalG >= 0.5f -> cs.tertiary
             else -> cs.primary
         }
-        val statusDotColor = when (gpsData.fixStatus) {
-            GpsFixStatus.LOCKED -> cs.secondary
-            GpsFixStatus.FUSED_FALLBACK -> cs.primary
-            GpsFixStatus.SEARCHING -> cs.tertiary
-            GpsFixStatus.DISABLED, GpsFixStatus.NO_PERMISSION -> cs.error
+        val statusDotColor = when {
+            alertState.isAnyAlert -> cs.error
+            gpsData.fixStatus == GpsFixStatus.LOCKED -> cs.secondary
+            gpsData.fixStatus == GpsFixStatus.FUSED_FALLBACK -> cs.primary
+            gpsData.fixStatus == GpsFixStatus.SEARCHING -> cs.tertiary
+            else -> cs.error
+        }
+
+        val containerColor = if (alertState.isAnyAlert) {
+            cs.errorContainer.copy(alpha = (bgAlpha + 0.04f).coerceAtMost(0.98f))
+        } else {
+            cs.surfaceContainerLow.copy(alpha = bgAlpha)
+        }
+        val borderColor = if (alertState.isAnyAlert) {
+            cs.error.copy(alpha = 0.85f)
+        } else {
+            cs.outlineVariant.copy(alpha = 0.65f)
         }
 
         val speedValueStr = gpsData.formattedSpeedValue(speedUnit)
@@ -133,45 +157,46 @@ fun OverlayWindow(
 
         Surface(
             modifier = modifier
-                .clip(RoundedCornerShape(22.dp))
+                .clip(RoundedCornerShape((22f * s).dp))
                 .clickable(onClick = onToggleMiniMode)
                 .testTag("overlay_window_root"),
-            shape = RoundedCornerShape(22.dp),
-            color = cs.surfaceContainerLow.copy(alpha = 0.91f),
-            border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.65f)),
+            shape = RoundedCornerShape((22f * s).dp),
+            color = containerColor,
+            border = BorderStroke(if (alertState.isAnyAlert) 1.6.dp else 1.dp, borderColor),
             shadowElevation = 6.dp
         ) {
             Box {
                 Row(
                     modifier = Modifier.padding(
-                        start = 10.dp,
-                        top = 8.dp,
-                        end = if (showCloseButton) 28.dp else 12.dp,
-                        bottom = 8.dp
+                        start = (11f * s).dp,
+                        top = (9f * s).dp,
+                        end = if (showCloseButton) (28f * s).dp else (13f * s).dp,
+                        bottom = (9f * s).dp
                     ),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(if (isMiniMode) 8.dp else 10.dp)
+                    horizontalArrangement = Arrangement.spacedBy((if (isMiniMode) 8f else 11f).times(s).dp)
                 ) {
                     if (config.showGForce) {
                         OverlayGForceDial(
                             gForceData = gForceData,
                             dotColor = gAccent,
+                            showPeakOnDial = config.showGForcePeakOnDial,
                             modifier = Modifier
-                                .size(if (isMiniMode) 36.dp else 56.dp)
+                                .size((if (isMiniMode) 38f else 60f).times(s).dp)
                                 .testTag("overlay_gforce_dial")
                         )
                     }
 
                     if (hasRightColumn) {
                         if (isMiniMode) {
-                            // Ultra-compact single-line mini pill
+                            // Ultra-compact single-line mini pill (scaled for riding readability)
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy((6f * s).dp)
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(7.dp)
+                                        .size((7.5f * s).dp)
                                         .clip(CircleShape)
                                         .background(statusDotColor)
                                 )
@@ -181,7 +206,9 @@ fun OverlayWindow(
                                     if (emittedCount > 0) {
                                         Text(
                                             text = "·",
-                                            style = MaterialTheme.typography.labelMedium,
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontSize = (13f * fs).sp
+                                            ),
                                             color = cs.outline
                                         )
                                     }
@@ -199,15 +226,17 @@ fun OverlayWindow(
                                             style = MaterialTheme.typography.titleMedium.copy(
                                                 fontFamily = JetBrainsMonoFontFamily,
                                                 fontWeight = FontWeight.Bold,
-                                                fontSize = 15.sp
+                                                fontSize = (17f * fs).sp
                                             ),
-                                            color = cs.onSurface,
+                                            color = if (alertState.isOverspeed) cs.error else cs.onSurface,
                                             maxLines = 1
                                         )
                                         Text(
                                             text = speedUnit.label,
-                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                            color = cs.onSurfaceVariant,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = (10.5f * fs).sp
+                                            ),
+                                            color = if (alertState.isOverspeed) cs.error else cs.onSurfaceVariant,
                                             maxLines = 1
                                         )
                                     }
@@ -219,7 +248,7 @@ fun OverlayWindow(
                                         style = MaterialTheme.typography.titleSmall.copy(
                                             fontFamily = JetBrainsMonoFontFamily,
                                             fontWeight = FontWeight.SemiBold,
-                                            fontSize = 13.5.sp
+                                            fontSize = (14.5f * fs).sp
                                         ),
                                         color = cs.onSurface,
                                         maxLines = 1
@@ -232,7 +261,7 @@ fun OverlayWindow(
                                         style = MaterialTheme.typography.titleSmall.copy(
                                             fontFamily = JetBrainsMonoFontFamily,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 13.5.sp
+                                            fontSize = (14.5f * fs).sp
                                         ),
                                         color = gAccent,
                                         maxLines = 1
@@ -244,10 +273,10 @@ fun OverlayWindow(
                                         text = "♥${heartRateState.bpm ?: "--"}",
                                         style = MaterialTheme.typography.titleSmall.copy(
                                             fontFamily = JetBrainsMonoFontFamily,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 13.sp
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = (14f * fs).sp
                                         ),
-                                        color = tc.heart,
+                                        color = if (alertState.isHighHeartRate) cs.error else tc.heart,
                                         maxLines = 1
                                     )
                                 }
@@ -257,7 +286,8 @@ fun OverlayWindow(
                                         text = bearingText,
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             fontFamily = JetBrainsMonoFontFamily,
-                                            fontWeight = FontWeight.Medium
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = (13f * fs).sp
                                         ),
                                         color = cs.primary,
                                         maxLines = 1
@@ -268,7 +298,8 @@ fun OverlayWindow(
                                     Text(
                                         text = accuracyText,
                                         style = MaterialTheme.typography.labelMedium.copy(
-                                            fontFamily = JetBrainsMonoFontFamily
+                                            fontFamily = JetBrainsMonoFontFamily,
+                                            fontSize = (13.5f * fs).sp
                                         ),
                                         color = cs.onSurface,
                                         maxLines = 1
@@ -279,7 +310,8 @@ fun OverlayWindow(
                                     Text(
                                         text = coordsText,
                                         style = MaterialTheme.typography.labelSmall.copy(
-                                            fontFamily = JetBrainsMonoFontFamily
+                                            fontFamily = JetBrainsMonoFontFamily,
+                                            fontSize = (12f * fs).sp
                                         ),
                                         color = cs.onSurface,
                                         maxLines = 1
@@ -287,8 +319,8 @@ fun OverlayWindow(
                                 }
                             }
                         } else {
-                            // Standard compact multi-row HUD
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            // Standard compact multi-row HUD (riding-optimized typography)
+                            Column(verticalArrangement = Arrangement.spacedBy((4f * s).dp)) {
                                 var statusDotShown = false
 
                                 @Composable
@@ -297,7 +329,7 @@ fun OverlayWindow(
                                         statusDotShown = true
                                         Box(
                                             modifier = Modifier
-                                                .size(7.dp)
+                                                .size((7.5f * s).dp)
                                                 .clip(CircleShape)
                                                 .background(statusDotColor)
                                         )
@@ -308,7 +340,7 @@ fun OverlayWindow(
                                 if (config.showSpeed) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        horizontalArrangement = Arrangement.spacedBy((6f * s).dp)
                                     ) {
                                         StatusDotOnce()
                                         Row(
@@ -320,16 +352,19 @@ fun OverlayWindow(
                                                 style = MaterialTheme.typography.titleLarge.copy(
                                                     fontFamily = JetBrainsMonoFontFamily,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontSize = 20.sp,
-                                                    lineHeight = 22.sp
+                                                    fontSize = (23f * fs).sp,
+                                                    lineHeight = (25f * fs).sp
                                                 ),
-                                                color = cs.onSurface,
+                                                color = if (alertState.isOverspeed) cs.error else cs.onSurface,
                                                 maxLines = 1
                                             )
                                             Text(
                                                 text = speedUnit.label,
-                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                                                color = cs.onSurfaceVariant,
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontSize = (11.5f * fs).sp,
+                                                    fontWeight = FontWeight.Medium
+                                                ),
+                                                color = if (alertState.isOverspeed) cs.error else cs.onSurfaceVariant,
                                                 modifier = Modifier.padding(bottom = 2.dp),
                                                 maxLines = 1
                                             )
@@ -339,8 +374,8 @@ fun OverlayWindow(
                                                 text = bearingText,
                                                 style = MaterialTheme.typography.labelSmall.copy(
                                                     fontFamily = JetBrainsMonoFontFamily,
-                                                    fontWeight = FontWeight.Medium,
-                                                    fontSize = 11.sp
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    fontSize = (12f * fs).sp
                                                 ),
                                                 color = cs.primary,
                                                 maxLines = 1
@@ -356,13 +391,15 @@ fun OverlayWindow(
                                 if (showEnvRow) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        horizontalArrangement = Arrangement.spacedBy((6f * s).dp)
                                     ) {
                                         StatusDotOnce()
                                         if (config.showAltitude) {
                                             Text(
                                                 text = stringResource(R.string.telemetry_altitude),
-                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontSize = (11.5f * fs).sp
+                                                ),
                                                 color = cs.onSurfaceVariant,
                                                 maxLines = 1
                                             )
@@ -371,7 +408,7 @@ fun OverlayWindow(
                                                 style = MaterialTheme.typography.titleSmall.copy(
                                                     fontFamily = JetBrainsMonoFontFamily,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontSize = if (config.showSpeed) 12.5.sp else 14.5.sp
+                                                    fontSize = (if (config.showSpeed) 14f else 16.5f).times(fs).sp
                                                 ),
                                                 color = cs.onSurface,
                                                 maxLines = 1
@@ -382,8 +419,8 @@ fun OverlayWindow(
                                                 text = bearingText,
                                                 style = MaterialTheme.typography.labelMedium.copy(
                                                     fontFamily = JetBrainsMonoFontFamily,
-                                                    fontWeight = FontWeight.Medium,
-                                                    fontSize = 12.sp
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    fontSize = (13.5f * fs).sp
                                                 ),
                                                 color = cs.primary,
                                                 maxLines = 1
@@ -394,7 +431,7 @@ fun OverlayWindow(
                                                 text = accuracyText,
                                                 style = MaterialTheme.typography.labelSmall.copy(
                                                     fontFamily = JetBrainsMonoFontFamily,
-                                                    fontSize = 11.sp
+                                                    fontSize = (12f * fs).sp
                                                 ),
                                                 color = cs.onSurfaceVariant,
                                                 maxLines = 1
@@ -403,11 +440,11 @@ fun OverlayWindow(
                                     }
                                 }
 
-                                // Row 3: G-Force + Heart Rate
+                                // Row 3: G-Force (live + max) + Heart Rate
                                 if (config.showGForce || config.showHeartRate) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        horizontalArrangement = Arrangement.spacedBy((8f * s).dp)
                                     ) {
                                         StatusDotOnce()
                                         if (config.showGForce) {
@@ -416,30 +453,33 @@ fun OverlayWindow(
                                                 style = MaterialTheme.typography.labelMedium.copy(
                                                     fontFamily = JetBrainsMonoFontFamily,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontSize = 12.sp
+                                                    fontSize = (13.5f * fs).sp
                                                 ),
                                                 color = gAccent,
                                                 maxLines = 1
                                             )
-                                            Text(
-                                                text = "${stringResource(R.string.gforce_label_peak)} $peakGText",
-                                                style = MaterialTheme.typography.labelSmall.copy(
-                                                    fontFamily = JetBrainsMonoFontFamily,
-                                                    fontSize = 11.sp
-                                                ),
-                                                color = cs.onSurfaceVariant,
-                                                maxLines = 1
-                                            )
+                                            if (config.showGForcePeakOnDial) {
+                                                Text(
+                                                    text = "MAX $peakGText",
+                                                    style = MaterialTheme.typography.labelSmall.copy(
+                                                        fontFamily = JetBrainsMonoFontFamily,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        fontSize = (12f * fs).sp
+                                                    ),
+                                                    color = cs.tertiary,
+                                                    maxLines = 1
+                                                )
+                                            }
                                         }
                                         if (config.showHeartRate) {
                                             Text(
                                                 text = "♥ $hrText",
                                                 style = MaterialTheme.typography.labelMedium.copy(
                                                     fontFamily = JetBrainsMonoFontFamily,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    fontSize = 12.sp
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = (13.5f * fs).sp
                                                 ),
-                                                color = tc.heart,
+                                                color = if (alertState.isHighHeartRate) cs.error else tc.heart,
                                                 maxLines = 1
                                             )
                                         }
@@ -450,14 +490,14 @@ fun OverlayWindow(
                                 if (config.showCoordinates) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        horizontalArrangement = Arrangement.spacedBy((6f * s).dp)
                                     ) {
                                         StatusDotOnce()
                                         Text(
                                             text = coordsText,
                                             style = MaterialTheme.typography.labelSmall.copy(
                                                 fontFamily = JetBrainsMonoFontFamily,
-                                                fontSize = 10.5.sp
+                                                fontSize = (11.5f * fs).sp
                                             ),
                                             color = cs.onSurfaceVariant,
                                             maxLines = 1
@@ -474,7 +514,7 @@ fun OverlayWindow(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(top = 3.dp, end = 3.dp)
-                            .size(22.dp)
+                            .size((23f * s).coerceIn(22f, 30f).dp)
                             .clip(CircleShape)
                             .clickable(onClick = onClose)
                             .testTag("overlay_close_button"),
@@ -484,7 +524,7 @@ fun OverlayWindow(
                             imageVector = Icons.Rounded.Close,
                             contentDescription = stringResource(R.string.overlay_close_cd),
                             tint = cs.onSurfaceVariant.copy(alpha = 0.8f),
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size((14f * s).coerceIn(14f, 18f).dp)
                         )
                     }
                 }
@@ -497,6 +537,7 @@ fun OverlayWindow(
 private fun OverlayGForceDial(
     gForceData: GForceData,
     dotColor: Color,
+    showPeakOnDial: Boolean,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -504,6 +545,7 @@ private fun OverlayGForceDial(
     val outerRing = cs.outline.copy(alpha = 0.55f)
     val innerRing = cs.outline.copy(alpha = 0.30f)
     val crosshair = cs.outlineVariant.copy(alpha = 0.55f)
+    val peakColor = cs.tertiary
 
     Canvas(modifier = modifier) {
         val cx = size.width / 2f
@@ -551,6 +593,30 @@ private fun OverlayGForceDial(
             return Offset(cx + nx * scale * maxTravel, cy + ny * scale * maxTravel)
         }
 
+        // Peak G ring & directional max-G marker (when enabled)
+        if (showPeakOnDial && gForceData.peakG >= 0.05f) {
+            val peakRingRadius = ((gForceData.peakG / maxScaleG).coerceIn(0f, 1f)) * maxTravel
+            if (peakRingRadius > 2.dp.toPx()) {
+                drawCircle(
+                    color = peakColor.copy(alpha = 0.45f),
+                    radius = peakRingRadius,
+                    center = Offset(cx, cy),
+                    style = Stroke(
+                        width = 1.1.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
+                    )
+                )
+            }
+            val peakPos = mapPoint(gForceData.peakLateralG, gForceData.peakLongitudinalG)
+            val peakDotRadius = if (size.minDimension < 46.dp.toPx()) 2.8.dp.toPx() else 3.6.dp.toPx()
+            drawCircle(
+                color = peakColor,
+                radius = peakDotRadius,
+                center = peakPos,
+                style = Stroke(width = 1.5.dp.toPx())
+            )
+        }
+
         val trail = gForceData.trail
         if (trail.size > 1) {
             trail.forEachIndexed { index, sample ->
@@ -582,9 +648,8 @@ private fun OverlayGForceDial(
  * WindowManager host for the Jetpack Compose [OverlayWindow].
  *
  * Supplies LifecycleOwner, SavedStateRegistryOwner, and ViewModelStoreOwner so ComposeView
- * operates cleanly inside an Android Foreground Service using TYPE_APPLICATION_OVERLAY
- * (always displayed on top of other apps without stealing focus), with jitter-free screen-space
- * drag repositioning and live sync with [OverlayDisplayConfig].
+ * operates cleanly inside an Android Foreground Service using TYPE_APPLICATION_OVERLAY,
+ * with jitter-free screen-space dragging, persistent screen-position memory, and live config sync.
  */
 class OverlayWindowController(
     private val context: Context,
@@ -593,6 +658,7 @@ class OverlayWindowController(
     private val speedUnitFlow: StateFlow<SpeedUnit>,
     private val heartRateFlow: StateFlow<HeartRateState>,
     private val overlayConfigFlow: StateFlow<OverlayDisplayConfig>,
+    private val safetyAlertConfigFlow: StateFlow<SafetyAlertConfig>,
     private val themeModeFlow: StateFlow<ThemeMode>,
     private val onCloseRequested: () -> Unit
 ) : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
@@ -623,6 +689,11 @@ class OverlayWindowController(
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
 
         val params = createOverlayLayoutParams(context)
+        // Restore last saved drag coordinates if available
+        GpsRepository.loadOverlayPosition(context)?.let { (savedX, savedY) ->
+            params.x = savedX
+            params.y = savedY
+        }
 
         val container = DraggableOverlayContainer(
             context = context,
@@ -634,6 +705,9 @@ class OverlayWindowController(
                     clampPosition(params, root)
                     runCatching { windowManager.updateViewLayout(root, params) }
                 }
+            },
+            onDragFinished = {
+                GpsRepository.saveOverlayPosition(context, params.x, params.y)
             }
         ).apply {
             setViewTreeLifecycleOwner(this@OverlayWindowController)
@@ -649,9 +723,12 @@ class OverlayWindowController(
                 val speedUnit by speedUnitFlow.collectAsStateWithLifecycle()
                 val heartRate by heartRateFlow.collectAsStateWithLifecycle()
                 val overlayConfig by overlayConfigFlow.collectAsStateWithLifecycle()
+                val safetyAlertConfig by safetyAlertConfigFlow.collectAsStateWithLifecycle()
                 val themeMode by themeModeFlow.collectAsStateWithLifecycle()
 
-                // Re-clamp window bounds whenever displayed modules change pill dimensions
+                val alertState = SafetyAlertMonitor.evaluate(gps, heartRate, safetyAlertConfig)
+
+                // Re-clamp window bounds whenever displayed modules or scale change pill dimensions
                 LaunchedEffect(overlayConfig, isMiniMode) {
                     hostContainer?.post {
                         val root = hostContainer ?: return@post
@@ -666,6 +743,7 @@ class OverlayWindowController(
                     speedUnit = speedUnit,
                     heartRateState = heartRate,
                     config = overlayConfig,
+                    alertState = alertState,
                     themeMode = themeMode,
                     isMiniMode = isMiniMode,
                     onToggleMiniMode = { isMiniMode = !isMiniMode },
@@ -687,6 +765,11 @@ class OverlayWindowController(
             hostContainer = container
             layoutParams = params
             isAttached = true
+            // Clamp restored coordinates after first layout pass
+            container.post {
+                clampPosition(params, container)
+                runCatching { windowManager.updateViewLayout(container, params) }
+            }
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
             true
@@ -701,6 +784,16 @@ class OverlayWindowController(
     fun onConfigurationChanged() {
         val root = hostContainer ?: return
         val params = layoutParams ?: return
+        val isLand = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val density = context.resources.displayMetrics.density
+        val saved = GpsRepository.loadOverlayPosition(context, isLandscape = isLand)
+        if (saved != null) {
+            params.x = saved.first
+            params.y = saved.second
+        } else {
+            params.x = (16f * density + 0.5f).toInt()
+            params.y = ((if (isLand) 16f else 96f) * density + 0.5f).toInt()
+        }
         clampPosition(params, root)
         runCatching { windowManager.updateViewLayout(root, params) }
     }
@@ -739,7 +832,8 @@ class OverlayWindowController(
 
     private class DraggableOverlayContainer(
         context: Context,
-        private val onDragDelta: (dx: Int, dy: Int) -> Unit
+        private val onDragDelta: (dx: Int, dy: Int) -> Unit,
+        private val onDragFinished: () -> Unit
     ) : FrameLayout(context) {
 
         private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
@@ -796,8 +890,11 @@ class OverlayWindowController(
                 }
 
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    dragging = false
-                    return true
+                    if (dragging) {
+                        dragging = false
+                        onDragFinished()
+                        return true
+                    }
                 }
             }
             return super.onTouchEvent(event)
@@ -809,6 +906,7 @@ class OverlayWindowController(
 
         fun createOverlayLayoutParams(context: Context): WindowManager.LayoutParams {
             val density = context.resources.displayMetrics.density
+            val isLandscape = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             } else {
@@ -826,7 +924,7 @@ class OverlayWindowController(
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
                 x = (16f * density + 0.5f).toInt()
-                y = (96f * density + 0.5f).toInt()
+                y = ((if (isLandscape) 16f else 96f) * density + 0.5f).toInt()
             }
         }
     }

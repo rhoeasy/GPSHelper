@@ -9,10 +9,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -46,6 +49,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -63,9 +69,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.alert.SafetyAlertState
 import com.example.ble.HeartRateState
 import com.example.gps.GpsData
 import com.example.gps.OverlayDisplayConfig
+import com.example.gps.SafetyAlertConfig
 import com.example.gps.SpeedUnit
 import com.example.sensor.GForceData
 import com.example.track.ActivityMode
@@ -91,6 +99,8 @@ fun GpsHudAppShell(
     themeMode: ThemeMode,
     autoFocusOnLaunch: Boolean,
     overlayConfig: OverlayDisplayConfig,
+    safetyAlertConfig: SafetyAlertConfig,
+    alertState: SafetyAlertState,
     isFocusLockActive: Boolean,
     isOverlayRunning: Boolean,
     permissionStatus: PermissionStatus,
@@ -104,6 +114,7 @@ fun GpsHudAppShell(
     onToggleAutoFocusOnLaunch: (Boolean) -> Unit,
     onUpdateOverlayConfig: ((OverlayDisplayConfig) -> OverlayDisplayConfig) -> Unit,
     onResetOverlayConfig: () -> Unit,
+    onUpdateSafetyAlertConfig: ((SafetyAlertConfig) -> SafetyAlertConfig) -> Unit,
     onOpenFocusDialog: () -> Unit,
     onExitFocusLock: () -> Unit,
     onCalibrateGForceZero: () -> Unit,
@@ -149,240 +160,437 @@ fun GpsHudAppShell(
         return
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = cs.background,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        floatingActionButton = {
-            if (activeTab == MainTab.DASHBOARD) {
-                ExtendedFloatingActionButton(
-                    onClick = onToggleOverlay,
-                    modifier = Modifier.testTag("toggle_overlay_button"),
-                    shape = RoundedCornerShape(18.dp),
-                    containerColor = if (isOverlayRunning) cs.errorContainer else cs.primaryContainer,
-                    contentColor = if (isOverlayRunning) cs.onErrorContainer else cs.onPrimaryContainer,
-                    icon = {
-                        Icon(
-                            imageVector = if (isOverlayRunning) Icons.Rounded.Close else Icons.Rounded.Layers,
-                            contentDescription = null
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(cs.background)
+    ) {
+        val isLandscapeWide = maxWidth >= 600.dp && maxWidth > maxHeight
+
+        Row(modifier = Modifier.fillMaxSize()) {
+            if (isLandscapeWide) {
+                NavigationRail(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .displayCutoutPadding(),
+                    containerColor = cs.surfaceContainerLow
+                ) {
+                    Spacer(modifier = Modifier.weight(1f))
+                    NavigationRailItem(
+                        selected = activeTab == MainTab.DASHBOARD,
+                        onClick = { onSelectTab(MainTab.DASHBOARD) },
+                        modifier = Modifier.testTag("nav_tab_dashboard"),
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Speed,
+                                contentDescription = stringResource(R.string.tab_dashboard)
+                            )
+                        },
+                        label = { Text(stringResource(R.string.tab_dashboard)) },
+                        colors = NavigationRailItemDefaults.colors(
+                            selectedIconColor = cs.onPrimaryContainer,
+                            selectedTextColor = cs.onSurface,
+                            indicatorColor = cs.primaryContainer,
+                            unselectedIconColor = cs.onSurfaceVariant,
+                            unselectedTextColor = cs.onSurfaceVariant
                         )
-                    },
-                    text = {
-                        Text(
-                            text = stringResource(
-                                if (isOverlayRunning) R.string.action_stop_overlay else R.string.action_start_overlay
-                            ),
-                            style = MaterialTheme.typography.labelLarge
+                    )
+                    NavigationRailItem(
+                        selected = activeTab == MainTab.TRACKS,
+                        onClick = { onSelectTab(MainTab.TRACKS) },
+                        modifier = Modifier.testTag("nav_tab_tracks"),
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Route,
+                                contentDescription = stringResource(R.string.tab_tracks)
+                            )
+                        },
+                        label = { Text(stringResource(R.string.tab_tracks)) },
+                        colors = NavigationRailItemDefaults.colors(
+                            selectedIconColor = cs.onPrimaryContainer,
+                            selectedTextColor = cs.onSurface,
+                            indicatorColor = cs.primaryContainer,
+                            unselectedIconColor = cs.onSurfaceVariant,
+                            unselectedTextColor = cs.onSurfaceVariant
+                        )
+                    )
+                    NavigationRailItem(
+                        selected = activeTab == MainTab.SETTINGS,
+                        onClick = { onSelectTab(MainTab.SETTINGS) },
+                        modifier = Modifier.testTag("nav_tab_settings"),
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Tune,
+                                contentDescription = stringResource(R.string.tab_settings)
+                            )
+                        },
+                        label = { Text(stringResource(R.string.tab_settings)) },
+                        colors = NavigationRailItemDefaults.colors(
+                            selectedIconColor = cs.onPrimaryContainer,
+                            selectedTextColor = cs.onSurface,
+                            indicatorColor = cs.primaryContainer,
+                            unselectedIconColor = cs.onSurfaceVariant,
+                            unselectedTextColor = cs.onSurfaceVariant
+                        )
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+
+            Scaffold(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                containerColor = cs.background,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                floatingActionButton = {
+                    if (activeTab == MainTab.DASHBOARD) {
+                        ExtendedFloatingActionButton(
+                            onClick = onToggleOverlay,
+                            modifier = Modifier
+                                .then(if (isLandscapeWide) Modifier.navigationBarsPadding() else Modifier)
+                                .testTag("toggle_overlay_button"),
+                            shape = RoundedCornerShape(18.dp),
+                            containerColor = if (isOverlayRunning) cs.errorContainer else cs.primaryContainer,
+                            contentColor = if (isOverlayRunning) cs.onErrorContainer else cs.onPrimaryContainer,
+                            icon = {
+                                Icon(
+                                    imageVector = if (isOverlayRunning) Icons.Rounded.Close else Icons.Rounded.Layers,
+                                    contentDescription = null
+                                )
+                            },
+                            text = {
+                                Text(
+                                    text = stringResource(
+                                        if (isOverlayRunning) R.string.action_stop_overlay else R.string.action_start_overlay
+                                    ),
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
                         )
                     }
-                )
-            }
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = cs.surfaceContainerLow,
-                tonalElevation = 0.dp,
-                windowInsets = WindowInsets.navigationBars
-            ) {
-                NavigationBarItem(
-                    selected = activeTab == MainTab.DASHBOARD,
-                    onClick = { onSelectTab(MainTab.DASHBOARD) },
-                    modifier = Modifier.testTag("nav_tab_dashboard"),
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Speed,
-                            contentDescription = stringResource(R.string.tab_dashboard)
-                        )
-                    },
-                    label = { Text(stringResource(R.string.tab_dashboard)) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = cs.onPrimaryContainer,
-                        selectedTextColor = cs.onSurface,
-                        indicatorColor = cs.primaryContainer,
-                        unselectedIconColor = cs.onSurfaceVariant,
-                        unselectedTextColor = cs.onSurfaceVariant
-                    )
-                )
-                NavigationBarItem(
-                    selected = activeTab == MainTab.TRACKS,
-                    onClick = { onSelectTab(MainTab.TRACKS) },
-                    modifier = Modifier.testTag("nav_tab_tracks"),
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Route,
-                            contentDescription = stringResource(R.string.tab_tracks)
-                        )
-                    },
-                    label = { Text(stringResource(R.string.tab_tracks)) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = cs.onPrimaryContainer,
-                        selectedTextColor = cs.onSurface,
-                        indicatorColor = cs.primaryContainer,
-                        unselectedIconColor = cs.onSurfaceVariant,
-                        unselectedTextColor = cs.onSurfaceVariant
-                    )
-                )
-                NavigationBarItem(
-                    selected = activeTab == MainTab.SETTINGS,
-                    onClick = { onSelectTab(MainTab.SETTINGS) },
-                    modifier = Modifier.testTag("nav_tab_settings"),
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Tune,
-                            contentDescription = stringResource(R.string.tab_settings)
-                        )
-                    },
-                    label = { Text(stringResource(R.string.tab_settings)) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = cs.onPrimaryContainer,
-                        selectedTextColor = cs.onSurface,
-                        indicatorColor = cs.primaryContainer,
-                        unselectedIconColor = cs.onSurfaceVariant,
-                        unselectedTextColor = cs.onSurfaceVariant
-                    )
-                )
-            }
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .statusBarsPadding(),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            when (activeTab) {
-                MainTab.DASHBOARD -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .widthIn(max = 600.dp)
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        AnimatedVisibility(
-                            visible = isFocusLockActive,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically()
+                },
+                bottomBar = {
+                    if (!isLandscapeWide) {
+                        NavigationBar(
+                            containerColor = cs.surfaceContainerLow,
+                            tonalElevation = 0.dp,
+                            windowInsets = WindowInsets.navigationBars
                         ) {
-                            FocusActiveBanner(onExitFocusLock = onExitFocusLock)
-                        }
-
-                        GoogleTopHeader(
-                            gpsData = gpsData,
-                            themeMode = themeMode,
-                            keepScreenOn = keepScreenOn,
-                            isFocusLockActive = isFocusLockActive,
-                            onSelectThemeMode = onSelectThemeMode,
-                            onToggleKeepScreenOn = onToggleKeepScreenOn,
-                            onOpenFocusDialog = onOpenFocusDialog
-                        )
-
-                        AnimatedVisibility(
-                            visible = permissionStatus.hasMissingPermissions,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically()
-                        ) {
-                            PermissionBannerCard(
-                                status = permissionStatus,
-                                onRequestLocation = onRequestLocationPermission,
-                                onRequestOverlay = onRequestOverlayPermission,
-                                onRequestNotification = onRequestNotificationPermission
+                            NavigationBarItem(
+                                selected = activeTab == MainTab.DASHBOARD,
+                                onClick = { onSelectTab(MainTab.DASHBOARD) },
+                                modifier = Modifier.testTag("nav_tab_dashboard"),
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Speed,
+                                        contentDescription = stringResource(R.string.tab_dashboard)
+                                    )
+                                },
+                                label = { Text(stringResource(R.string.tab_dashboard)) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = cs.onPrimaryContainer,
+                                    selectedTextColor = cs.onSurface,
+                                    indicatorColor = cs.primaryContainer,
+                                    unselectedIconColor = cs.onSurfaceVariant,
+                                    unselectedTextColor = cs.onSurfaceVariant
+                                )
+                            )
+                            NavigationBarItem(
+                                selected = activeTab == MainTab.TRACKS,
+                                onClick = { onSelectTab(MainTab.TRACKS) },
+                                modifier = Modifier.testTag("nav_tab_tracks"),
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Route,
+                                        contentDescription = stringResource(R.string.tab_tracks)
+                                    )
+                                },
+                                label = { Text(stringResource(R.string.tab_tracks)) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = cs.onPrimaryContainer,
+                                    selectedTextColor = cs.onSurface,
+                                    indicatorColor = cs.primaryContainer,
+                                    unselectedIconColor = cs.onSurfaceVariant,
+                                    unselectedTextColor = cs.onSurfaceVariant
+                                )
+                            )
+                            NavigationBarItem(
+                                selected = activeTab == MainTab.SETTINGS,
+                                onClick = { onSelectTab(MainTab.SETTINGS) },
+                                modifier = Modifier.testTag("nav_tab_settings"),
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Tune,
+                                        contentDescription = stringResource(R.string.tab_settings)
+                                    )
+                                },
+                                label = { Text(stringResource(R.string.tab_settings)) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = cs.onPrimaryContainer,
+                                    selectedTextColor = cs.onSurface,
+                                    indicatorColor = cs.primaryContainer,
+                                    unselectedIconColor = cs.onSurfaceVariant,
+                                    unselectedTextColor = cs.onSurfaceVariant
+                                )
                             )
                         }
-
-                        PrimarySpeedCard(
-                            gpsData = gpsData,
-                            speedUnit = speedUnit,
-                            onSelectUnit = onSelectSpeedUnit,
-                            onOpenLocationSettings = onOpenLocationSettings
-                        )
-
-                        TelemetryGrid(gpsData = gpsData)
-
-                        GForceTelemetryCard(
-                            gForceData = gForceData,
-                            onCalibrateZero = onCalibrateGForceZero,
-                            onResetPeak = onResetGForcePeak
-                        )
-
-                        CoordinatesCard(
-                            gpsData = gpsData,
-                            onCopyCoordinates = onCopyCoordinates
-                        )
-
-                        TrackRecorderCard(
-                            snapshot = recordingSnapshot,
-                            heartRateState = heartRateState,
-                            onOpenBlePicker = onOpenBlePicker,
-                            onSelectMode = onSelectActivityMode,
-                            onStartRecording = onStartRecording,
-                            onPauseRecording = onPauseRecording,
-                            onResumeRecording = onResumeRecording,
-                            onFinishRecording = onFinishRecording,
-                            onSetStartGate = onSetStartGate
-                        )
-
-                        HeartRateStripCard(
-                            hrState = heartRateState,
-                            onOpenDevicePicker = onOpenBlePicker,
-                            onDisconnect = onDisconnectBle
-                        )
-
-                        // Generous clearance above Extended FAB
-                        Spacer(modifier = Modifier.height(78.dp))
                     }
                 }
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .statusBarsPadding()
+                        .then(if (isLandscapeWide) Modifier.navigationBarsPadding() else Modifier),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    when (activeTab) {
+                        MainTab.DASHBOARD -> {
+                            if (isLandscapeWide) {
+                                // Motorcycle Landscape Cockpit: Speed (left) + Live G-Force Radar (right) side-by-side
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    AnimatedVisibility(
+                                        visible = isFocusLockActive,
+                                        enter = fadeIn() + expandVertically(),
+                                        exit = fadeOut() + shrinkVertically()
+                                    ) {
+                                        FocusActiveBanner(onExitFocusLock = onExitFocusLock)
+                                    }
 
-                MainTab.TRACKS -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .widthIn(max = 600.dp)
-                    ) {
-                        if (isFocusLockActive) {
-                            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                FocusActiveBanner(onExitFocusLock = onExitFocusLock)
+                                    GoogleTopHeader(
+                                        gpsData = gpsData,
+                                        themeMode = themeMode,
+                                        keepScreenOn = keepScreenOn,
+                                        isFocusLockActive = isFocusLockActive,
+                                        onSelectThemeMode = onSelectThemeMode,
+                                        onToggleKeepScreenOn = onToggleKeepScreenOn,
+                                        onOpenFocusDialog = onOpenFocusDialog
+                                    )
+
+                                    AnimatedVisibility(
+                                        visible = permissionStatus.hasMissingPermissions,
+                                        enter = fadeIn() + expandVertically(),
+                                        exit = fadeOut() + shrinkVertically()
+                                    ) {
+                                        PermissionBannerCard(
+                                            status = permissionStatus,
+                                            onRequestLocation = onRequestLocationPermission,
+                                            onRequestOverlay = onRequestOverlayPermission,
+                                            onRequestNotification = onRequestNotificationPermission
+                                        )
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        // Left riding cockpit column: Speed, Heart Rate, Track Recorder
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            PrimarySpeedCard(
+                                                gpsData = gpsData,
+                                                speedUnit = speedUnit,
+                                                onSelectUnit = onSelectSpeedUnit,
+                                                onOpenLocationSettings = onOpenLocationSettings,
+                                                isAlertActive = alertState.isOverspeed
+                                            )
+
+                                            HeartRateStripCard(
+                                                hrState = heartRateState,
+                                                onOpenDevicePicker = onOpenBlePicker,
+                                                onDisconnect = onDisconnectBle,
+                                                isAlertActive = alertState.isHighHeartRate
+                                            )
+
+                                            TrackRecorderCard(
+                                                snapshot = recordingSnapshot,
+                                                heartRateState = heartRateState,
+                                                onOpenBlePicker = onOpenBlePicker,
+                                                onSelectMode = onSelectActivityMode,
+                                                onStartRecording = onStartRecording,
+                                                onPauseRecording = onPauseRecording,
+                                                onResumeRecording = onResumeRecording,
+                                                onFinishRecording = onFinishRecording,
+                                                onSetStartGate = onSetStartGate
+                                            )
+                                        }
+
+                                        // Right riding cockpit column: Live Landscape G-Force Radar, Telemetry, Coordinates
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            GForceTelemetryCard(
+                                                gForceData = gForceData,
+                                                showPeakOnDial = overlayConfig.showGForcePeakOnDial,
+                                                peakHoldSeconds = overlayConfig.gForcePeakHoldSeconds,
+                                                onCalibrateZero = onCalibrateGForceZero,
+                                                onResetPeak = onResetGForcePeak
+                                            )
+
+                                            TelemetryGrid(gpsData = gpsData)
+
+                                            CoordinatesCard(
+                                                gpsData = gpsData,
+                                                onCopyCoordinates = onCopyCoordinates
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(68.dp))
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .widthIn(max = 600.dp)
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    AnimatedVisibility(
+                                        visible = isFocusLockActive,
+                                        enter = fadeIn() + expandVertically(),
+                                        exit = fadeOut() + shrinkVertically()
+                                    ) {
+                                        FocusActiveBanner(onExitFocusLock = onExitFocusLock)
+                                    }
+
+                                    GoogleTopHeader(
+                                        gpsData = gpsData,
+                                        themeMode = themeMode,
+                                        keepScreenOn = keepScreenOn,
+                                        isFocusLockActive = isFocusLockActive,
+                                        onSelectThemeMode = onSelectThemeMode,
+                                        onToggleKeepScreenOn = onToggleKeepScreenOn,
+                                        onOpenFocusDialog = onOpenFocusDialog
+                                    )
+
+                                    AnimatedVisibility(
+                                        visible = permissionStatus.hasMissingPermissions,
+                                        enter = fadeIn() + expandVertically(),
+                                        exit = fadeOut() + shrinkVertically()
+                                    ) {
+                                        PermissionBannerCard(
+                                            status = permissionStatus,
+                                            onRequestLocation = onRequestLocationPermission,
+                                            onRequestOverlay = onRequestOverlayPermission,
+                                            onRequestNotification = onRequestNotificationPermission
+                                        )
+                                    }
+
+                                    PrimarySpeedCard(
+                                        gpsData = gpsData,
+                                        speedUnit = speedUnit,
+                                        onSelectUnit = onSelectSpeedUnit,
+                                        onOpenLocationSettings = onOpenLocationSettings,
+                                        isAlertActive = alertState.isOverspeed
+                                    )
+
+                                    TelemetryGrid(gpsData = gpsData)
+
+                                    GForceTelemetryCard(
+                                        gForceData = gForceData,
+                                        showPeakOnDial = overlayConfig.showGForcePeakOnDial,
+                                        peakHoldSeconds = overlayConfig.gForcePeakHoldSeconds,
+                                        onCalibrateZero = onCalibrateGForceZero,
+                                        onResetPeak = onResetGForcePeak
+                                    )
+
+                                    CoordinatesCard(
+                                        gpsData = gpsData,
+                                        onCopyCoordinates = onCopyCoordinates
+                                    )
+
+                                    TrackRecorderCard(
+                                        snapshot = recordingSnapshot,
+                                        heartRateState = heartRateState,
+                                        onOpenBlePicker = onOpenBlePicker,
+                                        onSelectMode = onSelectActivityMode,
+                                        onStartRecording = onStartRecording,
+                                        onPauseRecording = onPauseRecording,
+                                        onResumeRecording = onResumeRecording,
+                                        onFinishRecording = onFinishRecording,
+                                        onSetStartGate = onSetStartGate
+                                    )
+
+                                    HeartRateStripCard(
+                                        hrState = heartRateState,
+                                        onOpenDevicePicker = onOpenBlePicker,
+                                        onDisconnect = onDisconnectBle,
+                                        isAlertActive = alertState.isHighHeartRate
+                                    )
+
+                                    // Generous clearance above Extended FAB
+                                    Spacer(modifier = Modifier.height(78.dp))
+                                }
                             }
                         }
-                        TrackHistoryScreen(
-                            sessions = savedSessions,
-                            speedUnit = speedUnit,
-                            onSelectSession = onSelectSession,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
 
-                MainTab.SETTINGS -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .widthIn(max = 600.dp)
-                    ) {
-                        if (isFocusLockActive) {
-                            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                FocusActiveBanner(onExitFocusLock = onExitFocusLock)
+                        MainTab.TRACKS -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .widthIn(max = if (isLandscapeWide) 900.dp else 600.dp)
+                            ) {
+                                if (isFocusLockActive) {
+                                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                        FocusActiveBanner(onExitFocusLock = onExitFocusLock)
+                                    }
+                                }
+                                TrackHistoryScreen(
+                                    sessions = savedSessions,
+                                    speedUnit = speedUnit,
+                                    onSelectSession = onSelectSession,
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                         }
-                        SettingsScreen(
-                            overlayConfig = overlayConfig,
-                            gpsData = gpsData,
-                            gForceData = gForceData,
-                            heartRateState = heartRateState,
-                            speedUnit = speedUnit,
-                            themeMode = themeMode,
-                            keepScreenOn = keepScreenOn,
-                            autoFocusOnLaunch = autoFocusOnLaunch,
-                            onUpdateOverlayConfig = onUpdateOverlayConfig,
-                            onResetOverlayConfig = onResetOverlayConfig,
-                            onSelectSpeedUnit = onSelectSpeedUnit,
-                            onSelectThemeMode = onSelectThemeMode,
-                            onToggleKeepScreenOn = onToggleKeepScreenOn,
-                            onToggleAutoFocusOnLaunch = onToggleAutoFocusOnLaunch,
-                            modifier = Modifier.weight(1f)
-                        )
+
+                        MainTab.SETTINGS -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .widthIn(max = if (isLandscapeWide) 840.dp else 600.dp)
+                            ) {
+                                if (isFocusLockActive) {
+                                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                        FocusActiveBanner(onExitFocusLock = onExitFocusLock)
+                                    }
+                                }
+                                SettingsScreen(
+                                    overlayConfig = overlayConfig,
+                                    safetyAlertConfig = safetyAlertConfig,
+                                    alertState = alertState,
+                                    gpsData = gpsData,
+                                    gForceData = gForceData,
+                                    heartRateState = heartRateState,
+                                    speedUnit = speedUnit,
+                                    themeMode = themeMode,
+                                    keepScreenOn = keepScreenOn,
+                                    autoFocusOnLaunch = autoFocusOnLaunch,
+                                    onUpdateOverlayConfig = onUpdateOverlayConfig,
+                                    onResetOverlayConfig = onResetOverlayConfig,
+                                    onUpdateSafetyAlertConfig = onUpdateSafetyAlertConfig,
+                                    onSelectSpeedUnit = onSelectSpeedUnit,
+                                    onSelectThemeMode = onSelectThemeMode,
+                                    onToggleKeepScreenOn = onToggleKeepScreenOn,
+                                    onToggleAutoFocusOnLaunch = onToggleAutoFocusOnLaunch,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
                     }
                 }
             }

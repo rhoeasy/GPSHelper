@@ -3,11 +3,18 @@ package com.example
 import android.app.Application
 import android.content.Context
 import android.graphics.PixelFormat
+import android.view.Surface
 import android.view.WindowManager
 import androidx.test.core.app.ApplicationProvider
+import com.example.alert.SafetyAlertMonitor
+import com.example.ble.BleConnectionStatus
+import com.example.ble.HeartRateState
 import com.example.ble.parseHeartRateBpm
 import com.example.gps.GpsData
 import com.example.gps.GpsFixStatus
+import com.example.gps.GpsRepository
+import com.example.gps.OverlayScale
+import com.example.gps.SafetyAlertConfig
 import com.example.gps.SpeedUnit
 import com.example.overlay.OverlayWindowController
 import com.example.sensor.GForceFusionEngine
@@ -339,5 +346,191 @@ class ExampleRobolectricTest {
         // Reset restores defaults cleanly
         vm.resetOverlayConfig()
         assertEquals(3, vm.overlayConfig.value.enabledCount)
+    }
+
+    @Test
+    fun `gforce peak holds vector direction and expires according to configurable peakHoldDurationMs`() {
+        val engine = GForceFusionEngine()
+        val g = GForceFusionEngine.STANDARD_GRAVITY
+
+        // Configure 60-second peak hold window
+        engine.setPeakHoldDurationMs(60_000L)
+
+        // Initialize flat phone with gyro active at t = 1000ms
+        engine.onAccelerometerSample(0f, 0f, g, elapsedRealtimeMs = 1_000L, hasGyroscope = true)
+        engine.onGyroscopeSample(0f, 0f, 0f, timestampNs = 1_000_000_000L)
+
+        // Apply sustained +0.9G lateral cornering force for 15 samples (300ms)
+        var state = engine.onAccelerometerSample(0.9f * g, 0f, g, elapsedRealtimeMs = 1_020L, hasGyroscope = true)
+        repeat(15) { i ->
+            val tMs = 1_040L + i * 20L
+            engine.onGyroscopeSample(0f, 0f, 0f, timestampNs = tMs * 1_000_000L)
+            state = engine.onAccelerometerSample(0.9f * g, 0f, g, elapsedRealtimeMs = tMs, hasGyroscope = true)
+        }
+        val recordedPeak = state.peakG
+        assertTrue("Expected peakG > 0.70G, got $recordedPeak", recordedPeak > 0.70f)
+        assertTrue("Expected positive peakLateralG, got ${state.peakLateralG}", state.peakLateralG > 0.70f)
+
+        // Return to stationary and check at 30s later -> peak MUST still be preserved
+        repeat(15) { i ->
+            state = engine.onAccelerometerSample(0f, 0f, g, elapsedRealtimeMs = 31_000L + i * 20L, hasGyroscope = true)
+        }
+        assertEquals(recordedPeak, state.peakG, 0.01f)
+        assertTrue(state.peakLateralG > 0.70f)
+
+        // Stationary 65s after peak -> peak MUST be flushed cleanly to ~0
+        state = engine.onAccelerometerSample(0f, 0f, g, elapsedRealtimeMs = 70_000L, hasGyroscope = true)
+        assertTrue("Expected peak to refresh after 60s hold, got ${state.peakG}", state.peakG < 0.05f)
+
+        // Infinite hold mode (0L) preserves peak indefinitely until manual reset
+        engine.setPeakHoldDurationMs(0L)
+        repeat(15) { i ->
+            val tMs = 71_000L + i * 20L
+            engine.onGyroscopeSample(0f, 0f, 0f, timestampNs = tMs * 1_000_000L)
+            state = engine.onAccelerometerSample(0f, 0.85f * g, g, elapsedRealtimeMs = tMs, hasGyroscope = true)
+        }
+        val foreverPeak = state.peakG
+        assertTrue("Expected foreverPeak > 0.65G, got $foreverPeak", foreverPeak > 0.65f)
+        repeat(10) { i ->
+            state = engine.onAccelerometerSample(0f, 0f, g, elapsedRealtimeMs = 700_000L + i * 20L, hasGyroscope = true)
+        }
+        assertEquals(foreverPeak, state.peakG, 0.01f)
+    }
+
+    @Test
+    fun `safety alert monitor detects overspeed and high heart rate thresholds accurately`() {
+        val config = SafetyAlertConfig(
+            speedAlertEnabled = true,
+            speedLimitKmh = 60,
+            hrAlertEnabled = true,
+            hrLimitBpm = 175,
+            vibrateOnAlert = true
+        )
+
+        val safeGps = GpsData(hasFix = true, speedMps = 12f) // 43.2 km/h
+        val fastGps = GpsData(hasFix = true, speedMps = 18f) // 64.8 km/h
+        val safeHr = HeartRateState(status = BleConnectionStatus.CONNECTED, bpm = 152)
+        val highHr = HeartRateState(status = BleConnectionStatus.CONNECTED, bpm = 181)
+
+        val safeState = SafetyAlertMonitor.evaluate(safeGps, safeHr, config)
+        assertFalse(safeState.isOverspeed)
+        assertFalse(safeState.isHighHeartRate)
+        assertFalse(safeState.isAnyAlert)
+
+        val speedAlert = SafetyAlertMonitor.evaluate(fastGps, safeHr, config)
+        assertTrue(speedAlert.isOverspeed)
+        assertFalse(speedAlert.isHighHeartRate)
+        assertTrue(speedAlert.isAnyAlert)
+
+        val hrAlert = SafetyAlertMonitor.evaluate(safeGps, highHr, config)
+        assertFalse(hrAlert.isOverspeed)
+        assertTrue(hrAlert.isHighHeartRate)
+        assertTrue(hrAlert.isAnyAlert)
+
+        val disabledAlert = SafetyAlertMonitor.evaluate(
+            fastGps,
+            highHr,
+            config.copy(speedAlertEnabled = false, hrAlertEnabled = false)
+        )
+        assertFalse(disabledAlert.isAnyAlert)
+    }
+
+    @Test
+    fun `overlay appearance font scale position memory and safety alerts persist cleanly`() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val vm = GpsDashboardViewModel(app)
+
+        vm.updateOverlayConfig {
+            it.copy(
+                backgroundAlpha = 0.72f,
+                scale = OverlayScale.LARGE,
+                fontScale = 1.40f,
+                showGForcePeakOnDial = true,
+                gForcePeakHoldSeconds = 180
+            )
+        }
+        assertEquals(0.72f, vm.overlayConfig.value.backgroundAlpha, 0.005f)
+        assertEquals(OverlayScale.LARGE, vm.overlayConfig.value.scale)
+        assertEquals(1.40f, vm.overlayConfig.value.fontScale, 0.005f)
+        assertEquals(180, vm.overlayConfig.value.gForcePeakHoldSeconds)
+
+        GpsRepository.saveOverlayPosition(app, x = 240, y = 410)
+        assertEquals(240 to 410, GpsRepository.loadOverlayPosition(app))
+
+        vm.updateSafetyAlertConfig {
+            it.copy(speedAlertEnabled = true, speedLimitKmh = 95, hrAlertEnabled = true, hrLimitBpm = 180)
+        }
+        assertTrue(vm.safetyAlertConfig.value.speedAlertEnabled)
+        assertEquals(95, vm.safetyAlertConfig.value.speedLimitKmh)
+        assertEquals(180, vm.safetyAlertConfig.value.hrLimitBpm)
+    }
+
+    @Test
+    fun `landscape ROTATION_90 and ROTATION_270 remap lateral and longitudinal G-force accurately for motorcycle mounts`() {
+        val g = GForceFusionEngine.STANDARD_GRAVITY
+        val invSqrt2 = (1.0 / sqrt(2.0)).toFloat()
+
+        // --- Case 1: Surface.ROTATION_90 (phone turned 90° CCW; top points LEFT, bottom/USB points RIGHT) ---
+        val engine90 = GForceFusionEngine()
+        engine90.setDisplayRotation(Surface.ROTATION_90)
+
+        // Tilted 45° back on motorcycle handlebar: gravity points along (+X_dev + Z_dev)/sqrt(2)
+        engine90.onAccelerometerSample(g * invSqrt2, 0f, g * invSqrt2, elapsedRealtimeMs = 100L, hasGyroscope = true)
+        engine90.onGyroscopeSample(0f, 0f, 0f, timestampNs = 100_000_000L)
+
+        // Apply +1.0G force to Screen-RIGHT (which is -Y_dev in ROTATION_90!)
+        var state90 = engine90.onAccelerometerSample(g * invSqrt2, -1.0f * g, g * invSqrt2, elapsedRealtimeMs = 120L, hasGyroscope = true)
+        repeat(20) { i ->
+            val tMs = 140L + i * 20L
+            engine90.onGyroscopeSample(0f, 0f, 0f, timestampNs = tMs * 1_000_000L)
+            state90 = engine90.onAccelerometerSample(g * invSqrt2, -1.0f * g, g * invSqrt2, elapsedRealtimeMs = tMs, hasGyroscope = true)
+        }
+        assertTrue("Expected landscape flag true", state90.isLandscape)
+        assertTrue("ROTATION_90: rightward force (-Y_dev) must map to +lateralG > 0.85, got ${state90.lateralG}", state90.lateralG > 0.85f)
+        assertTrue("ROTATION_90: longitudinalG should be near 0, got ${state90.longitudinalG}", kotlin.math.abs(state90.longitudinalG) < 0.15f)
+
+        // Now apply +1.0G forward acceleration (ahead of bike = (+X_dev - Z_dev)/sqrt(2) in 45° tilted ROTATION_90)
+        repeat(25) { i ->
+            val tMs = 600L + i * 20L
+            engine90.onGyroscopeSample(0f, 0f, 0f, timestampNs = tMs * 1_000_000L)
+            state90 = engine90.onAccelerometerSample(
+                ax = g * invSqrt2 + g * invSqrt2,
+                ay = 0f,
+                az = g * invSqrt2 - g * invSqrt2,
+                elapsedRealtimeMs = tMs,
+                hasGyroscope = true
+            )
+        }
+        assertTrue("ROTATION_90: forward force must map to +longitudinalG > 0.85, got ${state90.longitudinalG}", state90.longitudinalG > 0.85f)
+        assertTrue("ROTATION_90: lateralG should be near 0, got ${state90.lateralG}", kotlin.math.abs(state90.lateralG) < 0.15f)
+
+        // --- Case 2: Surface.ROTATION_270 (phone turned 90° CW; top points RIGHT, bottom/USB points LEFT) ---
+        val engine270 = GForceFusionEngine()
+        engine270.setDisplayRotation(Surface.ROTATION_270)
+
+        // Tilted 45° back on handlebar: gravity points along (-X_dev + Z_dev)/sqrt(2)
+        engine270.onAccelerometerSample(-g * invSqrt2, 0f, g * invSqrt2, elapsedRealtimeMs = 100L, hasGyroscope = true)
+        engine270.onGyroscopeSample(0f, 0f, 0f, timestampNs = 100_000_000L)
+
+        // Apply +1.0G force to Screen-RIGHT (which is +Y_dev in ROTATION_270!)
+        var state270 = engine270.onAccelerometerSample(-g * invSqrt2, 1.0f * g, g * invSqrt2, elapsedRealtimeMs = 120L, hasGyroscope = true)
+        repeat(20) { i ->
+            val tMs = 140L + i * 20L
+            engine270.onGyroscopeSample(0f, 0f, 0f, timestampNs = tMs * 1_000_000L)
+            state270 = engine270.onAccelerometerSample(-g * invSqrt2, 1.0f * g, g * invSqrt2, elapsedRealtimeMs = tMs, hasGyroscope = true)
+        }
+        assertTrue(state270.isLandscape)
+        assertTrue("ROTATION_270: rightward force (+Y_dev) must map to +lateralG > 0.85, got ${state270.lateralG}", state270.lateralG > 0.85f)
+        assertTrue("ROTATION_270: longitudinalG should be near 0, got ${state270.longitudinalG}", kotlin.math.abs(state270.longitudinalG) < 0.15f)
+    }
+
+    @Test
+    fun `overlay position memory stores portrait and landscape coordinates independently`() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        GpsRepository.saveOverlayPosition(app, x = 80, y = 1400, isLandscape = false)
+        GpsRepository.saveOverlayPosition(app, x = 1850, y = 40, isLandscape = true)
+
+        assertEquals(80 to 1400, GpsRepository.loadOverlayPosition(app, isLandscape = false))
+        assertEquals(1850 to 40, GpsRepository.loadOverlayPosition(app, isLandscape = true))
     }
 }

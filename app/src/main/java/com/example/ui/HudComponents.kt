@@ -285,6 +285,7 @@ fun PrimarySpeedCard(
     speedUnit: SpeedUnit,
     onSelectUnit: (SpeedUnit) -> Unit,
     onOpenLocationSettings: () -> Unit,
+    isAlertActive: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -295,6 +296,10 @@ fun PrimarySpeedCard(
         targetValue = if (gpsData.hasFix) targetFraction else 0f,
         animationSpec = spring(dampingRatio = 0.85f, stiffness = 200f),
         label = "speed_bar_progress"
+    )
+    val cardBg by animateColorAsState(
+        targetValue = if (isAlertActive) cs.errorContainer else cs.surfaceContainerLow,
+        label = "speed_card_bg"
     )
 
     val providerText = when (gpsData.fixStatus) {
@@ -316,7 +321,7 @@ fun PrimarySpeedCard(
             .fillMaxWidth()
             .testTag("primary_speed_card"),
         shape = RoundedCornerShape(28.dp),
-        color = cs.surfaceContainerLow
+        color = cardBg
     ) {
         Column(
             modifier = Modifier
@@ -335,16 +340,37 @@ fun PrimarySpeedCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
-                        imageVector = providerIcon,
+                        imageVector = if (isAlertActive) Icons.Rounded.WarningAmber else providerIcon,
                         contentDescription = null,
-                        tint = if (gpsData.fixStatus == GpsFixStatus.LOCKED) cs.secondary else cs.primary,
+                        tint = when {
+                            isAlertActive -> cs.error
+                            gpsData.fixStatus == GpsFixStatus.LOCKED -> cs.secondary
+                            else -> cs.primary
+                        },
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
                         text = stringResource(R.string.speed_label),
                         style = MaterialTheme.typography.titleSmall,
-                        color = cs.onSurfaceVariant
+                        color = if (isAlertActive) cs.onErrorContainer else cs.onSurfaceVariant
                     )
+                    if (isAlertActive) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = cs.error,
+                            modifier = Modifier.testTag("speed_overspeed_badge")
+                        ) {
+                            Text(
+                                text = stringResource(R.string.alert_badge_overspeed),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 10.5.sp
+                                ),
+                                color = cs.onError,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                 }
 
                 SpeedUnitToggleChip(
@@ -369,7 +395,11 @@ fun PrimarySpeedCard(
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = (-2.5).sp
                     ),
-                    color = if (gpsData.hasFix) cs.onSurface else cs.outline,
+                    color = when {
+                        isAlertActive -> cs.error
+                        gpsData.hasFix -> cs.onSurface
+                        else -> cs.outline
+                    },
                     maxLines = 1,
                     modifier = Modifier.testTag("speed_readout_text")
                 )
@@ -380,14 +410,14 @@ fun PrimarySpeedCard(
                         fontFamily = JetBrainsMonoFontFamily,
                         fontWeight = FontWeight.Medium
                     ),
-                    color = cs.onSurfaceVariant,
+                    color = if (isAlertActive) cs.onErrorContainer else cs.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
             }
 
             // Minimalist rounded M3 speed bar
-            val trackColor = cs.surfaceContainerHighest
-            val fillColor = cs.primary
+            val trackColor = if (isAlertActive) cs.error.copy(alpha = 0.22f) else cs.surfaceContainerHighest
+            val fillColor = if (isAlertActive) cs.error else cs.primary
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()

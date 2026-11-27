@@ -19,13 +19,20 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.alert.SafetyAlertMonitor
 import com.example.ble.HeartRateRepository
+import com.example.ble.HeartRateState
 import com.example.gps.GpsData
 import com.example.gps.GpsRepository
+import com.example.gps.SafetyAlertConfig
 import com.example.sensor.GForceData
 import com.example.sensor.MotionSensorManager
+import com.example.track.RecordingSnapshot
+import com.example.track.TrackFormatters
+import com.example.track.TrackRecorder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
@@ -33,9 +40,12 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 /**
- * Foreground location service hosting the Jetpack Compose [OverlayWindow] via
- * [OverlayWindowController] (`WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY`),
- * displaying real-time Accelerometer + Gyroscope fused G-Force and Altitude on top of other apps.
+ * Unified Foreground Location Service powering:
+ * 1. The draggable Jetpack Compose [OverlayWindow] (`TYPE_APPLICATION_OVERLAY`), and/or
+ * 2. Background GPS + IMU keep-alive during active Karting / Hiking track recording
+ *    (preventing OEM sleep kills when the screen is off in a pocket).
+ *
+ * The service stays alive while either mode is active and cleanly stops itself when both end.
  */
 class FloatingGpsService : Service() {
 
@@ -43,101 +53,178 @@ class FloatingGpsService : Service() {
 
     private var notificationManager: NotificationManager? = null
     private var overlayController: OverlayWindowController? = null
+    private var telemetryJob: Job? = null
     private var lastNotificationUpdateMs = 0L
+
+    private var isForegroundStarted = false
+    private var isRecordingKeepAlive = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        GpsRepository.ensurePrefsLoaded(applicationContext)
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
-
-        if (!Settings.canDrawOverlays(this) || !GpsRepository.hasLocationPermission(this)) {
-            Log.w(TAG, "Cannot start floating overlay: missing overlay or location permission")
-            stopSelf()
-            return START_NOT_STICKY
-        }
-
-        val initialNotification = buildNotification(
-            gpsData = GpsRepository.gpsData.value,
-            gForce = MotionSensorManager.gForceData.value
-        )
-
-        try {
-            val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            } else {
-                0
+        when (intent?.action) {
+            ACTION_STOP, ACTION_HIDE_OVERLAY -> {
+                detachOverlay()
+                if (!isRecordingKeepAlive) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                refreshNotificationNow()
+                return START_STICKY
             }
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, initialNotification, fgsType)
-        } catch (se: SecurityException) {
-            Log.e(TAG, "SecurityException starting foreground location service", se)
-            stopSelf()
-            return START_NOT_STICKY
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to enter foreground state", e)
-            stopSelf()
-            return START_NOT_STICKY
+
+            ACTION_STOP_RECORDING_KEEPALIVE -> {
+                isRecordingKeepAlive = false
+                if (overlayController == null) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                refreshNotificationNow()
+                return START_STICKY
+            }
+
+            ACTION_START_RECORDING_KEEPALIVE -> {
+                if (!GpsRepository.hasLocationPermission(this)) {
+                    if (overlayController == null) stopSelf()
+                    return START_NOT_STICKY
+                }
+                isRecordingKeepAlive = true
+                if (!ensureForegroundAndSensors()) {
+                    isRecordingKeepAlive = false
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                refreshNotificationNow()
+                return START_STICKY
+            }
+
+            else -> {
+                // Default / ACTION_START: Show floating overlay window
+                if (!Settings.canDrawOverlays(this) || !GpsRepository.hasLocationPermission(this)) {
+                    Log.w(TAG, "Cannot start floating overlay: missing overlay or location permission")
+                    if (!isRecordingKeepAlive) stopSelf()
+                    return START_NOT_STICKY
+                }
+                if (!ensureForegroundAndSensors()) {
+                    if (!isRecordingKeepAlive) stopSelf()
+                    return START_NOT_STICKY
+                }
+                if (overlayController == null) {
+                    val controller = OverlayWindowController(
+                        context = this,
+                        gForceFlow = MotionSensorManager.gForceData,
+                        gpsFlow = GpsRepository.gpsData,
+                        speedUnitFlow = GpsRepository.speedUnit,
+                        heartRateFlow = HeartRateRepository.heartRateState,
+                        overlayConfigFlow = GpsRepository.overlayConfig,
+                        safetyAlertConfigFlow = GpsRepository.safetyAlertConfig,
+                        themeModeFlow = GpsRepository.themeMode,
+                        onCloseRequested = {
+                            detachOverlay()
+                            if (!isRecordingKeepAlive) {
+                                stopSelf()
+                            } else {
+                                refreshNotificationNow()
+                            }
+                        }
+                    )
+                    if (controller.attach()) {
+                        overlayController = controller
+                        GpsRepository.setOverlayRunning(true)
+                    } else if (!isRecordingKeepAlive) {
+                        stopSelf()
+                        return START_NOT_STICKY
+                    }
+                }
+                refreshNotificationNow()
+                return START_STICKY
+            }
+        }
+    }
+
+    private fun ensureForegroundAndSensors(): Boolean {
+        if (!isForegroundStarted) {
+            val initialNotification = buildNotification(
+                gpsData = GpsRepository.gpsData.value,
+                gForce = MotionSensorManager.gForceData.value,
+                recording = TrackRecorder.snapshot.value
+            )
+            try {
+                val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                } else {
+                    0
+                }
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, initialNotification, fgsType)
+                isForegroundStarted = true
+            } catch (se: SecurityException) {
+                Log.e(TAG, "SecurityException starting foreground location service", se)
+                return false
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to enter foreground state", e)
+                return false
+            }
         }
 
-        GpsRepository.setOverlayRunning(true)
         GpsRepository.startTracking(applicationContext, CLIENT_ID)
         MotionSensorManager.startListening(applicationContext, CLIENT_ID)
+        startTelemetryObserverIfNeeded()
+        return true
+    }
 
-        if (overlayController == null) {
-            val controller = OverlayWindowController(
-                context = this,
-                gForceFlow = MotionSensorManager.gForceData,
-                gpsFlow = GpsRepository.gpsData,
-                speedUnitFlow = GpsRepository.speedUnit,
-                heartRateFlow = HeartRateRepository.heartRateState,
-                overlayConfigFlow = GpsRepository.overlayConfig,
-                themeModeFlow = GpsRepository.themeMode,
-                onCloseRequested = { stopSelf() }
-            )
-            if (controller.attach()) {
-                overlayController = controller
-                observeNotificationTelemetry()
-            } else {
-                stopSelf()
-                return START_NOT_STICKY
-            }
-        }
-
-        return START_STICKY
+    private fun detachOverlay() {
+        overlayController?.detach()
+        overlayController = null
+        GpsRepository.setOverlayRunning(false)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        MotionSensorManager.refreshDisplayRotation(this)
         overlayController?.onConfigurationChanged()
     }
 
     override fun onDestroy() {
         serviceScope.cancel()
-        overlayController?.detach()
-        overlayController = null
+        detachOverlay()
+        isRecordingKeepAlive = false
+        isForegroundStarted = false
         GpsRepository.stopTracking(CLIENT_ID)
         MotionSensorManager.stopListening(CLIENT_ID)
-        GpsRepository.setOverlayRunning(false)
         super.onDestroy()
     }
 
-    private fun observeNotificationTelemetry() {
-        serviceScope.launch {
+    private data class ServiceTelemetryBundle(
+        val gps: GpsData,
+        val gForce: GForceData,
+        val hr: HeartRateState,
+        val alertCfg: SafetyAlertConfig,
+        val recording: RecordingSnapshot
+    )
+
+    private fun startTelemetryObserverIfNeeded() {
+        if (telemetryJob != null) return
+        telemetryJob = serviceScope.launch {
             combine(
                 GpsRepository.gpsData,
-                MotionSensorManager.gForceData
-            ) { gps, gForce -> gps to gForce }
-                .collect { (gps, gForce) ->
-                    maybeUpdateNotification(gps, gForce)
-                }
+                MotionSensorManager.gForceData,
+                HeartRateRepository.heartRateState,
+                GpsRepository.safetyAlertConfig,
+                TrackRecorder.snapshot
+            ) { gps, gForce, hr, alertCfg, recording ->
+                ServiceTelemetryBundle(gps, gForce, hr, alertCfg, recording)
+            }.collect { bundle ->
+                val alertState = SafetyAlertMonitor.evaluate(bundle.gps, bundle.hr, bundle.alertCfg)
+                SafetyAlertMonitor.maybeVibrate(applicationContext, alertState, bundle.alertCfg)
+                maybeUpdateNotification(bundle.gps, bundle.gForce, bundle.recording)
+            }
         }
     }
 
@@ -155,16 +242,39 @@ class FloatingGpsService : Service() {
         }
     }
 
-    private fun maybeUpdateNotification(gps: GpsData, gForce: GForceData) {
+    private fun refreshNotificationNow() {
+        if (!isForegroundStarted) return
+        lastNotificationUpdateMs = SystemClock.elapsedRealtime()
+        runCatching {
+            notificationManager?.notify(
+                NOTIFICATION_ID,
+                buildNotification(
+                    gpsData = GpsRepository.gpsData.value,
+                    gForce = MotionSensorManager.gForceData.value,
+                    recording = TrackRecorder.snapshot.value
+                )
+            )
+        }
+    }
+
+    private fun maybeUpdateNotification(
+        gps: GpsData,
+        gForce: GForceData,
+        recording: RecordingSnapshot
+    ) {
         val now = SystemClock.elapsedRealtime()
         if (now - lastNotificationUpdateMs < NOTIFICATION_THROTTLE_MS) return
         lastNotificationUpdateMs = now
         runCatching {
-            notificationManager?.notify(NOTIFICATION_ID, buildNotification(gps, gForce))
+            notificationManager?.notify(NOTIFICATION_ID, buildNotification(gps, gForce, recording))
         }
     }
 
-    private fun buildNotification(gpsData: GpsData, gForce: GForceData): Notification {
+    private fun buildNotification(
+        gpsData: GpsData,
+        gForce: GForceData,
+        recording: RecordingSnapshot
+    ): Notification {
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -175,27 +285,33 @@ class FloatingGpsService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val stopIntent = Intent(this, FloatingGpsService::class.java).apply {
-            action = ACTION_STOP
+        val hasOverlay = overlayController != null
+        val isRecording = isRecordingKeepAlive || recording.isActive
+
+        val title = when {
+            hasOverlay && isRecording -> getString(R.string.notification_title_both)
+            isRecording -> getString(R.string.notification_title_recording)
+            else -> getString(R.string.notification_title)
         }
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            1,
-            stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
 
         val altStr = if (gpsData.hasFix && gpsData.altitudeMeters != null) {
             String.format(Locale.US, "海拔 %.1f m", gpsData.altitudeMeters)
         } else {
             getString(R.string.notification_waiting_fix)
         }
-        val gStr = String.format(Locale.US, "%.2f G (峰值 %.2f G)", gForce.totalG, gForce.peakG)
-        val contentText = "$altStr  ·  $gStr"
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val contentText = if (isRecording) {
+            val dist = TrackFormatters.formatDistance(recording.distanceMeters)
+            val dur = TrackFormatters.formatDuration(recording.elapsedMs)
+            "${recording.mode.labelZh} $dist · $dur · $altStr"
+        } else {
+            val gStr = String.format(Locale.US, "%.2f G (峰值 %.2f G)", gForce.totalG, gForce.peakG)
+            "$altStr  ·  $gStr"
+        }
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_hud_notification)
-            .setContentTitle(getString(R.string.notification_title))
+            .setContentTitle(title)
             .setContentText(contentText)
             .setContentIntent(openAppPendingIntent)
             .setOngoing(true)
@@ -203,12 +319,25 @@ class FloatingGpsService : Service() {
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
-            .addAction(
+
+        if (hasOverlay) {
+            val stopOverlayIntent = Intent(this, FloatingGpsService::class.java).apply {
+                action = ACTION_HIDE_OVERLAY
+            }
+            val stopOverlayPendingIntent = PendingIntent.getService(
+                this,
+                1,
+                stopOverlayIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(
                 0,
                 getString(R.string.action_stop_overlay),
-                stopPendingIntent
+                stopOverlayPendingIntent
             )
-            .build()
+        }
+
+        return builder.build()
     }
 
     companion object {
@@ -220,6 +349,9 @@ class FloatingGpsService : Service() {
 
         const val ACTION_START = "com.example.overlay.ACTION_START"
         const val ACTION_STOP = "com.example.overlay.ACTION_STOP"
+        const val ACTION_HIDE_OVERLAY = "com.example.overlay.ACTION_HIDE_OVERLAY"
+        const val ACTION_START_RECORDING_KEEPALIVE = "com.example.overlay.ACTION_START_RECORDING_KEEPALIVE"
+        const val ACTION_STOP_RECORDING_KEEPALIVE = "com.example.overlay.ACTION_STOP_RECORDING_KEEPALIVE"
 
         fun start(context: Context) {
             val intent = Intent(context, FloatingGpsService::class.java).apply {
@@ -229,7 +361,28 @@ class FloatingGpsService : Service() {
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, FloatingGpsService::class.java))
+            val intent = Intent(context, FloatingGpsService::class.java).apply {
+                action = ACTION_HIDE_OVERLAY
+            }
+            runCatching { context.startService(intent) }
+                .onFailure {
+                    runCatching { context.stopService(Intent(context, FloatingGpsService::class.java)) }
+                }
+        }
+
+        fun startRecordingKeepAlive(context: Context) {
+            if (!GpsRepository.hasLocationPermission(context)) return
+            val intent = Intent(context, FloatingGpsService::class.java).apply {
+                action = ACTION_START_RECORDING_KEEPALIVE
+            }
+            runCatching { ContextCompat.startForegroundService(context, intent) }
+        }
+
+        fun stopRecordingKeepAlive(context: Context) {
+            val intent = Intent(context, FloatingGpsService::class.java).apply {
+                action = ACTION_STOP_RECORDING_KEEPALIVE
+            }
+            runCatching { context.startService(intent) }
         }
     }
 }

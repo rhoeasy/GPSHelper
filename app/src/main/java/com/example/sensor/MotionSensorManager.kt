@@ -5,7 +5,12 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.hardware.display.DisplayManager
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.view.Display
+import android.view.Surface
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,14 +40,20 @@ data class GForceData(
     val totalG: Float = 0f,
     val total3DG: Float = 0f,
     val peakG: Float = 0f,
+    val peakLateralG: Float = 0f,
+    val peakLongitudinalG: Float = 0f,
     val yawRateDegPerSec: Float = 0f,
     val rawImu: ImuRawData = ImuRawData(),
     val trail: List<GForceSample> = emptyList(),
     val hasAccelerometer: Boolean = true,
     val hasGyroscope: Boolean = false,
     val isGyroFused: Boolean = false,
-    val isAvailable: Boolean = true
-)
+    val isAvailable: Boolean = true,
+    val displayRotation: Int = Surface.ROTATION_0
+) {
+    val isLandscape: Boolean
+        get() = displayRotation == Surface.ROTATION_90 || displayRotation == Surface.ROTATION_270
+}
 
 /**
  * Pure, deterministic Accelerometer + Gyroscope complementary-filter engine.
@@ -61,7 +72,7 @@ class GForceFusionEngine {
         private const val DYNAMIC_ACCEL_THRESHOLD_MPS2 = 1.2f
         private const val OUTPUT_SMOOTHING_ALPHA = 0.28f
         private const val STATIONARY_DEADBAND_G = 0.015f
-        private const val PEAK_HOLD_MS = 4_000L
+        private const val DEFAULT_PEAK_HOLD_MS = 60_000L
         private const val MAX_TRAIL_POINTS = 12
         private const val MAX_GYRO_DT_SEC = 0.1f
         private const val RAD_TO_DEG = (180.0 / PI).toFloat()
@@ -87,9 +98,38 @@ class GForceFusionEngine {
     private var filteredLongG = 0f
     private var filteredVertG = 0f
     private var peakGValue = 0f
+    private var peakLatGValue = 0f
+    private var peakLongGValue = 0f
     private var peakTimestampMs = 0L
+    private var peakHoldDurationMs: Long = DEFAULT_PEAK_HOLD_MS
+    private var displayRotation: Int = Surface.ROTATION_0
 
     private val trailBuffer = ArrayDeque<GForceSample>()
+
+    fun setPeakHoldDurationMs(durationMs: Long) {
+        peakHoldDurationMs = durationMs.coerceAtLeast(0L)
+    }
+
+    /**
+     * Updates the current Android display rotation (Surface.ROTATION_0 / 90 / 180 / 270) so
+     * lateralG and longitudinalG always align with the rider's screen orientation (portrait
+     * or left/right motorcycle landscape mount) without disrupting the gravity estimate.
+     */
+    fun setDisplayRotation(rotation: Int) {
+        val normalized = when (rotation) {
+            Surface.ROTATION_90, Surface.ROTATION_180, Surface.ROTATION_270 -> rotation
+            else -> Surface.ROTATION_0
+        }
+        if (displayRotation != normalized) {
+            displayRotation = normalized
+            // Clear short trail & smoothing state so old-axis vectors do not smear sideways
+            filteredLatG = 0f
+            filteredLongG = 0f
+            trailBuffer.clear()
+        }
+    }
+
+    fun getDisplayRotation(): Int = displayRotation
 
     fun reset() {
         gravityInitialized = false
@@ -106,6 +146,8 @@ class GForceFusionEngine {
         filteredLongG = 0f
         filteredVertG = 0f
         peakGValue = 0f
+        peakLatGValue = 0f
+        peakLongGValue = 0f
         peakTimestampMs = 0L
         trailBuffer.clear()
     }
@@ -126,12 +168,16 @@ class GForceFusionEngine {
         filteredLongG = 0f
         filteredVertG = 0f
         peakGValue = 0f
+        peakLatGValue = 0f
+        peakLongGValue = 0f
         peakTimestampMs = 0L
         trailBuffer.clear()
     }
 
     fun resetPeak() {
         peakGValue = 0f
+        peakLatGValue = 0f
+        peakLongGValue = 0f
         peakTimestampMs = 0L
     }
 
@@ -233,24 +279,54 @@ class GForceFusionEngine {
         val horizY = linY - vertAcc * uy
         val horizZ = linZ - vertAcc * uz
 
-        // Orthonormal horizontal basis:
-        // r_hat = normalized projection of device +X (or +Y if device held sideways) onto horizontal plane
+        // Orthonormal horizontal basis aligned to the active display orientation:
+        // Screen-Right vector in raw device coordinates for ROTATION_0 / 90 / 180 / 270:
+        //   ROTATION_0   (portrait):         screenRight = (+1,  0, 0), screenUp = ( 0, +1, 0)
+        //   ROTATION_90  (landscape CCW):    screenRight = ( 0, -1, 0), screenUp = (+1,  0, 0)
+        //   ROTATION_180 (reverse portrait): screenRight = (-1,  0, 0), screenUp = ( 0, -1, 0)
+        //   ROTATION_270 (landscape CW):     screenRight = ( 0, +1, 0), screenUp = (-1,  0, 0)
+        val rightRefX: Float
+        val rightRefY: Float
+        val upRefX: Float
+        val upRefY: Float
+        when (displayRotation) {
+            Surface.ROTATION_90 -> {
+                rightRefX = 0f; rightRefY = -1f
+                upRefX = 1f; upRefY = 0f
+            }
+            Surface.ROTATION_180 -> {
+                rightRefX = -1f; rightRefY = 0f
+                upRefX = 0f; upRefY = -1f
+            }
+            Surface.ROTATION_270 -> {
+                rightRefX = 0f; rightRefY = 1f
+                upRefX = -1f; upRefY = 0f
+            }
+            else -> {
+                rightRefX = 1f; rightRefY = 0f
+                upRefX = 0f; upRefY = 1f
+            }
+        }
+
+        val rightDotG = rightRefX * ux + rightRefY * uy
         val refX: Float
         val refY: Float
-        val refZ: Float
-        if (abs(ux) < 0.92f) {
-            refX = 1f; refY = 0f; refZ = 0f
+        if (abs(rightDotG) < 0.92f) {
+            refX = rightRefX
+            refY = rightRefY
         } else {
-            refX = 0f; refY = 1f; refZ = 0f
+            // Fallback if phone is tilted nearly 90° sideways while rotation-locked
+            refX = upRefX
+            refY = upRefY
         }
-        val refDotG = refX * ux + refY * uy + refZ * uz
+        val refDotG = refX * ux + refY * uy
         var rx = refX - refDotG * ux
         var ry = refY - refDotG * uy
-        var rz = refZ - refDotG * uz
+        var rz = -refDotG * uz
         val rMag = sqrt(rx * rx + ry * ry + rz * rz).coerceAtLeast(1e-4f)
         rx /= rMag; ry /= rMag; rz /= rMag
 
-        // f_hat = g_hat × r_hat (works continuously across flat 0° to upright 90° mount angles)
+        // f_hat = g_hat × r_hat (points forward ahead of motorcycle/car across flat 0° to upright 90° mounts)
         val fx = uy * rz - uz * ry
         val fy = uz * rx - ux * rz
         val fz = ux * ry - uy * rx
@@ -270,8 +346,14 @@ class GForceFusionEngine {
         val totalHorizG = hypot(cleanLat, cleanLong)
         val total3DG = sqrt(cleanLat * cleanLat + cleanLong * cleanLong + cleanVert * cleanVert)
 
-        if (totalHorizG >= peakGValue || (elapsedRealtimeMs - peakTimestampMs) > PEAK_HOLD_MS) {
+        val peakExpired = peakHoldDurationMs > 0L &&
+            peakTimestampMs > 0L &&
+            (elapsedRealtimeMs - peakTimestampMs) > peakHoldDurationMs
+
+        if (totalHorizG >= peakGValue || peakExpired) {
             peakGValue = totalHorizG
+            peakLatGValue = cleanLat
+            peakLongGValue = cleanLong
             peakTimestampMs = elapsedRealtimeMs
         }
 
@@ -289,6 +371,8 @@ class GForceFusionEngine {
             totalG = totalHorizG,
             total3DG = total3DG,
             peakG = peakGValue,
+            peakLateralG = peakLatGValue,
+            peakLongitudinalG = peakLongGValue,
             yawRateDegPerSec = yawRateDegPerSec,
             rawImu = ImuRawData(
                 accelX = ax,
@@ -302,7 +386,8 @@ class GForceFusionEngine {
             hasAccelerometer = true,
             hasGyroscope = hasGyroscope,
             isGyroFused = hasGyroscope && gyroSamplesReceived,
-            isAvailable = true
+            isAvailable = true,
+            displayRotation = displayRotation
         )
     }
 
@@ -332,30 +417,56 @@ object MotionSensorManager : SensorEventListener {
     private val fusionEngine = GForceFusionEngine()
 
     private var androidSensorManager: SensorManager? = null
+    private var displayManager: DisplayManager? = null
     private var accelerometerSensor: Sensor? = null
     private var gyroscopeSensor: Sensor? = null
     private var isRegistered = false
     private var lastEmitElapsedMs = 0L
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId == Display.DEFAULT_DISPLAY) {
+                val rotation = readDefaultDisplayRotation(displayManager)
+                synchronized(lock) {
+                    fusionEngine.setDisplayRotation(rotation)
+                }
+                _gForceData.value = _gForceData.value.copy(displayRotation = rotation)
+            }
+        }
+    }
 
     private val _gForceData = MutableStateFlow(GForceData())
     val gForceData: StateFlow<GForceData> = _gForceData.asStateFlow()
 
     fun startListening(context: Context, clientId: String) {
         synchronized(lock) {
+            val appCtx = context.applicationContext
             activeClients.add(clientId)
-            if (isRegistered) return
+            val dm = appCtx.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+            val currentRotation = readDefaultDisplayRotation(dm)
+            fusionEngine.setDisplayRotation(currentRotation)
 
-            val sm = context.applicationContext.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+            if (isRegistered) {
+                _gForceData.value = _gForceData.value.copy(displayRotation = currentRotation)
+                return
+            }
+
+            val sm = appCtx.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
             if (sm == null) {
                 _gForceData.value = GForceData(
                     hasAccelerometer = false,
                     hasGyroscope = false,
-                    isAvailable = false
+                    isAvailable = false,
+                    displayRotation = currentRotation
                 )
                 return
             }
 
             androidSensorManager = sm
+            displayManager = dm
             accelerometerSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
             gyroscopeSensor = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 
@@ -366,25 +477,29 @@ object MotionSensorManager : SensorEventListener {
                 _gForceData.value = GForceData(
                     hasAccelerometer = false,
                     hasGyroscope = gyro != null,
-                    isAvailable = false
+                    isAvailable = false,
+                    displayRotation = currentRotation
                 )
                 return
             }
 
             fusionEngine.reset()
+            fusionEngine.setDisplayRotation(currentRotation)
             lastEmitElapsedMs = 0L
 
             sm.registerListener(this, accel, SensorManager.SENSOR_DELAY_GAME)
             if (gyro != null) {
                 sm.registerListener(this, gyro, SensorManager.SENSOR_DELAY_GAME)
             }
+            runCatching { dm?.registerDisplayListener(displayListener, mainHandler) }
             isRegistered = true
 
             _gForceData.value = GForceData(
                 hasAccelerometer = true,
                 hasGyroscope = gyro != null,
                 isGyroFused = false,
-                isAvailable = true
+                isAvailable = true,
+                displayRotation = currentRotation
             )
         }
     }
@@ -394,11 +509,34 @@ object MotionSensorManager : SensorEventListener {
             activeClients.remove(clientId)
             if (activeClients.isEmpty() && isRegistered) {
                 runCatching { androidSensorManager?.unregisterListener(this) }
+                runCatching { displayManager?.unregisterDisplayListener(displayListener) }
                 isRegistered = false
                 fusionEngine.reset()
                 lastEmitElapsedMs = 0L
                 _gForceData.value = GForceData()
             }
+        }
+    }
+
+    fun refreshDisplayRotation(context: Context) {
+        val dm = context.applicationContext.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+        val rotation = readDefaultDisplayRotation(dm)
+        synchronized(lock) {
+            fusionEngine.setDisplayRotation(rotation)
+        }
+        _gForceData.value = _gForceData.value.copy(displayRotation = rotation)
+    }
+
+    private fun readDefaultDisplayRotation(dm: DisplayManager?): Int {
+        return runCatching {
+            dm?.getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: Surface.ROTATION_0
+        }.getOrDefault(Surface.ROTATION_0)
+    }
+
+    fun setPeakHoldSeconds(seconds: Int) {
+        synchronized(lock) {
+            val ms = if (seconds <= 0) 0L else seconds * 1_000L
+            fusionEngine.setPeakHoldDurationMs(ms)
         }
     }
 
@@ -412,6 +550,8 @@ object MotionSensorManager : SensorEventListener {
                 totalG = 0f,
                 total3DG = 0f,
                 peakG = 0f,
+                peakLateralG = 0f,
+                peakLongitudinalG = 0f,
                 trail = emptyList()
             )
         }
@@ -421,7 +561,12 @@ object MotionSensorManager : SensorEventListener {
     fun resetPeak() {
         val updated = synchronized(lock) {
             fusionEngine.resetPeak()
-            _gForceData.value.copy(peakG = _gForceData.value.totalG)
+            val cur = _gForceData.value
+            cur.copy(
+                peakG = cur.totalG,
+                peakLateralG = cur.lateralG,
+                peakLongitudinalG = cur.longitudinalG
+            )
         }
         _gForceData.value = updated
     }

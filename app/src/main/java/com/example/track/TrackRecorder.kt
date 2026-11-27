@@ -5,6 +5,7 @@ import android.os.SystemClock
 import com.example.ble.HeartRateRepository
 import com.example.gps.GpsData
 import com.example.gps.GpsRepository
+import com.example.overlay.FloatingGpsService
 import com.example.sensor.GForceRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -156,6 +157,7 @@ object TrackRecorder {
 
         GpsRepository.startTracking(context.applicationContext, CLIENT_ID)
         GForceRepository.startListening(context.applicationContext, CLIENT_ID)
+        FloatingGpsService.startRecordingKeepAlive(context.applicationContext)
 
         gpsCollectJob?.cancel()
         gpsCollectJob = scope.launch {
@@ -292,6 +294,7 @@ object TrackRecorder {
 
         GpsRepository.stopTracking(CLIENT_ID)
         GForceRepository.stopListening(CLIENT_ID)
+        FloatingGpsService.stopRecordingKeepAlive(context.applicationContext)
 
         val payload = toSave ?: return null
         return withContext(Dispatchers.IO) {
