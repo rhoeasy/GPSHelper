@@ -663,7 +663,7 @@ fun TelemetryGrid(
                 iconBg = cs.primaryContainer,
                 label = stringResource(R.string.telemetry_altitude),
                 value = gpsData.formattedAltitude(),
-                hasValue = gpsData.hasFix && gpsData.altitudeMeters != null,
+                hasValue = gpsData.displayAltitudeMeters != null,
                 onClick = onOpenAltitudeDetail,
                 modifier = Modifier
                     .weight(1f)

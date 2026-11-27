@@ -94,7 +94,7 @@ class ExampleRobolectricTest {
         assertEquals("72.0", data.formattedSpeedValue(SpeedUnit.KMH))
         assertEquals("44.7", data.formattedSpeedValue(SpeedUnit.MPH))
         assertEquals("39.904200, 116.407396", data.formattedCoordinates())
-        assertEquals("45.2 m", data.formattedAltitude())
+        assertEquals("45 m", data.formattedAltitude())
         assertEquals("±3.5 m", data.formattedAccuracy())
         assertEquals("128° 东南", data.formattedBearing())
         assertEquals("12 / 24 颗", data.formattedSatellites())

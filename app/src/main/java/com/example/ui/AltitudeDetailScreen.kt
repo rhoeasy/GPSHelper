@@ -76,6 +76,7 @@ import com.example.gps.GpsData
 import com.example.sensor.EnvironmentTelemetry
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private const val METERS_TO_FEET = 3.28084
 
@@ -98,7 +99,7 @@ fun AltitudeDetailScreen(
 
     val unitSuffix = if (useFeet) "ft" else "m"
     val factor = if (useFeet) METERS_TO_FEET else 1.0
-    val currentAltM = altitudeTelemetry.currentAltitudeM ?: gpsData.altitudeMeters
+    val currentAltM = gpsData.displayAltitudeMeters
 
     fun fmtAlt(meters: Double?): String {
         if (meters == null) return "--"
@@ -210,7 +211,7 @@ fun AltitudeDetailScreen(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = fmtAlt(currentAltM),
+                            text = currentAltM?.let { (it * factor).roundToInt().toString() } ?: "--",
                             style = MaterialTheme.typography.displayLarge.copy(
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontSize = if (isLandscape) 66.sp else 62.sp,

@@ -30,8 +30,12 @@ data class EnvironmentTelemetry(
     val pressureHpa: Float? = null,
     val seaLevelPressureHpa: Float = SensorManager.PRESSURE_STANDARD_ATMOSPHERE,
     val barometricAltitudeM: Float? = null,
-    val hasBarometer: Boolean = false
+    val hasBarometer: Boolean = false,
+    val pressureSampleElapsedMs: Long = 0L
 ) {
+    fun freshPressureHpa(nowElapsedMs: Long): Float? =
+        pressureHpa?.takeIf { nowElapsedMs - pressureSampleElapsedMs in 0L..5_000L }
+
     fun headingDegrees(useTrueNorth: Boolean, declinationDeg: Float?): Float {
         val raw = if (useTrueNorth && declinationDeg != null) {
             magneticAzimuthDeg + declinationDeg
@@ -113,7 +117,7 @@ object CompassMath {
 /**
  * Hardware Compass (Rotation Vector / Magnetometer + Accelerometer) and optional Barometer
  * (TYPE_PRESSURE) sensor manager. Automatically remaps compass axes to the active screen rotation
- * (Portrait or Landscape) and only registers sensors while a detail page is actively open.
+ * (Portrait or Landscape). Track recording can subscribe to pressure without starting the compass.
  */
 object EnvironmentSensorManager : SensorEventListener {
     private const val EMIT_INTERVAL_MS = 33L
@@ -122,8 +126,10 @@ object EnvironmentSensorManager : SensorEventListener {
 
     private val lock = Any()
     private val activeClients = mutableSetOf<String>()
+    private val pressureClients = mutableSetOf<String>()
 
     private var sensorManager: SensorManager? = null
+    private var pressureManager: SensorManager? = null
     private var displayManager: DisplayManager? = null
     private var isRegistered = false
     private var usingRotationVector = false
@@ -160,9 +166,52 @@ object EnvironmentSensorManager : SensorEventListener {
     private val _telemetry = MutableStateFlow(EnvironmentTelemetry())
     val telemetry: StateFlow<EnvironmentTelemetry> = _telemetry.asStateFlow()
 
+    private val pressureListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val hpa = event.values[0]
+            if (hpa !in 200f..1200f) return
+            synchronized(lock) {
+                if (pressureManager == null) return
+                _telemetry.update { current ->
+                    current.copy(
+                        pressureHpa = hpa,
+                        pressureSampleElapsedMs = event.timestamp / 1_000_000L,
+                        barometricAltitudeM = CompassMath.pressureToAltitudeMeters(current.seaLevelPressureHpa, hpa)
+                    )
+                }
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
+
+    fun startPressureListening(context: Context, clientId: String) {
+        synchronized(lock) {
+            if (!pressureClients.add(clientId) || pressureManager != null) return
+            val sm = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return
+            val sensor = sm.getDefaultSensor(Sensor.TYPE_PRESSURE) ?: return
+            if (sm.registerListener(pressureListener, sensor, SensorManager.SENSOR_DELAY_NORMAL, mainHandler)) {
+                pressureManager = sm
+                _telemetry.update { it.copy(hasBarometer = true) }
+            }
+        }
+    }
+
+    fun stopPressureListening(clientId: String) {
+        synchronized(lock) {
+            if (!pressureClients.remove(clientId) || pressureClients.isNotEmpty()) return
+            pressureManager?.unregisterListener(pressureListener)
+            pressureManager = null
+            _telemetry.update {
+                it.copy(pressureHpa = null, pressureSampleElapsedMs = 0L, barometricAltitudeM = null, hasBarometer = false)
+            }
+        }
+    }
+
     fun startListening(context: Context, clientId: String) {
         synchronized(lock) {
             val appCtx = context.applicationContext
+            startPressureListening(appCtx, clientId)
             activeClients.add(clientId)
             val dm = appCtx.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
             currentDisplayRotation = readRotation(dm)
@@ -175,7 +224,6 @@ object EnvironmentSensorManager : SensorEventListener {
             val rotVec = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
             val mag = sm.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
             val accel = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-            val pressure = sm.getDefaultSensor(Sensor.TYPE_PRESSURE)
 
             val hasCompass = rotVec != null || (mag != null && accel != null)
             usingRotationVector = rotVec != null
@@ -189,9 +237,6 @@ object EnvironmentSensorManager : SensorEventListener {
             if (mag != null) {
                 sm.registerListener(this, mag, SensorManager.SENSOR_DELAY_UI)
             }
-            if (pressure != null) {
-                sm.registerListener(this, pressure, SensorManager.SENSOR_DELAY_NORMAL)
-            }
             runCatching { dm?.registerDisplayListener(displayListener, mainHandler) }
 
             hasAccelSample = false
@@ -200,17 +245,13 @@ object EnvironmentSensorManager : SensorEventListener {
             lastEmitMs = 0L
             isRegistered = true
 
-            _telemetry.update { cur ->
-                cur.copy(
-                    hasCompass = hasCompass,
-                    hasBarometer = pressure != null
-                )
-            }
+            _telemetry.update { it.copy(hasCompass = hasCompass) }
         }
     }
 
     fun stopListening(clientId: String) {
         synchronized(lock) {
+            stopPressureListening(clientId)
             activeClients.remove(clientId)
             if (activeClients.isEmpty() && isRegistered) {
                 runCatching { sensorManager?.unregisterListener(this) }
@@ -287,21 +328,6 @@ object EnvironmentSensorManager : SensorEventListener {
                 }
             }
 
-            Sensor.TYPE_PRESSURE -> {
-                val hpa = event.values[0]
-                if (hpa > 200f && hpa < 1200f) {
-                    _telemetry.update { cur ->
-                        cur.copy(
-                            pressureHpa = hpa,
-                            barometricAltitudeM = CompassMath.pressureToAltitudeMeters(
-                                seaLevelHpa = cur.seaLevelPressureHpa,
-                                pressureHpa = hpa
-                            ),
-                            hasBarometer = true
-                        )
-                    }
-                }
-            }
         }
     }
 

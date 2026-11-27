@@ -253,6 +253,29 @@ fun TrackRecorderCard(
                     }
                 }
 
+                if (snapshot.mode == ActivityMode.HIKING && snapshot.stepCount != null) {
+                    val cadence = TrackFormatters.averageStepsPerMinute(snapshot.stepCount, snapshot.elapsedMs)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(cs.surfaceContainer)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(32.dp)
+                    ) {
+                        LiveStatPill(
+                            label = stringResource(R.string.metric_step_count),
+                            value = stringResource(R.string.metric_step_count_value, snapshot.stepCount),
+                            accent = cs.primary
+                        )
+                        LiveStatPill(
+                            label = stringResource(R.string.metric_avg_step_cadence),
+                            value = cadence?.let { stringResource(R.string.metric_step_cadence_value, it) } ?: "--",
+                            accent = cs.secondary
+                        )
+                    }
+                }
+
                 // Mode-specific secondary strip
                 if (snapshot.mode == ActivityMode.KARTING) {
                     Row(

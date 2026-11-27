@@ -971,6 +971,16 @@ fun TrackDetailScreen(
 
     val session = detail.session
     val isKart = session.activityMode == ActivityMode.KARTING
+    val altitudeSourceLabel = remember(detail.points) {
+        val hasBarometer = detail.points.any { it.altitudeFromBarometer == true }
+        val hasGps = detail.points.any { it.altitudeMeters != null && it.altitudeFromBarometer != true }
+        when {
+            hasBarometer && hasGps -> R.string.detail_altitude_source_mixed
+            hasBarometer -> R.string.detail_altitude_source_barometer
+            detail.points.any { it.altitudeFromBarometer == false } -> R.string.detail_altitude_source_gps
+            else -> null
+        }
+    }
     val kartingF1Analysis = remember(detail.session.id, detail.points, detail.laps) {
         if (isKart) KartingSectorEngine.analyze(detail.points, detail.laps) else null
     }
@@ -1397,6 +1407,32 @@ fun TrackDetailScreen(
                                 modifier = Modifier.weight(1f)
                             )
                         }
+                    }
+                    if (altitudeSourceLabel != null) {
+                        Text(
+                            text = stringResource(altitudeSourceLabel),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = cs.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (session.activityMode == ActivityMode.HIKING && session.stepCount != null) {
+                    val cadence = TrackFormatters.averageStepsPerMinute(session.stepCount, session.durationMs)
+                    HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.6f))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        DetailMetricCell(
+                            label = stringResource(R.string.metric_step_count),
+                            value = stringResource(R.string.metric_step_count_value, session.stepCount),
+                            accent = cs.primary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        DetailMetricCell(
+                            label = stringResource(R.string.metric_avg_step_cadence),
+                            value = cadence?.let { stringResource(R.string.metric_step_cadence_value, it) } ?: "--",
+                            accent = cs.secondary,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
 

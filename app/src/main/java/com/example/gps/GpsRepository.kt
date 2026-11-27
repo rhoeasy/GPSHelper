@@ -158,6 +158,7 @@ object GpsRepository {
     private val _satellites = MutableStateFlow<List<GnssSatelliteInfo>>(emptyList())
     val satellites: StateFlow<List<GnssSatelliteInfo>> = _satellites.asStateFlow()
 
+    private val liveAltitudeFilter = LiveAltitudeFilter()
     private val altitudeTracker = AltitudeSessionTracker()
     private val _altitudeTelemetry = MutableStateFlow(AltitudeTelemetry())
     val altitudeTelemetry: StateFlow<AltitudeTelemetry> = _altitudeTelemetry.asStateFlow()
@@ -508,6 +509,7 @@ object GpsRepository {
 
     private fun clearLocationFixLocked(status: GpsFixStatus, resetTimestamp: Boolean = false) {
         mainHandler.removeCallbacks(expireLocationFix)
+        liveAltitudeFilter.reset()
         _gpsData.update { current ->
             current.copy(
                 hasFix = false,
@@ -515,6 +517,7 @@ object GpsRepository {
                 longitude = null,
                 speedMps = null,
                 altitudeMeters = null,
+                smoothedAltitudeMeters = null,
                 accuracyMeters = null,
                 bearingDegrees = null,
                 provider = null,
@@ -668,7 +671,13 @@ object GpsRepository {
 
     private fun applyLocationLocked(location: Location, isGpsPrimary: Boolean, fixElapsedMs: Long) {
         val newSpeed = if (location.hasSpeed()) location.speed else null
-        val newAltitude = if (location.hasAltitude()) location.altitude else null
+        val newAltitude = if (location.hasAltitude()) location.altitude.takeIf { it.isFinite() } else null
+        val vAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasVerticalAccuracy()) {
+            location.verticalAccuracyMeters
+        } else {
+            null
+        }
+        val displayAltitude = liveAltitudeFilter.update(newAltitude, vAcc, fixElapsedMs)
         _gpsData.update { current ->
             val newAccuracy = if (location.hasAccuracy()) location.accuracy else current.accuracyMeters
             val newBearing = when {
@@ -683,6 +692,7 @@ object GpsRepository {
                 longitude = location.longitude,
                 speedMps = newSpeed,
                 altitudeMeters = newAltitude,
+                smoothedAltitudeMeters = displayAltitude,
                 accuracyMeters = newAccuracy,
                 bearingDegrees = newBearing,
                 provider = if (isGpsPrimary) LocationManager.GPS_PROVIDER else "fused",
@@ -691,11 +701,6 @@ object GpsRepository {
             )
         }
 
-        val vAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasVerticalAccuracy()) {
-            location.verticalAccuracyMeters
-        } else {
-            null
-        }
         val spdAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasSpeedAccuracy()) {
             location.speedAccuracyMetersPerSecond
         } else {
