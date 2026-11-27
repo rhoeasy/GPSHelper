@@ -110,6 +110,10 @@
     <string name="toast_track_saved">轨迹已保存至本地记录</string>
     <string name="toast_track_too_short">暂未采集到有效轨迹点，已取消保存</string>
     <string name="toast_gpx_export_failed">导出 GPX 失败，请重试</string>
+    <string name="toast_json_export_failed">导出 JSON 失败，请重试</string>
+    <string name="record_hr_fused">心率已联动</string>
+    <string name="record_hr_not_connected">心率未连接 · 点此绑定手环</string>
+    <string name="record_hr_connecting">手环连接中…</string>
 
     <!-- Track Metrics & History -->
     <string name="metric_duration">用时</string>
@@ -127,9 +131,11 @@
     <string name="metric_lap_count">完成圈数</string>
     <string name="metric_avg_hr">平均心率</string>
     <string name="metric_max_hr">最高心率</string>
+    <string name="metric_peak_g">峰值 G 力</string>
     <string name="tracks_empty_title">还没有轨迹记录</string>
-    <string name="tracks_empty_desc">在仪表盘选择「卡丁车」或「徒步」模式点击开始记录，结束后会自动保存在本机并支持导出 GPX。</string>
+    <string name="tracks_empty_desc">在仪表盘选择「卡丁车」或「徒步」模式点击开始记录，结束后会自动保存在本机，支持导出结构化 JSON（供 AI Agent 分析）或 GPX。</string>
     <string name="detail_back_cd">返回轨迹列表</string>
+    <string name="detail_export_json">导出 JSON</string>
     <string name="detail_export_gpx">导出 GPX</string>
     <string name="detail_delete">删除</string>
     <string name="detail_delete_title">删除轨迹记录</string>
@@ -146,6 +152,24 @@
     <string name="detail_legend_high">高</string>
     <string name="detail_no_laps">本次未触发完整绕圈（需离开起终点 25 米后返回）</string>
     <string name="share_gpx_chooser">分享 GPX 轨迹文件</string>
+    <string name="share_json_chooser">分享结构化 JSON 遥测数据</string>
+
+    <!-- Focus / Anti-Interruption Mode -->
+    <string name="focus_pill_label">防打扰</string>
+    <string name="focus_mode_title">专注防打扰模式</string>
+    <string name="focus_mode_subtitle">骑行或驾驶时锁定当前界面，屏蔽通知弹窗、短信横幅与误触退出，直到您主动退出。</string>
+    <string name="focus_mode_active_banner">专注锁定中 · 已屏蔽弹窗与误触</string>
+    <string name="focus_mode_exit">退出锁定</string>
+    <string name="focus_mode_enter">立即开启专注锁定</string>
+    <string name="focus_mode_auto_launch">打开 App 自动开启专注锁定</string>
+    <string name="focus_mode_auto_launch_desc">每次启动应用后自动进入屏幕固定 + 静音防打扰状态</string>
+    <string name="focus_mode_dnd_ok">系统勿扰权限已授权（锁定期间自动开启全静音勿扰，退出自动恢复）</string>
+    <string name="focus_mode_dnd_missing">未授权「勿扰权限」：建议授权以在锁定期间自动屏蔽来电/短信通知</string>
+    <string name="focus_mode_grant_dnd">去授权</string>
+    <string name="focus_mode_carwith_tip">系统边界说明：本模式通过 Android 原生「屏幕固定 + 全静音勿扰 + 沉浸全屏」最大化阻止其他应用与弹窗抢占屏幕。如需彻底阻止小米 CarWith 在连接蓝牙时系统级自动拉起，请同时在手机「设置 → CarWith」中关闭「自动连接 / 蓝牙自动启动」。</string>
+    <string name="toast_focus_locked_back">专注锁定中，请点击顶部「退出锁定」按钮解除</string>
+    <string name="toast_focus_entered">已开启专注防打扰锁定</string>
+    <string name="toast_focus_exited">已退出专注防打扰并恢复系统通知设置</string>
 
     <!-- Floating Window Control -->
     <string name="action_start_overlay">开启悬浮窗</string>

@@ -1,6 +1,7 @@
 package com.example
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -14,6 +15,7 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -26,6 +28,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -33,6 +38,7 @@ import com.example.ble.HeartRateRepository
 import com.example.gps.GpsRepository
 import com.example.overlay.FloatingGpsService
 import com.example.ui.BleDevicePickerDialog
+import com.example.ui.FocusModeDialog
 import com.example.ui.GpsDashboardViewModel
 import com.example.ui.GpsHudAppShell
 import com.example.ui.MainTab
@@ -42,6 +48,9 @@ import com.example.ui.theme.ThemeMode
 class MainActivity : ComponentActivity() {
 
     private val viewModel: GpsDashboardViewModel by viewModels()
+    private var previousInterruptionFilter: Int? = null
+    private var focusLockActiveState by mutableStateOf(false)
+    private var autoFocusAppliedOnLaunch = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,6 +84,8 @@ class MainActivity : ComponentActivity() {
                 val gpsData by viewModel.gpsData.collectAsStateWithLifecycle()
                 val speedUnit by viewModel.speedUnit.collectAsStateWithLifecycle()
                 val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
+                val autoFocusOnLaunch by viewModel.autoFocusOnLaunch.collectAsStateWithLifecycle()
+                val hasDndPolicyAccess by viewModel.hasDndPolicyAccess.collectAsStateWithLifecycle()
                 val isOverlayRunning by viewModel.isOverlayRunning.collectAsStateWithLifecycle()
                 val permissionStatus by viewModel.permissionStatus.collectAsStateWithLifecycle()
 
@@ -89,10 +100,31 @@ class MainActivity : ComponentActivity() {
 
                 var activeTab by rememberSaveable { mutableStateOf(MainTab.DASHBOARD) }
                 var showBleDialog by rememberSaveable { mutableStateOf(false) }
+                var showFocusDialog by rememberSaveable { mutableStateOf(false) }
 
-                // Apply keep-screen-on window flag reactively
-                DisposableEffect(keepScreenOn) {
-                    if (keepScreenOn) {
+                // Auto-enter Focus Lock Mode on launch if user enabled it
+                LaunchedEffect(autoFocusOnLaunch) {
+                    if (autoFocusOnLaunch && !autoFocusAppliedOnLaunch) {
+                        autoFocusAppliedOnLaunch = true
+                        window.decorView.post {
+                            enterFocusLockMode(showToast = false)
+                        }
+                    }
+                }
+
+                // Block accidental hardware/gesture Back exits while Focus Lock is active
+                BackHandler(enabled = focusLockActiveState && selectedSessionDetail == null) {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.toast_focus_locked_back),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+
+                // Apply keep-screen-on window flag reactively (always on during Focus Lock)
+                val effectiveKeepScreenOn = keepScreenOn || focusLockActiveState
+                DisposableEffect(effectiveKeepScreenOn) {
+                    if (effectiveKeepScreenOn) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     } else {
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -152,6 +184,7 @@ class MainActivity : ComponentActivity() {
                     speedUnit = speedUnit,
                     keepScreenOn = keepScreenOn,
                     themeMode = themeMode,
+                    isFocusLockActive = focusLockActiveState,
                     isOverlayRunning = isOverlayRunning,
                     permissionStatus = permissionStatus,
                     heartRateState = heartRateState,
@@ -161,6 +194,8 @@ class MainActivity : ComponentActivity() {
                     onSelectSpeedUnit = { unit -> viewModel.setSpeedUnit(unit) },
                     onToggleKeepScreenOn = { enabled -> viewModel.setKeepScreenOn(enabled) },
                     onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
+                    onOpenFocusDialog = { showFocusDialog = true },
+                    onExitFocusLock = { exitFocusLockMode(showToast = true) },
                     onCopyCoordinates = {
                         val coords = gpsData.formattedCoordinates()
                         if (coords != null) {
@@ -298,6 +333,19 @@ class MainActivity : ComponentActivity() {
                     onCloseSessionDetail = {
                         viewModel.closeSessionDetail()
                     },
+                    onExportJson = { detail ->
+                        viewModel.exportDetailToJson(detail) { uri ->
+                            if (uri != null) {
+                                shareJsonUri(uri, detail.session.name)
+                            } else {
+                                Toast.makeText(
+                                    this,
+                                    getString(R.string.toast_json_export_failed),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    },
                     onExportGpx = { detail ->
                         viewModel.exportDetailToGpx(detail) { uri ->
                             if (uri != null) {
@@ -334,6 +382,28 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                 }
+
+                if (showFocusDialog) {
+                    FocusModeDialog(
+                        isFocusLockActive = focusLockActiveState,
+                        autoFocusOnLaunch = autoFocusOnLaunch,
+                        hasDndPolicyAccess = hasDndPolicyAccess,
+                        onToggleAutoFocusOnLaunch = { enabled ->
+                            viewModel.setAutoFocusOnLaunch(enabled)
+                        },
+                        onOpenDndPolicySettings = {
+                            openDndPolicySettings()
+                        },
+                        onToggleFocusLock = {
+                            if (focusLockActiveState) {
+                                exitFocusLockMode(showToast = true)
+                            } else {
+                                enterFocusLockMode(showToast = true)
+                            }
+                        },
+                        onDismiss = { showFocusDialog = false }
+                    )
+                }
             }
         }
     }
@@ -350,8 +420,63 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        restoreDndFilterIfSaved()
         GpsRepository.stopTracking(ACTIVITY_CLIENT_ID)
         super.onDestroy()
+    }
+
+    private fun enterFocusLockMode(showToast: Boolean) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        if (nm != null && runCatching { nm.isNotificationPolicyAccessGranted }.getOrDefault(false)) {
+            if (previousInterruptionFilter == null) {
+                previousInterruptionFilter = nm.currentInterruptionFilter
+            }
+            runCatching {
+                nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_NONE)
+            }
+        }
+
+        // Engage Android Screen Pinning to prevent other apps/popups/home switches
+        runCatching { startLockTask() }
+
+        // Immersive fullscreen hides notification shade & navigation bar from accidental touches
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+
+        focusLockActiveState = true
+        if (showToast) {
+            Toast.makeText(this, getString(R.string.toast_focus_entered), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun exitFocusLockMode(showToast: Boolean) {
+        restoreDndFilterIfSaved()
+        runCatching { stopLockTask() }
+
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.show(WindowInsetsCompat.Type.systemBars())
+
+        focusLockActiveState = false
+        if (showToast) {
+            Toast.makeText(this, getString(R.string.toast_focus_exited), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun restoreDndFilterIfSaved() {
+        val saved = previousInterruptionFilter ?: return
+        previousInterruptionFilter = null
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        if (nm != null && runCatching { nm.isNotificationPolicyAccessGranted }.getOrDefault(false)) {
+            runCatching { nm.setInterruptionFilter(saved) }
+        }
+    }
+
+    private fun openDndPolicySettings() {
+        runCatching {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+        }
     }
 
     private fun handleStartOverlay(requestLocation: () -> Unit) {
@@ -387,6 +512,20 @@ class MainActivity : ComponentActivity() {
                     startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
                 }
             }
+    }
+
+    private fun shareJsonUri(uri: Uri, sessionName: String) {
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/json"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, sessionName)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching {
+            startActivity(Intent.createChooser(shareIntent, getString(R.string.share_json_chooser)))
+        }.onFailure {
+            Toast.makeText(this, getString(R.string.toast_json_export_failed), Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun shareGpxUri(uri: Uri, sessionName: String) {

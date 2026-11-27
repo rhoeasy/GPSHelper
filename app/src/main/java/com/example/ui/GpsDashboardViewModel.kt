@@ -2,6 +2,8 @@ package com.example.ui
 
 import android.Manifest
 import android.app.Application
+import android.app.NotificationManager
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -18,6 +20,7 @@ import com.example.gps.SpeedUnit
 import com.example.track.ActivityMode
 import com.example.track.GpxExporter
 import com.example.track.RecordingSnapshot
+import com.example.track.TelemetryJsonExporter
 import com.example.track.TrackRecorder
 import com.example.track.TrackRepository
 import com.example.track.TrackSessionDetail
@@ -51,6 +54,7 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     val speedUnit: StateFlow<SpeedUnit> = GpsRepository.speedUnit
     val keepScreenOn: StateFlow<Boolean> = GpsRepository.keepScreenOn
     val themeMode: StateFlow<ThemeMode> = GpsRepository.themeMode
+    val autoFocusOnLaunch: StateFlow<Boolean> = GpsRepository.autoFocusOnLaunch
     val isOverlayRunning: StateFlow<Boolean> = GpsRepository.isOverlayRunning
 
     val heartRateState: StateFlow<HeartRateState> = HeartRateRepository.heartRateState
@@ -73,6 +77,9 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     private val _permissionStatus = MutableStateFlow(readPermissions())
     val permissionStatus: StateFlow<PermissionStatus> = _permissionStatus.asStateFlow()
 
+    private val _hasDndPolicyAccess = MutableStateFlow(readDndPolicyAccess())
+    val hasDndPolicyAccess: StateFlow<Boolean> = _hasDndPolicyAccess.asStateFlow()
+
     init {
         GpsRepository.ensurePrefsLoaded(application)
         HeartRateRepository.loadLastDevice(application)
@@ -80,6 +87,7 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
 
     fun refreshPermissions() {
         _permissionStatus.value = readPermissions()
+        _hasDndPolicyAccess.value = readDndPolicyAccess()
         GpsRepository.refreshTrackingState(getApplication())
     }
 
@@ -93,6 +101,10 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
 
     fun setThemeMode(mode: ThemeMode) {
         GpsRepository.setThemeMode(getApplication(), mode)
+    }
+
+    fun setAutoFocusOnLaunch(enabled: Boolean) {
+        GpsRepository.setAutoFocusOnLaunch(getApplication(), enabled)
     }
 
     // BLE Heart Rate controls
@@ -180,6 +192,28 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
             }
             onResult(uri)
         }
+    }
+
+    fun exportDetailToJson(detail: TrackSessionDetail, onResult: (Uri?) -> Unit) {
+        viewModelScope.launch {
+            val uri = withContext(Dispatchers.IO) {
+                runCatching {
+                    TelemetryJsonExporter.exportToShareUri(
+                        context = getApplication(),
+                        session = detail.session,
+                        points = detail.points,
+                        laps = detail.laps
+                    )
+                }.getOrNull()
+            }
+            onResult(uri)
+        }
+    }
+
+    private fun readDndPolicyAccess(): Boolean {
+        val ctx = getApplication<Application>()
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        return runCatching { nm?.isNotificationPolicyAccessGranted == true }.getOrDefault(false)
     }
 
     private fun readPermissions(): PermissionStatus {

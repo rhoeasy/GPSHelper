@@ -32,6 +32,7 @@ object GpsRepository {
     private const val KEY_SPEED_UNIT = "speed_unit"
     private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
     private const val KEY_THEME_MODE = "theme_mode"
+    private const val KEY_AUTO_FOCUS_ON_LAUNCH = "auto_focus_on_launch"
 
     private const val MIN_TIME_MS = 500L
     private const val MIN_DISTANCE_M = 0f
@@ -59,6 +60,9 @@ object GpsRepository {
     private val _themeMode = MutableStateFlow(ThemeMode.AUTO)
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
+    private val _autoFocusOnLaunch = MutableStateFlow(false)
+    val autoFocusOnLaunch: StateFlow<Boolean> = _autoFocusOnLaunch.asStateFlow()
+
     private val _isOverlayRunning = MutableStateFlow(false)
     val isOverlayRunning: StateFlow<Boolean> = _isOverlayRunning.asStateFlow()
 
@@ -77,6 +81,7 @@ object GpsRepository {
             val savedTheme = prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name)
             _themeMode.value = runCatching { ThemeMode.valueOf(savedTheme ?: ThemeMode.AUTO.name) }
                 .getOrDefault(ThemeMode.AUTO)
+            _autoFocusOnLaunch.value = prefs.getBoolean(KEY_AUTO_FOCUS_ON_LAUNCH, false)
             prefsLoaded = true
         }
     }
@@ -113,6 +118,16 @@ object GpsRepository {
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_THEME_MODE, mode.name)
+            .apply()
+    }
+
+    fun setAutoFocusOnLaunch(context: Context, enabled: Boolean) {
+        ensurePrefsLoaded(context)
+        _autoFocusOnLaunch.value = enabled
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_AUTO_FOCUS_ON_LAUNCH, enabled)
             .apply()
     }
 

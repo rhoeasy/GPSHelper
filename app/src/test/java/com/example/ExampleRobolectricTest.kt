@@ -8,10 +8,13 @@ import com.example.gps.GpsFixStatus
 import com.example.gps.SpeedUnit
 import com.example.track.ActivityMode
 import com.example.track.GpxExporter
+import com.example.track.TelemetryJsonExporter
 import com.example.track.TrackFormatters
+import com.example.track.TrackLapEntity
 import com.example.track.TrackPointEntity
 import com.example.track.TrackRecorder
 import com.example.track.TrackSessionEntity
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -123,5 +126,98 @@ class ExampleRobolectricTest {
         assertTrue(xml.contains("<ele>45.2</ele>"))
         assertTrue(xml.contains("<gpxtpx:hr>156</gpxtpx:hr>"))
         assertTrue(xml.contains("""lat="39.904200" lon="116.407396""""))
+    }
+
+    @Test
+    fun `structured telemetry json exporter includes HR zones, G-force peaks, laps, and fused samples`() {
+        val session = TrackSessionEntity(
+            id = 42L,
+            name = "卡丁车 · 赛道测试",
+            mode = ActivityMode.KARTING.name,
+            startTimeMs = 1_700_000_000_000L,
+            endTimeMs = 1_700_000_060_000L,
+            durationMs = 60_000L,
+            distanceMeters = 980.0,
+            maxSpeedMps = 20.0f,
+            avgSpeedMps = 16.3f,
+            elevationGainMeters = 4.0,
+            elevationLossMeters = 4.0,
+            minAltitudeMeters = 41.0,
+            maxAltitudeMeters = 45.0,
+            lapCount = 1,
+            bestLapMs = 52_400L,
+            avgHeartRate = 158,
+            maxHeartRate = 172,
+            peakTotalG = 1.45f,
+            peakLateralG = 1.38f,
+            pointCount = 2
+        )
+        val p1 = TrackPointEntity(
+            sessionId = 42L,
+            timestampMs = 1_700_000_000_000L,
+            latitude = 39.904200,
+            longitude = 116.407396,
+            altitudeMeters = 42.0,
+            speedMps = 15.0f,
+            accuracyMeters = 2.5f,
+            bearingDegrees = 45f,
+            heartRateBpm = 150,
+            lateralG = 0.85f,
+            longitudinalG = -0.42f,
+            totalG = 0.95f,
+            lapNumber = 1
+        )
+        val p2 = TrackPointEntity(
+            sessionId = 42L,
+            timestampMs = 1_700_000_002_000L,
+            latitude = 39.904400,
+            longitude = 116.407500,
+            altitudeMeters = 42.5,
+            speedMps = 20.0f,
+            accuracyMeters = 2.2f,
+            bearingDegrees = 50f,
+            heartRateBpm = 168,
+            lateralG = 1.38f,
+            longitudinalG = -0.44f,
+            totalG = 1.45f,
+            lapNumber = 1
+        )
+        val lap = TrackLapEntity(
+            sessionId = 42L,
+            lapNumber = 1,
+            lapDurationMs = 52_400L,
+            lapDistanceMeters = 980.0,
+            maxSpeedMps = 20.0f,
+            avgHeartRate = 159,
+            peakG = 1.45f
+        )
+
+        val jsonText = TelemetryJsonExporter.buildStructuredJson(session, listOf(p1, p2), listOf(lap))
+        val root = JSONObject(jsonText)
+        assertEquals("1.0", root.getString("schema_version"))
+        assertEquals("KARTING", root.getString("activity_type"))
+
+        val sessionObj = root.getJSONObject("session")
+        val hrObj = sessionObj.getJSONObject("heart_rate_bpm")
+        assertEquals(2, hrObj.getInt("connected_samples"))
+        assertEquals(158, hrObj.getInt("avg"))
+        assertTrue(hrObj.has("zones_sec"))
+        assertEquals(2.0, hrObj.getJSONObject("zones_sec").getDouble("z4_155_174"), 0.01)
+
+        val gObj = sessionObj.getJSONObject("g_force")
+        assertEquals(1.45, gObj.getDouble("peak_total_g"), 0.01)
+        assertEquals(1.38, gObj.getDouble("peak_lateral_g"), 0.01)
+        assertEquals(0.44, gObj.getDouble("peak_braking_g"), 0.01)
+
+        val lapsArr = root.getJSONArray("laps")
+        assertEquals(1, lapsArr.length())
+        assertEquals(1.45, lapsArr.getJSONObject(0).getDouble("peak_g"), 0.01)
+        assertEquals(159, lapsArr.getJSONObject(0).getInt("avg_heart_rate_bpm"))
+
+        val samplesArr = root.getJSONArray("samples")
+        assertEquals(2, samplesArr.length())
+        assertEquals(168, samplesArr.getJSONObject(1).getInt("hr_bpm"))
+        assertEquals(1.38, samplesArr.getJSONObject(1).getDouble("lat_g"), 0.01)
+        assertEquals(1.45, samplesArr.getJSONObject(1).getDouble("total_g"), 0.01)
     }
 }

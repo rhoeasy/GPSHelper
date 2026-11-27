@@ -32,7 +32,9 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.DropdownMenu
@@ -82,6 +84,7 @@ fun GpsHudAppShell(
     speedUnit: SpeedUnit,
     keepScreenOn: Boolean,
     themeMode: ThemeMode,
+    isFocusLockActive: Boolean,
     isOverlayRunning: Boolean,
     permissionStatus: PermissionStatus,
     heartRateState: HeartRateState,
@@ -91,6 +94,8 @@ fun GpsHudAppShell(
     onSelectSpeedUnit: (SpeedUnit) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
     onSelectThemeMode: (ThemeMode) -> Unit,
+    onOpenFocusDialog: () -> Unit,
+    onExitFocusLock: () -> Unit,
     onCopyCoordinates: () -> Unit,
     onRequestLocationPermission: () -> Unit,
     onRequestOverlayPermission: () -> Unit,
@@ -107,6 +112,7 @@ fun GpsHudAppShell(
     onSetStartGate: () -> Unit,
     onSelectSession: (Long) -> Unit,
     onCloseSessionDetail: () -> Unit,
+    onExportJson: (TrackSessionDetail) -> Unit,
     onExportGpx: (TrackSessionDetail) -> Unit,
     onDeleteSession: (Long) -> Unit
 ) {
@@ -116,7 +122,10 @@ fun GpsHudAppShell(
         TrackDetailScreen(
             detail = selectedSessionDetail,
             speedUnit = speedUnit,
+            isFocusLockActive = isFocusLockActive,
+            onExitFocusLock = onExitFocusLock,
             onBack = onCloseSessionDetail,
+            onExportJson = { onExportJson(selectedSessionDetail) },
             onExportGpx = { onExportGpx(selectedSessionDetail) },
             onDeleteSession = { onDeleteSession(selectedSessionDetail.session.id) },
             modifier = Modifier
@@ -221,12 +230,22 @@ fun GpsHudAppShell(
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        AnimatedVisibility(
+                            visible = isFocusLockActive,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            FocusActiveBanner(onExitFocusLock = onExitFocusLock)
+                        }
+
                         GoogleTopHeader(
                             gpsData = gpsData,
                             themeMode = themeMode,
                             keepScreenOn = keepScreenOn,
+                            isFocusLockActive = isFocusLockActive,
                             onSelectThemeMode = onSelectThemeMode,
-                            onToggleKeepScreenOn = onToggleKeepScreenOn
+                            onToggleKeepScreenOn = onToggleKeepScreenOn,
+                            onOpenFocusDialog = onOpenFocusDialog
                         )
 
                         AnimatedVisibility(
@@ -258,6 +277,8 @@ fun GpsHudAppShell(
 
                         TrackRecorderCard(
                             snapshot = recordingSnapshot,
+                            heartRateState = heartRateState,
+                            onOpenBlePicker = onOpenBlePicker,
                             onSelectMode = onSelectActivityMode,
                             onStartRecording = onStartRecording,
                             onPauseRecording = onPauseRecording,
@@ -278,11 +299,23 @@ fun GpsHudAppShell(
                 }
 
                 MainTab.TRACKS -> {
-                    TrackHistoryScreen(
-                        sessions = savedSessions,
-                        speedUnit = speedUnit,
-                        onSelectSession = onSelectSession
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .widthIn(max = 600.dp)
+                    ) {
+                        if (isFocusLockActive) {
+                            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                FocusActiveBanner(onExitFocusLock = onExitFocusLock)
+                            }
+                        }
+                        TrackHistoryScreen(
+                            sessions = savedSessions,
+                            speedUnit = speedUnit,
+                            onSelectSession = onSelectSession,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         }
@@ -294,8 +327,10 @@ private fun GoogleTopHeader(
     gpsData: GpsData,
     themeMode: ThemeMode,
     keepScreenOn: Boolean,
+    isFocusLockActive: Boolean,
     onSelectThemeMode: (ThemeMode) -> Unit,
-    onToggleKeepScreenOn: (Boolean) -> Unit
+    onToggleKeepScreenOn: (Boolean) -> Unit,
+    onOpenFocusDialog: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
     var themeMenuExpanded by remember { mutableStateOf(false) }
@@ -321,25 +356,24 @@ private fun GoogleTopHeader(
                 text = stringResource(R.string.app_name),
                 style = MaterialTheme.typography.headlineSmall.copy(
                     fontWeight = FontWeight.Medium,
-                    fontSize = 22.sp
+                    fontSize = 21.sp
                 ),
-                color = cs.onSurface
+                color = cs.onSurface,
+                maxLines = 1
             )
             GpsStatusBadge(fixStatus = gpsData.fixStatus)
         }
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Keep screen on compact tonal pill
+            // Focus / Anti-Interruption lock pill
             Surface(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .clickable { onToggleKeepScreenOn(!keepScreenOn) }
-                    .testTag("keep_screen_on_switch"),
+                onClick = onOpenFocusDialog,
+                modifier = Modifier.testTag("focus_mode_button"),
                 shape = RoundedCornerShape(50),
-                color = if (keepScreenOn) cs.primaryContainer else cs.surfaceContainer
+                color = if (isFocusLockActive) cs.errorContainer else cs.surfaceContainer
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -347,18 +381,37 @@ private fun GoogleTopHeader(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.WbSunny,
-                        contentDescription = stringResource(R.string.keep_screen_on),
-                        tint = if (keepScreenOn) cs.onPrimaryContainer else cs.onSurfaceVariant,
+                        imageVector = if (isFocusLockActive) Icons.Rounded.Lock else Icons.Rounded.Shield,
+                        contentDescription = stringResource(R.string.focus_mode_title),
+                        tint = if (isFocusLockActive) cs.onErrorContainer else cs.onSurface,
                         modifier = Modifier.size(15.dp)
                     )
                     Text(
-                        text = stringResource(R.string.keep_screen_on),
+                        text = stringResource(R.string.focus_pill_label),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Medium,
                             fontSize = 11.5.sp
                         ),
-                        color = if (keepScreenOn) cs.onPrimaryContainer else cs.onSurfaceVariant
+                        color = if (isFocusLockActive) cs.onErrorContainer else cs.onSurface
+                    )
+                }
+            }
+
+            // Keep screen on compact circular icon pill
+            Surface(
+                onClick = { onToggleKeepScreenOn(!keepScreenOn) },
+                modifier = Modifier
+                    .size(36.dp)
+                    .testTag("keep_screen_on_switch"),
+                shape = RoundedCornerShape(50),
+                color = if (keepScreenOn) cs.primaryContainer else cs.surfaceContainer
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.WbSunny,
+                        contentDescription = stringResource(R.string.keep_screen_on),
+                        tint = if (keepScreenOn) cs.onPrimaryContainer else cs.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -366,10 +419,8 @@ private fun GoogleTopHeader(
             // Day / Night / Auto theme selector pill with Material 3 dropdown
             Box {
                 Surface(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable { themeMenuExpanded = true }
-                        .testTag("theme_mode_button"),
+                    onClick = { themeMenuExpanded = true },
+                    modifier = Modifier.testTag("theme_mode_button"),
                     shape = RoundedCornerShape(50),
                     color = cs.surfaceContainer
                 ) {

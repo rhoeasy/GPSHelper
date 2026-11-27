@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BluetoothSearching
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Hiking
@@ -49,15 +51,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.ble.BleConnectionStatus
+import com.example.ble.HeartRateState
 import com.example.track.ActivityMode
 import com.example.track.RecordingSnapshot
 import com.example.track.RecordingStatus
 import com.example.track.TrackFormatters
 import com.example.ui.theme.JetBrainsMonoFontFamily
+import com.example.ui.theme.LocalTelemetryColors
+import java.util.Locale
 
 @Composable
 fun TrackRecorderCard(
     snapshot: RecordingSnapshot,
+    heartRateState: HeartRateState,
+    onOpenBlePicker: () -> Unit,
     onSelectMode: (ActivityMode) -> Unit,
     onStartRecording: () -> Unit,
     onPauseRecording: () -> Unit,
@@ -151,6 +159,12 @@ fun TrackRecorderCard(
                     ),
                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.5.sp),
                     color = cs.onSurfaceVariant
+                )
+
+                HeartRateFusionRow(
+                    heartRateState = heartRateState,
+                    peakTotalG = null,
+                    onOpenBlePicker = onOpenBlePicker
                 )
 
                 Button(
@@ -290,6 +304,12 @@ fun TrackRecorderCard(
                     }
                 }
 
+                HeartRateFusionRow(
+                    heartRateState = heartRateState,
+                    peakTotalG = snapshot.peakTotalG.takeIf { it > 0.05f },
+                    onOpenBlePicker = onOpenBlePicker
+                )
+
                 // Pause / Resume + Finish & Save
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -423,5 +443,75 @@ private fun LiveStatPill(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+@Composable
+private fun HeartRateFusionRow(
+    heartRateState: HeartRateState,
+    peakTotalG: Float?,
+    onOpenBlePicker: () -> Unit
+) {
+    val cs = MaterialTheme.colorScheme
+    val tc = LocalTelemetryColors.current
+    val isConnected = heartRateState.isConnected
+    val isConnecting = heartRateState.status == BleConnectionStatus.CONNECTING
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                if (isConnected) tc.heartContainer.copy(alpha = 0.7f)
+                else cs.surfaceContainer
+            )
+            .clickable(enabled = !isConnected && !isConnecting, onClick = onOpenBlePicker)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .testTag("recorder_hr_fusion_row"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = if (isConnected) Icons.Rounded.Favorite else Icons.Rounded.BluetoothSearching,
+                contentDescription = null,
+                tint = if (isConnected) tc.heart else cs.onSurfaceVariant,
+                modifier = Modifier.size(15.dp)
+            )
+            val labelText = when {
+                isConnected -> {
+                    val bpmStr = heartRateState.bpm?.toString() ?: "--"
+                    "$bpmStr bpm · ${stringResource(R.string.record_hr_fused)}"
+                }
+                isConnecting -> stringResource(R.string.record_hr_connecting)
+                else -> stringResource(R.string.record_hr_not_connected)
+            }
+            Text(
+                text = labelText,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontFamily = if (isConnected) JetBrainsMonoFontFamily else MaterialTheme.typography.labelMedium.fontFamily,
+                    fontWeight = if (isConnected) FontWeight.SemiBold else FontWeight.Medium,
+                    fontSize = 12.sp
+                ),
+                color = if (isConnected) tc.heart else cs.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        if (peakTotalG != null) {
+            Text(
+                text = "${stringResource(R.string.metric_peak_g)} ${String.format(Locale.US, "%.2f", peakTotalG)} G",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                color = cs.primary
+            )
+        }
     }
 }

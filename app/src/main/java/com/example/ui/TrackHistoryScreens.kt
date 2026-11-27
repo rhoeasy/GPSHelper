@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.DataObject
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Hiking
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.SportsScore
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -66,6 +68,7 @@ import com.example.track.TrackSessionDetail
 import com.example.track.TrackSessionEntity
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalTelemetryColors
+import java.util.Locale
 
 @Composable
 fun TrackHistoryScreen(
@@ -344,7 +347,10 @@ private fun SessionStatItem(
 fun TrackDetailScreen(
     detail: TrackSessionDetail,
     speedUnit: SpeedUnit,
+    isFocusLockActive: Boolean,
+    onExitFocusLock: () -> Unit,
     onBack: () -> Unit,
+    onExportJson: () -> Unit,
     onExportGpx: () -> Unit,
     onDeleteSession: () -> Unit,
     modifier: Modifier = Modifier
@@ -394,6 +400,10 @@ fun TrackDetailScreen(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            if (isFocusLockActive) {
+                FocusActiveBanner(onExitFocusLock = onExitFocusLock)
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -427,28 +437,6 @@ fun TrackDetailScreen(
                     )
                 }
 
-                FilledTonalButton(
-                    onClick = onExportGpx,
-                    modifier = Modifier.testTag("btn_export_gpx"),
-                    shape = RoundedCornerShape(50),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = cs.primaryContainer,
-                        contentColor = cs.onPrimaryContainer
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.IosShare,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = stringResource(R.string.detail_export_gpx),
-                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.5.sp)
-                    )
-                }
-
                 IconButton(
                     onClick = { showDeleteConfirm = true },
                     modifier = Modifier.testTag("btn_delete_session")
@@ -457,6 +445,60 @@ fun TrackDetailScreen(
                         imageVector = Icons.Rounded.DeleteOutline,
                         contentDescription = stringResource(R.string.detail_delete),
                         tint = cs.error
+                    )
+                }
+            }
+
+            // Dual export bar: Structured JSON for AI Agents + GPX for maps
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = onExportJson,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .testTag("btn_export_json"),
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = cs.primary,
+                        contentColor = cs.onPrimary
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.DataObject,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.detail_export_json),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+
+                FilledTonalButton(
+                    onClick = onExportGpx,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .testTag("btn_export_gpx"),
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = cs.secondaryContainer,
+                        contentColor = cs.onSecondaryContainer
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.IosShare,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.detail_export_gpx),
+                        style = MaterialTheme.typography.labelLarge
                     )
                 }
             }
@@ -583,7 +625,7 @@ fun TrackDetailScreen(
                         }
                     }
 
-                    if (session.avgHeartRate != null || session.maxHeartRate != null) {
+                    if (session.avgHeartRate != null || session.maxHeartRate != null || session.peakTotalG > 0.05f) {
                         HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.6f))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -601,7 +643,16 @@ fun TrackDetailScreen(
                                 accent = tc.heart,
                                 modifier = Modifier.weight(1f)
                             )
-                            Spacer(modifier = Modifier.weight(1f))
+                            DetailMetricCell(
+                                label = stringResource(R.string.metric_peak_g),
+                                value = if (session.peakTotalG > 0.05f) {
+                                    String.format(Locale.US, "%.2f G", session.peakTotalG)
+                                } else {
+                                    "--"
+                                },
+                                accent = cs.primary,
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
                 }
@@ -745,6 +796,15 @@ private fun KartingLapSplitsCard(
                                         fontFamily = JetBrainsMonoFontFamily
                                     ),
                                     color = tc.heart
+                                )
+                            }
+                            if (lap.peakG > 0.05f) {
+                                Text(
+                                    text = String.format(Locale.US, "%.1fG", lap.peakG),
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontFamily = JetBrainsMonoFontFamily
+                                    ),
+                                    color = cs.primary
                                 )
                             }
                             Text(

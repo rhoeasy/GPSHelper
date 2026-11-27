@@ -5,6 +5,7 @@ import android.os.SystemClock
 import com.example.ble.HeartRateRepository
 import com.example.gps.GpsData
 import com.example.gps.GpsRepository
+import com.example.sensor.GForceRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.pow
@@ -34,7 +36,8 @@ data class RecordedLap(
     val durationMs: Long,
     val distanceMeters: Double,
     val maxSpeedMps: Float,
-    val avgHeartRate: Int?
+    val avgHeartRate: Int?,
+    val peakG: Float
 )
 
 data class RecordingSnapshot(
@@ -54,8 +57,11 @@ data class RecordingSnapshot(
     val lastLapMs: Long? = null,
     val completedLaps: List<RecordedLap> = emptyList(),
     val hasStartGate: Boolean = false,
+    val currentHeartRate: Int? = null,
     val avgHeartRate: Int? = null,
     val maxHeartRate: Int? = null,
+    val peakTotalG: Float = 0f,
+    val peakLateralG: Float = 0f,
     val pointCount: Int = 0
 ) {
     val isActive: Boolean
@@ -63,9 +69,9 @@ data class RecordingSnapshot(
 }
 
 /**
- * Live offline GPS + BLE Heart Rate track recorder supporting:
- * - Karting mode: automatic start/finish gate lap detection & split tracking
- * - Hiking mode: smoothed altitude profile, elevation gain/loss, distance & pace
+ * Live offline GPS + BLE Heart Rate + Hardware G-Force track recorder supporting:
+ * - Karting mode: automatic start/finish gate lap detection, per-lap HR & peak G
+ * - Hiking mode: smoothed altitude profile, elevation gain/loss, distance, pace & HR
  */
 object TrackRecorder {
     private const val CLIENT_ID = "track_recorder"
@@ -109,6 +115,8 @@ object TrackRecorder {
     private var hrSum: Long = 0L
     private var hrCount: Int = 0
     private var maxHr: Int? = null
+    private var peakTotalG: Float = 0f
+    private var peakLateralG: Float = 0f
 
     // Karting lap detection state
     private var startGateLat: Double? = null
@@ -119,6 +127,7 @@ object TrackRecorder {
     private var lapMaxSpeedMps: Float = 0f
     private var lapHrSum: Long = 0L
     private var lapHrCount: Int = 0
+    private var lapPeakG: Float = 0f
     private var armedForLap: Boolean = false
     private var enteringGate: Boolean = false
     private var minGateDistanceM: Double = Double.MAX_VALUE
@@ -136,7 +145,7 @@ object TrackRecorder {
     fun startRecording(context: Context, mode: ActivityMode = _snapshot.value.mode) {
         synchronized(lock) {
             if (_snapshot.value.status != RecordingStatus.IDLE) return
-            resetStateLocked(mode)
+            resetStateLocked()
             sessionStartWallMs = System.currentTimeMillis()
             activeSegmentStartElapsedMs = SystemClock.elapsedRealtime()
             _snapshot.value = RecordingSnapshot(
@@ -146,6 +155,7 @@ object TrackRecorder {
         }
 
         GpsRepository.startTracking(context.applicationContext, CLIENT_ID)
+        GForceRepository.startListening(context.applicationContext, CLIENT_ID)
 
         gpsCollectJob?.cancel()
         gpsCollectJob = scope.launch {
@@ -160,6 +170,10 @@ object TrackRecorder {
                 delay(200L)
                 synchronized(lock) {
                     if (_snapshot.value.status == RecordingStatus.RECORDING) {
+                        val g = GForceRepository.gForceData.value
+                        if (g.totalG > peakTotalG) peakTotalG = g.totalG
+                        if (abs(g.lateralG) > peakLateralG) peakLateralG = abs(g.lateralG)
+                        if (g.totalG > lapPeakG) lapPeakG = g.totalG
                         publishSnapshotLocked()
                     }
                 }
@@ -187,9 +201,6 @@ object TrackRecorder {
         }
     }
 
-    /**
-     * Allows the kart driver to explicitly mark the current GPS position as the Start/Finish gate.
-     */
     fun setStartFinishGateToCurrentPosition(): Boolean {
         val currentGps = GpsRepository.gpsData.value
         val lat = currentGps.latitude
@@ -208,15 +219,12 @@ object TrackRecorder {
             lapMaxSpeedMps = 0f
             lapHrSum = 0L
             lapHrCount = 0
+            lapPeakG = 0f
             publishSnapshotLocked()
             return true
         }
     }
 
-    /**
-     * Stops recording and persists the session, points, and laps into Room.
-     * Returns saved session ID, or null if fewer than 2 points were recorded.
-     */
     suspend fun stopAndSave(context: Context): Long? {
         val toSave: Triple<TrackSessionEntity, List<TrackPointEntity>, List<TrackLapEntity>>?
 
@@ -254,7 +262,9 @@ object TrackRecorder {
                     bestLapMs = bestLapMs,
                     avgHeartRate = avgHr,
                     maxHeartRate = maxHr,
-                    pointCount = pointsCopy.size
+                    pointCount = pointsCopy.size,
+                    peakTotalG = peakTotalG,
+                    peakLateralG = peakLateralG
                 )
                 val lapEntities = lapsCopy.map { lap ->
                     TrackLapEntity(
@@ -263,7 +273,8 @@ object TrackRecorder {
                         lapDurationMs = lap.durationMs,
                         lapDistanceMeters = lap.distanceMeters,
                         maxSpeedMps = lap.maxSpeedMps,
-                        avgHeartRate = lap.avgHeartRate
+                        avgHeartRate = lap.avgHeartRate,
+                        peakG = lap.peakG
                     )
                 }
                 Triple(session, pointsCopy, lapEntities)
@@ -275,11 +286,12 @@ object TrackRecorder {
             gpsCollectJob = null
             timerJob?.cancel()
             timerJob = null
-            resetStateLocked(mode)
+            resetStateLocked()
             _snapshot.value = RecordingSnapshot(status = RecordingStatus.IDLE, mode = mode)
         }
 
         GpsRepository.stopTracking(CLIENT_ID)
+        GForceRepository.stopListening(CLIENT_ID)
 
         val payload = toSave ?: return null
         return withContext(Dispatchers.IO) {
@@ -298,7 +310,6 @@ object TrackRecorder {
             if (_snapshot.value.status != RecordingStatus.RECORDING) return
             if (data.lastUpdateElapsedRealtimeMs <= lastFixElapsedMs && lastFixElapsedMs != 0L) return
 
-            // Filter very noisy initial GPS fixes once we already have at least one point
             val accuracy = data.accuracyMeters
             if (accuracy != null && accuracy > MAX_ACCURACY_METERS && recordedPoints.isNotEmpty()) {
                 return
@@ -315,7 +326,6 @@ object TrackRecorder {
                 0.0
             }
 
-            // Skip stationary GPS jitter
             if (prevLat != null && stepMeters < MIN_STEP_DISTANCE_M && speed < 0.4f) {
                 return
             }
@@ -328,7 +338,6 @@ object TrackRecorder {
             if (speed > maxSpeedMps) maxSpeedMps = speed
             if (speed > lapMaxSpeedMps) lapMaxSpeedMps = speed
 
-            // Elevation smoothing & gain/loss accumulation
             val alt = data.altitudeMeters
             if (alt != null) {
                 minAltitudeM = minAltitudeM?.let { minOf(it, alt) } ?: alt
@@ -351,7 +360,7 @@ object TrackRecorder {
                 }
             }
 
-            // Live BLE Heart Rate capture (if connected)
+            // Fuse live BLE Heart Rate directly with this motion sample
             val hrState = HeartRateRepository.heartRateState.value
             val currentBpm = if (hrState.isConnected) hrState.bpm else null
             if (currentBpm != null) {
@@ -362,9 +371,13 @@ object TrackRecorder {
                 lapHrCount++
             }
 
-            val activeMs = computeActiveElapsedMsLocked()
+            // Fuse live hardware G-Force directly with this motion sample
+            val gState = GForceRepository.gForceData.value
+            if (gState.totalG > peakTotalG) peakTotalG = gState.totalG
+            if (abs(gState.lateralG) > peakLateralG) peakLateralG = abs(gState.lateralG)
+            if (gState.totalG > lapPeakG) lapPeakG = gState.totalG
 
-            // Karting automatic lap detection
+            val activeMs = computeActiveElapsedMsLocked()
             if (_snapshot.value.mode == ActivityMode.KARTING) {
                 processKartingLapLocked(lat, lng, activeMs)
             }
@@ -380,7 +393,10 @@ object TrackRecorder {
                     accuracyMeters = accuracy,
                     bearingDegrees = data.bearingDegrees,
                     heartRateBpm = currentBpm,
-                    lapNumber = currentLapNumber
+                    lapNumber = currentLapNumber,
+                    lateralG = gState.lateralG,
+                    longitudinalG = gState.longitudinalG,
+                    totalG = gState.totalG
                 )
             )
 
@@ -414,7 +430,6 @@ object TrackRecorder {
                     completeLapLocked(activeMs)
                 }
             } else if (enteringGate) {
-                // Just passed closest approach inside gate radius
                 completeLapLocked(activeMs)
             }
         }
@@ -428,7 +443,8 @@ object TrackRecorder {
             durationMs = duration,
             distanceMeters = lapDistanceM,
             maxSpeedMps = lapMaxSpeedMps,
-            avgHeartRate = lapAvgHr
+            avgHeartRate = lapAvgHr,
+            peakG = lapPeakG
         )
         recordedLaps.add(lap)
         lastLapMs = duration
@@ -440,6 +456,7 @@ object TrackRecorder {
         lapMaxSpeedMps = 0f
         lapHrSum = 0L
         lapHrCount = 0
+        lapPeakG = 0f
         armedForLap = false
         enteringGate = false
         minGateDistanceM = Double.MAX_VALUE
@@ -464,6 +481,7 @@ object TrackRecorder {
             0f
         }
         val avgHr = if (hrCount > 0) (hrSum / hrCount).toInt() else null
+        val liveHr = HeartRateRepository.heartRateState.value.let { if (it.isConnected) it.bpm else null }
 
         _snapshot.value = RecordingSnapshot(
             status = _snapshot.value.status,
@@ -482,13 +500,16 @@ object TrackRecorder {
             lastLapMs = lastLapMs,
             completedLaps = recordedLaps.toList(),
             hasStartGate = startGateLat != null,
+            currentHeartRate = liveHr,
             avgHeartRate = avgHr,
             maxHeartRate = maxHr,
+            peakTotalG = peakTotalG,
+            peakLateralG = peakLateralG,
             pointCount = recordedPoints.size
         )
     }
 
-    private fun resetStateLocked(mode: ActivityMode) {
+    private fun resetStateLocked() {
         recordedPoints.clear()
         recordedLaps.clear()
         altitudeWindow.clear()
@@ -508,6 +529,8 @@ object TrackRecorder {
         hrSum = 0L
         hrCount = 0
         maxHr = null
+        peakTotalG = 0f
+        peakLateralG = 0f
         startGateLat = null
         startGateLng = null
         currentLapNumber = 1
@@ -516,6 +539,7 @@ object TrackRecorder {
         lapMaxSpeedMps = 0f
         lapHrSum = 0L
         lapHrCount = 0
+        lapPeakG = 0f
         armedForLap = false
         enteringGate = false
         minGateDistanceM = Double.MAX_VALUE

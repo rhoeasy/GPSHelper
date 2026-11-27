@@ -34,7 +34,9 @@ data class TrackSessionEntity(
     val bestLapMs: Long?,
     val avgHeartRate: Int?,
     val maxHeartRate: Int?,
-    val pointCount: Int
+    val pointCount: Int,
+    val peakTotalG: Float = 0f,
+    val peakLateralG: Float = 0f
 ) {
     val activityMode: ActivityMode
         get() = ActivityMode.fromName(mode)
@@ -63,7 +65,10 @@ data class TrackPointEntity(
     val accuracyMeters: Float?,
     val bearingDegrees: Float?,
     val heartRateBpm: Int?,
-    val lapNumber: Int
+    val lapNumber: Int,
+    val lateralG: Float = 0f,
+    val longitudinalG: Float = 0f,
+    val totalG: Float = 0f
 )
 
 @Entity(
@@ -85,5 +90,6 @@ data class TrackLapEntity(
     val lapDurationMs: Long,
     val lapDistanceMeters: Double,
     val maxSpeedMps: Float,
-    val avgHeartRate: Int?
+    val avgHeartRate: Int?,
+    val peakG: Float = 0f
 )
