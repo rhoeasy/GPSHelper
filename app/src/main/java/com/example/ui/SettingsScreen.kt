@@ -303,6 +303,7 @@ private fun SettingsRootMenu(
             ThemeMode.AUTO -> R.string.theme_mode_auto
             ThemeMode.LIGHT -> R.string.theme_mode_light
             ThemeMode.DARK -> R.string.theme_mode_dark
+            ThemeMode.AMBIENT -> R.string.theme_mode_ambient
         }
     )
 

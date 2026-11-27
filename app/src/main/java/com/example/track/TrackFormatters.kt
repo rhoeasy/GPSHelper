@@ -61,6 +61,9 @@ object TrackFormatters {
         return String.format(Locale.US, "%d'%02d\"/km", min, sec)
     }
 
+    fun averageStepsPerMinute(stepCount: Int, durationMs: Long): Int? =
+        if (durationMs >= 5_000L) (stepCount * 60_000.0 / durationMs).roundToInt() else null
+
     fun formatElevationGain(meters: Double): String {
         return String.format(Locale.US, "+%d m", meters.roundToInt().coerceAtLeast(0))
     }

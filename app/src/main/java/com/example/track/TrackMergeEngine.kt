@@ -266,6 +266,7 @@ object TrackMergeEngine {
         )
 
         val resolvedName = customName?.trim().takeUnless { it.isNullOrBlank() } ?: preview.defaultMergedName
+        val stepCounts = ordered.mapNotNull { it.session.stepCount }
 
         val mergedSession = TrackSessionEntity(
             id = 0L,
@@ -287,7 +288,8 @@ object TrackMergeEngine {
             maxHeartRate = maxHr,
             pointCount = mergedPoints.size,
             peakTotalG = peakTotalG,
-            peakLateralG = peakLateralG
+            peakLateralG = peakLateralG,
+            stepCount = if (mode == ActivityMode.HIKING && stepCounts.size == ordered.size) stepCounts.sum() else null
         )
 
         return Result.success(

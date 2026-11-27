@@ -295,8 +295,8 @@ class FloatingGpsService : Service() {
             else -> getString(R.string.notification_title)
         }
 
-        val altStr = if (gpsData.hasFix && gpsData.altitudeMeters != null) {
-            String.format(Locale.US, "海拔 %.1f m", gpsData.altitudeMeters)
+        val altStr = if (gpsData.displayAltitudeMeters != null) {
+            "海拔 ${gpsData.formattedAltitude()}"
         } else {
             getString(R.string.notification_waiting_fix)
         }

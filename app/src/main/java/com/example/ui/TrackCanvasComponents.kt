@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -57,6 +58,7 @@ import com.example.track.F1SectorStatus
 import com.example.track.KartingF1SectorAnalysis
 import com.example.track.TrackFormatters
 import com.example.track.TrackPointEntity
+import com.example.track.findRoughTrackSegments
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalTelemetryColors
 import java.util.Locale
@@ -138,12 +140,17 @@ fun VectorTrackCanvasCard(
     val highColor = cs.tertiary
     val peakColor = cs.error
     val markerRingColor = cs.surface
+    val roughSegmentColor = Color(0xFFFF9B28)
 
     val canShowF1Sectors = mode == ActivityMode.KARTING && f1SectorAnalysis != null
     var showF1Sectors by remember(mode, canShowF1Sectors) { mutableStateOf(canShowF1Sectors) }
     val activeF1Lap = remember(f1SectorAnalysis, selectedLapNumber) {
         f1SectorAnalysis?.timingForLap(selectedLapNumber)
     }
+    val showingF1Lap = canShowF1Sectors && showF1Sectors && activeF1Lap != null
+    val roughSegments = remember(points) { findRoughTrackSegments(points) }
+    val hasVibrationData = remember(points) { points.any { it.verticalVibrationG != null } }
+    var showRoughSegments by remember(points) { mutableStateOf(true) }
     val density = LocalDensity.current
     val gateTextPaint = remember(density) {
         Paint().apply {
@@ -233,6 +240,16 @@ fun VectorTrackCanvasCard(
                         )
                     }
                 }
+            }
+
+            if (!showingF1Lap && hasVibrationData) {
+                FilterChip(
+                    selected = showRoughSegments && roughSegments.isNotEmpty(),
+                    enabled = roughSegments.isNotEmpty(),
+                    onClick = { showRoughSegments = !showRoughSegments },
+                    label = { Text(stringResource(R.string.detail_rough_track_segments, roughSegments.size)) },
+                    modifier = Modifier.testTag("track_rough_segments_toggle")
+                )
             }
 
             Box(
@@ -405,6 +422,19 @@ fun VectorTrackCanvasCard(
                                     strokeWidth = strokePx,
                                     cap = StrokeCap.Round
                                 )
+                            }
+
+                            if (showRoughSegments) {
+                                roughSegments.forEach { range ->
+                                    val path = Path().apply {
+                                        moveTo(screenPoints[range.first].x, screenPoints[range.first].y)
+                                        for (i in range.first + 1..range.last) {
+                                            lineTo(screenPoints[i].x, screenPoints[i].y)
+                                        }
+                                    }
+                                    drawPath(path, color = markerRingColor, style = Stroke(9.dp.toPx(), cap = StrokeCap.Round))
+                                    drawPath(path, color = roughSegmentColor, style = Stroke(6.dp.toPx(), cap = StrokeCap.Round))
+                                }
                             }
 
                             val startPt = screenPoints.first()

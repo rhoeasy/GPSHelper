@@ -6,7 +6,10 @@ import com.example.ble.HeartRateRepository
 import com.example.gps.GpsData
 import com.example.gps.GpsRepository
 import com.example.overlay.FloatingGpsService
+import com.example.sensor.EnvironmentSensorManager
 import com.example.sensor.GForceRepository
+import com.example.sensor.HikingStepSensor
+import com.example.sensor.MotionSensorManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -63,7 +66,8 @@ data class RecordingSnapshot(
     val maxHeartRate: Int? = null,
     val peakTotalG: Float = 0f,
     val peakLateralG: Float = 0f,
-    val pointCount: Int = 0
+    val pointCount: Int = 0,
+    val stepCount: Int? = null
 ) {
     val isActive: Boolean
         get() = status == RecordingStatus.RECORDING || status == RecordingStatus.PAUSED
@@ -82,7 +86,6 @@ object TrackRecorder {
     private const val GATE_RADIUS_M = 18.0
     private const val GATE_APEX_IMMEDIATE_M = 6.0
     private const val MIN_LAP_DURATION_MS = 15_000L
-    private const val ELEVATION_DEADBAND_M = 2.5
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lock = Any()
@@ -95,7 +98,7 @@ object TrackRecorder {
 
     private val recordedPoints = mutableListOf<TrackPointEntity>()
     private val recordedLaps = mutableListOf<RecordedLap>()
-    private val altitudeWindow = ArrayDeque<Double>()
+    private var elevation = TrackElevation()
 
     private var sessionStartWallMs: Long = 0L
     private var accumulatedActiveMs: Long = 0L
@@ -104,14 +107,10 @@ object TrackRecorder {
     private var lastLat: Double? = null
     private var lastLng: Double? = null
     private var lastFixElapsedMs: Long = 0L
+    private var lastTrackPointFixElapsedMs: Long = 0L
 
     private var totalDistanceM: Double = 0.0
     private var maxSpeedMps: Float = 0f
-    private var anchorAltitude: Double? = null
-    private var elevationGainM: Double = 0.0
-    private var elevationLossM: Double = 0.0
-    private var minAltitudeM: Double? = null
-    private var maxAltitudeM: Double? = null
 
     private var hrSum: Long = 0L
     private var hrCount: Int = 0
@@ -149,14 +148,18 @@ object TrackRecorder {
             resetStateLocked()
             sessionStartWallMs = System.currentTimeMillis()
             activeSegmentStartElapsedMs = SystemClock.elapsedRealtime()
+            if (mode == ActivityMode.HIKING) HikingStepSensor.start(context.applicationContext)
             _snapshot.value = RecordingSnapshot(
                 status = RecordingStatus.RECORDING,
-                mode = mode
+                mode = mode,
+                stepCount = HikingStepSensor.currentCount()
             )
         }
 
-        GpsRepository.startTracking(context.applicationContext, CLIENT_ID)
+        EnvironmentSensorManager.startPressureListening(context.applicationContext, CLIENT_ID)
         GForceRepository.startListening(context.applicationContext, CLIENT_ID)
+        MotionSensorManager.setTrackVibrationCapture(true)
+        GpsRepository.startTracking(context.applicationContext, CLIENT_ID)
         FloatingGpsService.startRecordingKeepAlive(context.applicationContext)
 
         gpsCollectJob?.cancel()
@@ -189,6 +192,10 @@ object TrackRecorder {
             accumulatedActiveMs += (SystemClock.elapsedRealtime() - activeSegmentStartElapsedMs)
                 .coerceAtLeast(0L)
             activeSegmentStartElapsedMs = 0L
+            elevation.breakInterval()
+            lastTrackPointFixElapsedMs = 0L
+            MotionSensorManager.setTrackVibrationCapture(false)
+            HikingStepSensor.pause()
             _snapshot.update { it.copy(status = RecordingStatus.PAUSED) }
             publishSnapshotLocked()
         }
@@ -198,6 +205,8 @@ object TrackRecorder {
         synchronized(lock) {
             if (_snapshot.value.status != RecordingStatus.PAUSED) return
             activeSegmentStartElapsedMs = SystemClock.elapsedRealtime()
+            MotionSensorManager.setTrackVibrationCapture(true)
+            HikingStepSensor.resume()
             _snapshot.update { it.copy(status = RecordingStatus.RECORDING) }
             publishSnapshotLocked()
         }
@@ -235,6 +244,7 @@ object TrackRecorder {
 
             val totalDurationMs = computeActiveElapsedMsLocked()
             val mode = _snapshot.value.mode
+            val stepCount = HikingStepSensor.stop()
             val pointsCopy = recordedPoints.toList()
             val lapsCopy = recordedLaps.toList()
 
@@ -256,17 +266,18 @@ object TrackRecorder {
                     distanceMeters = totalDistanceM,
                     maxSpeedMps = maxSpeedMps,
                     avgSpeedMps = avgSpeed,
-                    elevationGainMeters = elevationGainM,
-                    elevationLossMeters = elevationLossM,
-                    minAltitudeMeters = minAltitudeM,
-                    maxAltitudeMeters = maxAltitudeM,
+                    elevationGainMeters = elevation.gainMeters,
+                    elevationLossMeters = elevation.lossMeters,
+                    minAltitudeMeters = elevation.minMeters,
+                    maxAltitudeMeters = elevation.maxMeters,
                     lapCount = lapsCopy.size,
                     bestLapMs = bestLapMs,
                     avgHeartRate = avgHr,
                     maxHeartRate = maxHr,
                     pointCount = pointsCopy.size,
                     peakTotalG = peakTotalG,
-                    peakLateralG = peakLateralG
+                    peakLateralG = peakLateralG,
+                    stepCount = stepCount
                 )
                 val lapEntities = lapsCopy.map { lap ->
                     TrackLapEntity(
@@ -293,6 +304,8 @@ object TrackRecorder {
         }
 
         GpsRepository.stopTracking(CLIENT_ID)
+        EnvironmentSensorManager.stopPressureListening(CLIENT_ID)
+        MotionSensorManager.setTrackVibrationCapture(false)
         GForceRepository.stopListening(CLIENT_ID)
         FloatingGpsService.stopRecordingKeepAlive(context.applicationContext)
 
@@ -341,27 +354,14 @@ object TrackRecorder {
             if (speed > maxSpeedMps) maxSpeedMps = speed
             if (speed > lapMaxSpeedMps) lapMaxSpeedMps = speed
 
-            val alt = data.altitudeMeters
-            if (alt != null) {
-                minAltitudeM = minAltitudeM?.let { minOf(it, alt) } ?: alt
-                maxAltitudeM = maxAltitudeM?.let { maxOf(it, alt) } ?: alt
-                altitudeWindow.addLast(alt)
-                if (altitudeWindow.size > 3) altitudeWindow.removeFirst()
-                val smoothed = altitudeWindow.average()
-                val anchor = anchorAltitude
-                if (anchor == null) {
-                    anchorAltitude = smoothed
-                } else {
-                    val delta = smoothed - anchor
-                    if (delta >= ELEVATION_DEADBAND_M) {
-                        elevationGainM += delta
-                        anchorAltitude = smoothed
-                    } else if (delta <= -ELEVATION_DEADBAND_M) {
-                        elevationLossM += -delta
-                        anchorAltitude = smoothed
-                    }
-                }
-            }
+            val legDurationMs = data.lastUpdateElapsedRealtimeMs - lastTrackPointFixElapsedMs
+            val isContinuous = lastTrackPointFixElapsedMs != 0L && legDurationMs in 1L..MAX_CONTINUOUS_TRACK_INTERVAL_MS
+            if (!isContinuous) elevation.breakInterval()
+            lastTrackPointFixElapsedMs = data.lastUpdateElapsedRealtimeMs
+            val pressure = EnvironmentSensorManager.telemetry.value.freshPressureHpa(SystemClock.elapsedRealtime())
+            val altitude = elevation.record(data.altitudeMeters, pressure)
+            val vibrationG = MotionSensorManager.takeTrackVibrationRmsG()
+                ?.takeIf { isContinuous && speed >= 1f && stepMeters >= 0.5 }
 
             // Fuse live BLE Heart Rate directly with this motion sample
             val hrState = HeartRateRepository.heartRateState.value
@@ -391,7 +391,7 @@ object TrackRecorder {
                     timestampMs = System.currentTimeMillis(),
                     latitude = lat,
                     longitude = lng,
-                    altitudeMeters = alt,
+                    altitudeMeters = altitude?.meters,
                     speedMps = speed,
                     accuracyMeters = accuracy,
                     bearingDegrees = data.bearingDegrees,
@@ -399,7 +399,9 @@ object TrackRecorder {
                     lapNumber = currentLapNumber,
                     lateralG = gState.lateralG,
                     longitudinalG = gState.longitudinalG,
-                    totalG = gState.totalG
+                    totalG = gState.totalG,
+                    altitudeFromBarometer = altitude?.fromBarometer,
+                    verticalVibrationG = vibrationG
                 )
             )
 
@@ -493,10 +495,10 @@ object TrackRecorder {
             distanceMeters = totalDistanceM,
             maxSpeedMps = maxSpeedMps,
             avgSpeedMps = avgSpeed,
-            elevationGainMeters = elevationGainM,
-            elevationLossMeters = elevationLossM,
-            minAltitudeMeters = minAltitudeM,
-            maxAltitudeMeters = maxAltitudeM,
+            elevationGainMeters = elevation.gainMeters,
+            elevationLossMeters = elevation.lossMeters,
+            minAltitudeMeters = elevation.minMeters,
+            maxAltitudeMeters = elevation.maxMeters,
             currentLapNumber = currentLapNumber,
             currentLapElapsedMs = (elapsed - lapStartActiveMs).coerceAtLeast(0L),
             bestLapMs = bestLapMs,
@@ -508,27 +510,24 @@ object TrackRecorder {
             maxHeartRate = maxHr,
             peakTotalG = peakTotalG,
             peakLateralG = peakLateralG,
-            pointCount = recordedPoints.size
+            pointCount = recordedPoints.size,
+            stepCount = HikingStepSensor.currentCount()
         )
     }
 
     private fun resetStateLocked() {
         recordedPoints.clear()
         recordedLaps.clear()
-        altitudeWindow.clear()
+        elevation = TrackElevation()
         sessionStartWallMs = 0L
         accumulatedActiveMs = 0L
         activeSegmentStartElapsedMs = 0L
         lastLat = null
         lastLng = null
         lastFixElapsedMs = 0L
+        lastTrackPointFixElapsedMs = 0L
         totalDistanceM = 0.0
         maxSpeedMps = 0f
-        anchorAltitude = null
-        elevationGainM = 0.0
-        elevationLossM = 0.0
-        minAltitudeM = null
-        maxAltitudeM = null
         hrSum = 0L
         hrCount = 0
         maxHr = null

@@ -52,7 +52,7 @@ class GpsRepositoryTest {
     @Test
     fun `fix without speed or altitude does not reuse old readings`() {
         publish(speedMps = 5f, altitudeM = 120.0)
-        assertReadings("18.0", "120.0 m")
+        assertReadings("18.0", "120 m")
 
         advanceSeconds(1)
         publish()
@@ -61,14 +61,14 @@ class GpsRepositoryTest {
 
         advanceSeconds(1)
         publish(speedMps = 0f, altitudeM = 135.0)
-        assertReadings("0.0", "135.0 m")
+        assertReadings("0.0", "135 m")
     }
 
     @Test
     fun `fix expires without a callback and recovers on the next fix`() {
         publish(speedMps = 5f, altitudeM = 120.0)
         advanceSeconds(7)
-        assertReadings("18.0", "120.0 m")
+        assertReadings("18.0", "120 m")
 
         advanceSeconds(1)
         assertFalse(GpsRepository.gpsData.value.hasFix)
@@ -76,7 +76,7 @@ class GpsRepositoryTest {
         assertReadings("--", "--")
 
         publish(speedMps = 8f, altitudeM = 135.0)
-        assertReadings("28.8", "135.0 m")
+        assertReadings("28.8", "135 m")
     }
 
     @Test
@@ -88,7 +88,30 @@ class GpsRepositoryTest {
 
         publish(provider = LocationManager.FUSED_PROVIDER, speedMps = 8f, altitudeM = 135.0)
         assertEquals(GpsFixStatus.FUSED_FALLBACK, GpsRepository.gpsData.value.fixStatus)
-        assertReadings("28.8", "135.0 m")
+        assertReadings("28.8", "135 m")
+    }
+
+    @Test
+    fun `live altitude rejects an isolated jump but follows a sustained climb`() {
+        publish(altitudeM = 120.0)
+        assertReadings("--", "120 m")
+
+        advanceSeconds(1)
+        publish(altitudeM = 160.0)
+        val spike = GpsRepository.gpsData.value
+        assertEquals(160.0, requireNotNull(spike.altitudeMeters), 0.0)
+        assertEquals("120 m", spike.formattedAltitude())
+
+        advanceSeconds(1)
+        publish(altitudeM = 120.0)
+        assertReadings("--", "120 m")
+
+        repeat(6) {
+            advanceSeconds(1)
+            publish(altitudeM = 130.0)
+        }
+        val displayAltitude = requireNotNull(GpsRepository.gpsData.value.displayAltitudeMeters)
+        assertTrue(displayAltitude in 128.0..130.0)
     }
 
     private fun publish(

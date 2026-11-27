@@ -23,6 +23,8 @@
     <string name="theme_mode_auto_full">自动模式（跟随系统）</string>
     <string name="theme_mode_light_full">日间模式</string>
     <string name="theme_mode_dark_full">夜间模式</string>
+    <string name="theme_mode_ambient">光感</string>
+    <string name="theme_mode_ambient_full">随环境光切换</string>
     <string name="speed_label">实时车速</string>
     <string name="unit_kmh">km/h</string>
     <string name="unit_mph">mph</string>
@@ -156,6 +158,10 @@
     <string name="metric_max_speed">最高时速</string>
     <string name="metric_avg_speed">平均时速</string>
     <string name="metric_avg_pace">平均配速</string>
+    <string name="metric_step_count">步数</string>
+    <string name="metric_step_count_value">%1$d 步</string>
+    <string name="metric_avg_step_cadence">平均步频</string>
+    <string name="metric_step_cadence_value">%1$d 步/分</string>
     <string name="metric_elevation_gain">累计爬升</string>
     <string name="metric_elevation_loss">累计下降</string>
     <string name="metric_max_altitude">最高海拔</string>
@@ -197,6 +203,10 @@
     <string name="detail_legend_high">高</string>
     <string name="detail_map_mode_f1">F1 分段</string>
     <string name="detail_map_mode_speed">速度热力</string>
+    <string name="detail_rough_track_segments">颠簸路段 · %1$d</string>
+    <string name="detail_altitude_source_barometer">海拔：气压计（GPS 校准）</string>
+    <string name="detail_altitude_source_mixed">海拔：气压计 + GPS</string>
+    <string name="detail_altitude_source_gps">海拔：GPS</string>
     <string name="kart_f1_sector_title">F1 自动分段计时</string>
     <string name="kart_f1_legend_purple">刷紫</string>
     <string name="kart_f1_legend_green">刷绿</string>

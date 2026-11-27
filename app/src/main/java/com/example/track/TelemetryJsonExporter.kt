@@ -50,6 +50,10 @@ object TelemetryJsonExporter {
             put("duration_sec", round2(session.durationMs / 1000.0))
             put("distance_m", round2(session.distanceMeters))
             put("point_count", points.size)
+            session.stepCount?.let { steps ->
+                put("step_count", steps)
+                TrackFormatters.averageStepsPerMinute(steps, session.durationMs)?.let { put("avg_steps_per_min", it) }
+            }
 
             put("speed_kmh", JSONObject().apply {
                 put("avg", round2(session.avgSpeedMps * 3.6))
@@ -220,6 +224,7 @@ object TelemetryJsonExporter {
                     put("lat", round6(pt.latitude))
                     put("lon", round6(pt.longitude))
                     pt.altitudeMeters?.let { put("alt_m", round1(it)) }
+                    pt.altitudeFromBarometer?.let { put("altitude_source", if (it) "barometer" else "gps") }
                     put("speed_kmh", round2(pt.speedMps * 3.6))
                     pt.bearingDegrees?.let { put("bearing_deg", round1(it.toDouble())) }
                     pt.accuracyMeters?.let { put("accuracy_m", round1(it.toDouble())) }
@@ -227,6 +232,7 @@ object TelemetryJsonExporter {
                     put("lat_g", round2(pt.lateralG.toDouble()))
                     put("long_g", round2(pt.longitudinalG.toDouble()))
                     put("total_g", round2(pt.totalG.toDouble()))
+                    pt.verticalVibrationG?.let { put("vertical_vibration_rms_g", round2(it.toDouble())) }
                     put("lap", pt.lapNumber)
                 }
             )

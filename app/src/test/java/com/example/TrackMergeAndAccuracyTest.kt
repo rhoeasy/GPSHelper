@@ -12,6 +12,7 @@ import com.example.track.TrackSessionEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -121,6 +122,11 @@ class TrackMergeAndAccuracyTest {
         assertEquals(600_000L, merged.session.durationMs)
         assertEquals(4, merged.points.size)
         assertEquals(138.0, merged.session.elevationGainMeters, 0.1)
+
+        val firstWithSteps = seg1.copy(session = seg1.session.copy(stepCount = 480))
+        val secondWithSteps = seg2.copy(session = seg2.session.copy(stepCount = 560))
+        assertEquals(1040, TrackMergeEngine.merge(listOf(firstWithSteps, secondWithSteps)).getOrThrow().session.stepCount)
+        assertNull(TrackMergeEngine.merge(listOf(firstWithSteps, seg2)).getOrThrow().session.stepCount)
     }
 
     @Test

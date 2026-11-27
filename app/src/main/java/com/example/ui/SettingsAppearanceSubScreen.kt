@@ -4,7 +4,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +43,7 @@ import com.example.R
 import com.example.gps.SpeedUnit
 import com.example.ui.theme.AppThemePalette
 import com.example.ui.theme.JetBrainsMonoFontFamily
+import com.example.ui.theme.LocalHudDarkTheme
 import com.example.ui.theme.ThemeMode
 
 /**
@@ -66,12 +66,7 @@ internal fun SettingsAppearanceContent(
     onToggleAutoFocusOnLaunch: (Boolean) -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
-    val systemDark = isSystemInDarkTheme()
-    val previewDark = when (themeMode) {
-        ThemeMode.AUTO -> systemDark
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-    }
+    val previewDark = LocalHudDarkTheme.current
 
     // Section 1: Theme Color Palette Picker (inspired by Social Share Card background styles)
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -193,13 +188,11 @@ internal fun SettingsAppearanceContent(
         color = cs.surfaceContainerLow
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Theme mode selector row (Auto / Light / Dark)
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -210,6 +203,7 @@ internal fun SettingsAppearanceContent(
                             ThemeMode.AUTO -> Icons.Rounded.BrightnessAuto
                             ThemeMode.LIGHT -> Icons.Rounded.LightMode
                             ThemeMode.DARK -> Icons.Rounded.DarkMode
+                            ThemeMode.AMBIENT -> Icons.Rounded.WbSunny
                         },
                         contentDescription = null,
                         tint = cs.primary,
@@ -224,6 +218,7 @@ internal fun SettingsAppearanceContent(
 
                 Row(
                     modifier = Modifier
+                        .fillMaxWidth()
                         .clip(RoundedCornerShape(50))
                         .background(cs.surfaceContainer)
                         .padding(3.dp)
@@ -231,15 +226,17 @@ internal fun SettingsAppearanceContent(
                     listOf(
                         ThemeMode.AUTO to R.string.theme_mode_auto,
                         ThemeMode.LIGHT to R.string.theme_mode_light,
-                        ThemeMode.DARK to R.string.theme_mode_dark
+                        ThemeMode.DARK to R.string.theme_mode_dark,
+                        ThemeMode.AMBIENT to R.string.theme_mode_ambient
                     ).forEach { (mode, labelRes) ->
                         val selected = mode == themeMode
                         Box(
                             modifier = Modifier
+                                .weight(1f)
                                 .clip(RoundedCornerShape(50))
                                 .background(if (selected) cs.primaryContainer else Color.Transparent)
                                 .clickable { onSelectThemeMode(mode) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .padding(vertical = 6.dp)
                                 .testTag("settings_theme_${mode.name.lowercase()}"),
                             contentAlignment = Alignment.Center
                         ) {

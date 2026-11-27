@@ -54,10 +54,29 @@ data class GForceData(
     val hasGyroscope: Boolean = false,
     val isGyroFused: Boolean = false,
     val isAvailable: Boolean = true,
-    val displayRotation: Int = Surface.ROTATION_0
+    val displayRotation: Int = Surface.ROTATION_0,
+    val verticalVibrationG: Float = 0f
 ) {
     val isLandscape: Boolean
         get() = displayRotation == Surface.ROTATION_90 || displayRotation == Surface.ROTATION_270
+}
+
+internal class TrackVibrationWindow {
+    private var squaredSum = 0.0
+    private var count = 0
+
+    fun add(accelerationG: Float) {
+        if (!accelerationG.isFinite()) return
+        squaredSum += accelerationG.toDouble() * accelerationG
+        count++
+    }
+
+    fun takeRmsG(): Float? {
+        val rms = if (count >= 5) sqrt(squaredSum / count).toFloat() else null
+        squaredSum = 0.0
+        count = 0
+        return rms
+    }
 }
 
 /**
@@ -439,6 +458,7 @@ class GForceFusionEngine {
             lateralG = cleanLat,
             longitudinalG = cleanLong,
             verticalG = cleanVert,
+            verticalVibrationG = rawVertG - filteredVertG,
             totalG = totalHorizG,
             total3DG = total3DG,
             peakG = peakGValue,
@@ -487,6 +507,8 @@ object MotionSensorManager : SensorEventListener {
     private val lock = Any()
     private val activeClients = mutableSetOf<String>()
     private val fusionEngine = GForceFusionEngine()
+    private val trackVibrationWindow = TrackVibrationWindow()
+    private var captureTrackVibration = false
 
     private var androidSensorManager: SensorManager? = null
     private var displayManager: DisplayManager? = null
@@ -512,6 +534,15 @@ object MotionSensorManager : SensorEventListener {
 
     private val _gForceData = MutableStateFlow(GForceData())
     val gForceData: StateFlow<GForceData> = _gForceData.asStateFlow()
+
+    fun setTrackVibrationCapture(enabled: Boolean) {
+        synchronized(lock) {
+            trackVibrationWindow.takeRmsG()
+            captureTrackVibration = enabled
+        }
+    }
+
+    fun takeTrackVibrationRmsG(): Float? = synchronized(lock) { trackVibrationWindow.takeRmsG() }
 
     fun startListening(context: Context, clientId: String) {
         synchronized(lock) {
@@ -672,7 +703,9 @@ object MotionSensorManager : SensorEventListener {
                         elapsedRealtimeMs = now,
                         hasGyroscope = gyroscopeSensor != null,
                         recordTrail = shouldEmit
-                    )
+                    ).also {
+                        if (captureTrackVibration) trackVibrationWindow.add(it.verticalVibrationG)
+                    }
                 }
                 if (shouldEmit) {
                     _gForceData.value = snapshot

@@ -138,11 +138,7 @@ fun OverlayWindow(
         }
 
         val speedValueStr = gpsData.formattedSpeedValue(speedUnit)
-        val altText = if (gpsData.hasFix && gpsData.altitudeMeters != null) {
-            String.format(Locale.US, "%.1f m", gpsData.altitudeMeters)
-        } else {
-            "-- m"
-        }
+        val altText = gpsData.formattedAltitude()
         val liveGText = String.format(Locale.US, "%.2fG", gForceData.totalG)
         val peakGText = String.format(Locale.US, "%.2fG", gForceData.peakG)
         val hrText = heartRateState.bpm?.let { "$it bpm" } ?: "-- bpm"

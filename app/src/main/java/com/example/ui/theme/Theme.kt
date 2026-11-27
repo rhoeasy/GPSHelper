@@ -7,15 +7,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.sensor.AmbientLightTheme
 
 enum class ThemeMode {
     AUTO,
     LIGHT,
-    DARK
+    DARK,
+    AMBIENT
 }
+
+internal val LocalHudDarkTheme = staticCompositionLocalOf { false }
 
 /**
  * Global Material 3 color theme palettes inspired by the Social Share Card background styles.
@@ -93,25 +101,40 @@ private val GoogleShapes = Shapes(
 )
 
 @Composable
-fun GpsHudTheme(
-    themeMode: ThemeMode = ThemeMode.AUTO,
-    themePalette: AppThemePalette = AppThemePalette.GOOGLE_BLUE,
-    content: @Composable () -> Unit
-) {
-    val isDark = when (themeMode) {
+internal fun isHudDarkTheme(themeMode: ThemeMode): Boolean =
+    when (themeMode) {
         ThemeMode.AUTO -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
+        ThemeMode.AMBIENT -> {
+            val context = LocalContext.current.applicationContext
+            LifecycleStartEffect(context) {
+                AmbientLightTheme.start(context)
+                onStopOrDispose { AmbientLightTheme.stop() }
+            }
+            val ambientDark by AmbientLightTheme.darkTheme.collectAsStateWithLifecycle()
+            ambientDark ?: isSystemInDarkTheme()
+        }
     }
 
-    val colorScheme = themePalette.colorScheme(isDark)
-    val telemetryColors = if (isDark) {
+@Composable
+fun GpsHudTheme(
+    themeMode: ThemeMode = ThemeMode.AUTO,
+    themePalette: AppThemePalette = AppThemePalette.GOOGLE_BLUE,
+    darkTheme: Boolean = isHudDarkTheme(themeMode),
+    content: @Composable () -> Unit
+) {
+    val colorScheme = themePalette.colorScheme(darkTheme)
+    val telemetryColors = if (darkTheme) {
         SemanticTelemetryColors(heart = HeartRoseDark, heartContainer = HeartContainerDark)
     } else {
         SemanticTelemetryColors(heart = HeartRoseLight, heartContainer = HeartContainerLight)
     }
 
-    CompositionLocalProvider(LocalTelemetryColors provides telemetryColors) {
+    CompositionLocalProvider(
+        LocalTelemetryColors provides telemetryColors,
+        LocalHudDarkTheme provides darkTheme
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = HudTypography,

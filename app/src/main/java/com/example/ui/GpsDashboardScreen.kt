@@ -903,6 +903,7 @@ private fun GoogleTopHeader(
         ThemeMode.AUTO -> Icons.Rounded.BrightnessAuto to R.string.theme_mode_auto
         ThemeMode.LIGHT -> Icons.Rounded.LightMode to R.string.theme_mode_light
         ThemeMode.DARK -> Icons.Rounded.DarkMode to R.string.theme_mode_dark
+        ThemeMode.AMBIENT -> Icons.Rounded.BrightnessAuto to R.string.theme_mode_ambient
     }
 
     Row(
@@ -1062,6 +1063,16 @@ private fun GoogleTopHeader(
                         tag = "theme_option_dark",
                         onClick = {
                             onSelectThemeMode(ThemeMode.DARK)
+                            themeMenuExpanded = false
+                        }
+                    )
+                    ThemeOptionItem(
+                        icon = Icons.Rounded.BrightnessAuto,
+                        label = stringResource(R.string.theme_mode_ambient_full),
+                        selected = themeMode == ThemeMode.AMBIENT,
+                        tag = "theme_option_ambient",
+                        onClick = {
+                            onSelectThemeMode(ThemeMode.AMBIENT)
                             themeMenuExpanded = false
                         }
                     )

@@ -37,8 +37,12 @@ data class GpsData(
     val hasSatelliteInfo: Boolean = false,
     val provider: String? = null,
     val fixStatus: GpsFixStatus = GpsFixStatus.SEARCHING,
-    val lastUpdateElapsedRealtimeMs: Long = 0L
+    val lastUpdateElapsedRealtimeMs: Long = 0L,
+    val smoothedAltitudeMeters: Double? = null
 ) {
+    val displayAltitudeMeters: Double?
+        get() = if (hasFix) altitudeMeters?.takeIf { it.isFinite() }?.let { smoothedAltitudeMeters ?: it } else null
+
     fun speedInUnit(unit: SpeedUnit): Float? {
         val mps = speedMps ?: return null
         if (!hasFix) return null
@@ -82,9 +86,8 @@ data class GpsData(
     }
 
     fun formattedAltitude(): String {
-        val alt = altitudeMeters ?: return "--"
-        if (!hasFix) return "--"
-        return String.format(Locale.US, "%.1f m", alt)
+        val alt = displayAltitudeMeters ?: return "--"
+        return "${alt.roundToInt()} m"
     }
 
     fun formattedAccuracy(): String {

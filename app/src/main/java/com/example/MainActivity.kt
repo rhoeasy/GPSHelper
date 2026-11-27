@@ -22,7 +22,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,7 +38,9 @@ import com.example.alert.SafetyAlertMonitor
 import com.example.ble.HeartRateRepository
 import com.example.gps.GpsRepository
 import com.example.overlay.FloatingGpsService
+import com.example.sensor.HikingStepSensor
 import com.example.sensor.MotionSensorManager
+import com.example.track.ActivityMode
 import com.example.ui.BleDevicePickerDialog
 import com.example.ui.FocusModeDialog
 import com.example.ui.GpsDashboardViewModel
@@ -49,7 +50,7 @@ import com.example.ui.MergeTracksConfirmDialog
 import com.example.ui.SettingsSubPage
 import com.example.ui.TelemetryDetailPage
 import com.example.ui.theme.GpsHudTheme
-import com.example.ui.theme.ThemeMode
+import com.example.ui.theme.isHudDarkTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -76,12 +77,7 @@ class MainActivity : ComponentActivity() {
 
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             val themePalette by viewModel.themePalette.collectAsStateWithLifecycle()
-            val systemDark = isSystemInDarkTheme()
-            val isDarkTheme = when (themeMode) {
-                ThemeMode.AUTO -> systemDark
-                ThemeMode.LIGHT -> false
-                ThemeMode.DARK -> true
-            }
+            val isDarkTheme = isHudDarkTheme(themeMode)
 
             LaunchedEffect(isDarkTheme) {
                 val barStyle = if (isDarkTheme) {
@@ -95,7 +91,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            GpsHudTheme(themeMode = themeMode, themePalette = themePalette) {
+            GpsHudTheme(themeMode = themeMode, themePalette = themePalette, darkTheme = isDarkTheme) {
                 val gpsData by viewModel.gpsData.collectAsStateWithLifecycle()
                 val satellites by viewModel.satellites.collectAsStateWithLifecycle()
                 val altitudeTelemetry by viewModel.altitudeTelemetry.collectAsStateWithLifecycle()
@@ -152,6 +148,7 @@ class MainActivity : ComponentActivity() {
                 var selectedTelemetryDetail by rememberSaveable { mutableStateOf<TelemetryDetailPage?>(null) }
                 var selectedSettingsSubPage by rememberSaveable { mutableStateOf<SettingsSubPage?>(null) }
                 var showTrackRecorderSheet by rememberSaveable { mutableStateOf(false) }
+                var requestedStepPermission by rememberSaveable { mutableStateOf(false) }
                 var showAiAnalysisHistory by rememberSaveable { mutableStateOf(false) }
                 var showBleDialog by rememberSaveable { mutableStateOf(false) }
                 var reconnectBleAfterPermission by rememberSaveable { mutableStateOf(false) }
@@ -222,6 +219,12 @@ class MainActivity : ComponentActivity() {
                     contract = ActivityResultContracts.RequestPermission()
                 ) {
                     viewModel.refreshPermissions()
+                }
+
+                val stepPermissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission()
+                ) {
+                    if (GpsRepository.hasLocationPermission(this)) viewModel.startTrackRecording()
                 }
 
                 fun continueBleAction(reconnectLast: Boolean) {
@@ -460,6 +463,12 @@ class MainActivity : ComponentActivity() {
                                     Manifest.permission.ACCESS_COARSE_LOCATION
                                 )
                             )
+                        } else if (recordingSnapshot.mode == ActivityMode.HIKING &&
+                            !requestedStepPermission && HikingStepSensor.hasSensor(this) &&
+                            !HikingStepSensor.hasPermission(this)
+                        ) {
+                            requestedStepPermission = true
+                            stepPermissionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
                         } else {
                             viewModel.startTrackRecording()
                         }

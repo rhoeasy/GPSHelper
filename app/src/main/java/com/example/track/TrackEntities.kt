@@ -41,7 +41,8 @@ data class TrackSessionEntity(
     val maxHeartRate: Int?,
     val pointCount: Int,
     val peakTotalG: Float = 0f,
-    val peakLateralG: Float = 0f
+    val peakLateralG: Float = 0f,
+    val stepCount: Int? = null
 ) {
     val activityMode: ActivityMode
         get() = ActivityMode.fromName(mode)
@@ -73,7 +74,9 @@ data class TrackPointEntity(
     val lapNumber: Int,
     val lateralG: Float = 0f,
     val longitudinalG: Float = 0f,
-    val totalG: Float = 0f
+    val totalG: Float = 0f,
+    val altitudeFromBarometer: Boolean? = null,
+    val verticalVibrationG: Float? = null
 )
 
 @Entity(
