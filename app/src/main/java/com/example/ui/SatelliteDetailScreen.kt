@@ -91,6 +91,7 @@ fun SatelliteDetailScreen(
     val countsByConstellation = remember(satellites) {
         satellites.groupingBy { it.constellation }.eachCount()
     }
+    // Channel rows may share a constellation and SVID, so the lists use positional keys.
     val filteredSatellites = remember(satellites, selectedConstellation) {
         if (selectedConstellation == null) satellites
         else satellites.filter { it.constellation == selectedConstellation }
@@ -322,7 +323,8 @@ fun SatelliteDetailScreen(
                     LazyColumn(
                         modifier = Modifier
                             .weight(1.08f)
-                            .fillMaxHeight(),
+                            .fillMaxHeight()
+                            .testTag("satellite_channel_list"),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         if (satellites.isNotEmpty()) {
@@ -341,10 +343,7 @@ fun SatelliteDetailScreen(
                         if (filteredSatellites.isEmpty()) {
                             item { emptySatellitesCard() }
                         } else {
-                            items(
-                                items = filteredSatellites,
-                                key = { "${it.constellation.name}_${it.svid}" }
-                            ) { sat ->
+                            items(filteredSatellites) { sat ->
                                 SatelliteChannelRow(sat = sat)
                             }
                         }
@@ -357,7 +356,8 @@ fun SatelliteDetailScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .widthIn(max = 640.dp)
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = 16.dp)
+                        .testTag("satellite_channel_list"),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     item {
@@ -384,10 +384,7 @@ fun SatelliteDetailScreen(
                     if (filteredSatellites.isEmpty()) {
                         item { emptySatellitesCard() }
                     } else {
-                        items(
-                            items = filteredSatellites,
-                            key = { "${it.constellation.name}_${it.svid}" }
-                        ) { sat ->
+                        items(filteredSatellites) { sat ->
                             SatelliteChannelRow(sat = sat)
                         }
                     }
@@ -461,6 +458,7 @@ private fun GnssSkyplotCanvas(
 
         // Plot each satellite by (azimuth, elevation)
         satellites.forEach { sat ->
+            if (!sat.elevationDegrees.isFinite() || !sat.azimuthDegrees.isFinite()) return@forEach
             val elevNorm = ((90f - sat.elevationDegrees.coerceIn(0f, 90f)) / 90f)
             val azRad = (sat.azimuthDegrees - 90f) * PI / 180.0
             val r = elevNorm * (radius - 6.dp.toPx())
@@ -584,7 +582,7 @@ private fun SatelliteChannelRow(sat: GnssSatelliteInfo) {
                 }
 
                 Text(
-                    text = "仰角 ${sat.elevationDegrees.roundToInt()}° · 方位 ${sat.azimuthDegrees.roundToInt()}°",
+                    text = "仰角 ${formatSatelliteAngle(sat.elevationDegrees)} · 方位 ${formatSatelliteAngle(sat.azimuthDegrees)}",
                     style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFontFamily),
                     color = cs.onSurfaceVariant
                 )
@@ -592,6 +590,9 @@ private fun SatelliteChannelRow(sat: GnssSatelliteInfo) {
         }
     }
 }
+
+private fun formatSatelliteAngle(degrees: Float): String =
+    if (degrees.isFinite()) "${degrees.roundToInt()}°" else "--"
 
 @Composable
 private fun SatSummaryStat(

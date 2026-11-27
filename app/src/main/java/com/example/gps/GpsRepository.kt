@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.util.concurrent.TimeUnit
 
 enum class OverlayScale(val factor: Float, val labelZh: String) {
     SMALL(0.90f, "小"),
@@ -123,6 +124,12 @@ object GpsRepository {
 
     private val _gpsData = MutableStateFlow(GpsData())
     val gpsData: StateFlow<GpsData> = _gpsData.asStateFlow()
+
+    private val expireLocationFix = Runnable {
+        synchronized(lock) {
+            if (_gpsData.value.hasFix) clearLocationFixLocked(statusWithoutFixLocked())
+        }
+    }
 
     private val _speedUnit = MutableStateFlow(SpeedUnit.KMH)
     val speedUnit: StateFlow<SpeedUnit> = _speedUnit.asStateFlow()
@@ -478,19 +485,42 @@ object GpsRepository {
     }
 
     private fun refreshProviderStatusLocked() {
-        val lm = locationManager ?: return
-        val gpsEnabled = runCatching { lm.isProviderEnabled(LocationManager.GPS_PROVIDER) }
-            .getOrDefault(false)
-        if (!gpsEnabled) {
-            _gpsData.update { current ->
-                if (current.fixStatus != GpsFixStatus.FUSED_FALLBACK) {
-                    current.copy(fixStatus = GpsFixStatus.DISABLED)
-                } else {
-                    current
-                }
-            }
+        val status = statusWithoutFixLocked()
+        if (status == GpsFixStatus.DISABLED) {
+            handleGpsDisabledLocked()
         } else if (!_gpsData.value.hasFix) {
-            _gpsData.update { it.copy(fixStatus = GpsFixStatus.SEARCHING) }
+            _gpsData.update { it.copy(fixStatus = status) }
+        }
+    }
+
+    private fun statusWithoutFixLocked(): GpsFixStatus {
+        val gpsEnabled = runCatching { locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) }
+            .getOrNull() == true
+        return if (gpsEnabled) GpsFixStatus.SEARCHING else GpsFixStatus.DISABLED
+    }
+
+    private fun handleGpsDisabledLocked() {
+        lastGpsFixElapsedMs = 0L
+        if (_gpsData.value.fixStatus != GpsFixStatus.FUSED_FALLBACK) {
+            clearLocationFixLocked(GpsFixStatus.DISABLED)
+        }
+    }
+
+    private fun clearLocationFixLocked(status: GpsFixStatus, resetTimestamp: Boolean = false) {
+        mainHandler.removeCallbacks(expireLocationFix)
+        _gpsData.update { current ->
+            current.copy(
+                hasFix = false,
+                latitude = null,
+                longitude = null,
+                speedMps = null,
+                altitudeMeters = null,
+                accuracyMeters = null,
+                bearingDegrees = null,
+                provider = null,
+                fixStatus = status,
+                lastUpdateElapsedRealtimeMs = if (resetTimestamp) 0L else current.lastUpdateElapsedRealtimeMs
+            )
         }
     }
 
@@ -575,13 +605,13 @@ object GpsRepository {
             runCatching { lm.unregisterGnssStatusCallback(gnssStatusCallback) }
         }
         isListening = false
+        lastGpsFixElapsedMs = 0L
+        clearLocationFixLocked(statusWithoutFixLocked(), resetTimestamp = true)
     }
 
     private val gpsLocationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            val now = SystemClock.elapsedRealtime()
-            lastGpsFixElapsedMs = now
-            applyLocation(location = location, isGpsPrimary = true, nowElapsedMs = now)
+            onLocationReceived(location, isGpsPrimary = true)
         }
 
         override fun onProviderEnabled(provider: String) {
@@ -593,10 +623,8 @@ object GpsRepository {
         }
 
         override fun onProviderDisabled(provider: String) {
-            if (provider == LocationManager.GPS_PROVIDER) {
-                _gpsData.update { current ->
-                    current.copy(fixStatus = GpsFixStatus.DISABLED)
-                }
+            synchronized(lock) {
+                if (isListening && provider == LocationManager.GPS_PROVIDER) handleGpsDisabledLocked()
             }
         }
 
@@ -606,13 +634,7 @@ object GpsRepository {
 
     private val fusedFallbackListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            val now = SystemClock.elapsedRealtime()
-            // Only accept fallback reading if GPS has not produced a fresh fix recently
-            val hasFreshGps = lastGpsFixElapsedMs > 0L &&
-                (now - lastGpsFixElapsedMs) < GPS_FRESHNESS_WINDOW_MS
-            if (!hasFreshGps) {
-                applyLocation(location = location, isGpsPrimary = false, nowElapsedMs = now)
-            }
+            onLocationReceived(location, isGpsPrimary = false)
         }
 
         override fun onProviderEnabled(provider: String) = Unit
@@ -622,10 +644,32 @@ object GpsRepository {
         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
     }
 
-    private fun applyLocation(location: Location, isGpsPrimary: Boolean, nowElapsedMs: Long) {
+    private fun onLocationReceived(location: Location, isGpsPrimary: Boolean) {
+        synchronized(lock) {
+            if (!isListening) return
+
+            // A delayed callback does not make its measurement fresh again.
+            val fixElapsedMs = TimeUnit.NANOSECONDS.toMillis(location.elapsedRealtimeNanos)
+            val now = SystemClock.elapsedRealtime()
+            val ageMs = now - fixElapsedMs
+            if (fixElapsedMs <= _gpsData.value.lastUpdateElapsedRealtimeMs ||
+                ageMs < 0L || ageMs >= GPS_FRESHNESS_WINDOW_MS
+            ) return
+
+            val hasFreshGps = lastGpsFixElapsedMs > 0L && now - lastGpsFixElapsedMs < GPS_FRESHNESS_WINDOW_MS
+            if (!isGpsPrimary && hasFreshGps) return
+            if (isGpsPrimary) lastGpsFixElapsedMs = fixElapsedMs
+
+            applyLocationLocked(location, isGpsPrimary, fixElapsedMs)
+            mainHandler.removeCallbacks(expireLocationFix)
+            mainHandler.postDelayed(expireLocationFix, GPS_FRESHNESS_WINDOW_MS - ageMs)
+        }
+    }
+
+    private fun applyLocationLocked(location: Location, isGpsPrimary: Boolean, fixElapsedMs: Long) {
+        val newSpeed = if (location.hasSpeed()) location.speed else null
+        val newAltitude = if (location.hasAltitude()) location.altitude else null
         _gpsData.update { current ->
-            val newSpeed = if (location.hasSpeed()) location.speed else current.speedMps
-            val newAltitude = if (location.hasAltitude()) location.altitude else current.altitudeMeters
             val newAccuracy = if (location.hasAccuracy()) location.accuracy else current.accuracyMeters
             val newBearing = when {
                 location.hasBearing() && (location.bearing != 0f || (newSpeed ?: 0f) > 0.5f) -> location.bearing
@@ -643,7 +687,7 @@ object GpsRepository {
                 bearingDegrees = newBearing,
                 provider = if (isGpsPrimary) LocationManager.GPS_PROVIDER else "fused",
                 fixStatus = if (isGpsPrimary) GpsFixStatus.LOCKED else GpsFixStatus.FUSED_FALLBACK,
-                lastUpdateElapsedRealtimeMs = nowElapsedMs
+                lastUpdateElapsedRealtimeMs = fixElapsedMs
             )
         }
 
@@ -664,29 +708,22 @@ object GpsRepository {
         }
 
         if (location.hasAccuracy()) {
-            val updatedAcc = synchronized(lock) {
-                accuracyTracker.onAccuracySample(
-                    horizontalAccuracyM = location.accuracy,
-                    verticalAccuracyM = vAcc,
-                    speedAccuracyMps = spdAcc,
-                    bearingAccuracyDeg = brgAcc,
-                    elapsedMs = nowElapsedMs
-                )
-            }
-            _accuracyTelemetry.value = updatedAcc
+            _accuracyTelemetry.value = accuracyTracker.onAccuracySample(
+                horizontalAccuracyM = location.accuracy,
+                verticalAccuracyM = vAcc,
+                speedAccuracyMps = spdAcc,
+                bearingAccuracyDeg = brgAcc,
+                elapsedMs = fixElapsedMs
+            )
         }
 
-        if (location.hasAltitude()) {
-            val horizSpeed = if (location.hasSpeed()) location.speed else _gpsData.value.speedMps
-            val updatedAlt = synchronized(lock) {
-                altitudeTracker.onAltitudeSample(
-                    altitudeM = location.altitude,
-                    verticalAccuracyM = vAcc,
-                    horizontalSpeedMps = horizSpeed,
-                    elapsedMs = nowElapsedMs
-                )
-            }
-            _altitudeTelemetry.value = updatedAlt
+        if (newAltitude != null) {
+            _altitudeTelemetry.value = altitudeTracker.onAltitudeSample(
+                altitudeM = newAltitude,
+                verticalAccuracyM = vAcc,
+                horizontalSpeedMps = newSpeed,
+                elapsedMs = fixElapsedMs
+            )
         }
     }
 

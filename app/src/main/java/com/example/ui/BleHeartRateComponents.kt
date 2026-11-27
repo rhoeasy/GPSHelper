@@ -86,6 +86,21 @@ import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalTelemetryColors
 
 @Composable
+private fun bleConnectionStatusText(state: HeartRateState): String? = when (state.status) {
+    BleConnectionStatus.CONNECTING -> {
+        val connecting = stringResource(R.string.hr_status_connecting)
+        state.deviceName?.let { "$connecting $it" } ?: connecting
+    }
+    BleConnectionStatus.CONNECTED -> {
+        val name = state.deviceName ?: stringResource(R.string.hr_device_name_fallback)
+        val label = if (state.bpm == null) R.string.hr_status_waiting_measurement else R.string.hr_status_connected
+        stringResource(label, name)
+    }
+    BleConnectionStatus.ERROR, BleConnectionStatus.DISCONNECTED -> state.errorMessage
+    else -> null
+}
+
+@Composable
 fun HeartRateStripCard(
     hrState: HeartRateState,
     lastSavedDevice: SavedBleDevice? = null,
@@ -211,25 +226,12 @@ fun HeartRateStripCard(
                     }
                 }
 
-                val subtitle = when (hrState.status) {
-                    BleConnectionStatus.CONNECTED -> hrState.deviceName ?: "BLE 心率设备"
-                    BleConnectionStatus.CONNECTING -> {
-                        val name = hrState.deviceName
-                        if (name.isNullOrBlank()) {
-                            stringResource(R.string.hr_status_connecting)
-                        } else {
-                            "${stringResource(R.string.hr_status_connecting)} $name"
-                        }
+                val subtitle = bleConnectionStatusText(hrState)
+                    ?: if (lastSavedDevice != null) {
+                        stringResource(R.string.hr_status_last_prefix, lastSavedDevice.name)
+                    } else {
+                        stringResource(R.string.hr_status_disconnected)
                     }
-                    BleConnectionStatus.ERROR -> hrState.errorMessage ?: stringResource(R.string.hr_status_disconnected)
-                    else -> {
-                        if (lastSavedDevice != null) {
-                            stringResource(R.string.hr_status_last_prefix, lastSavedDevice.name)
-                        } else {
-                            stringResource(R.string.hr_status_disconnected)
-                        }
-                    }
-                }
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
@@ -499,16 +501,18 @@ fun BleDevicePickerDialog(
                     }
                 }
 
-                // Error banner if present
-                hrState.errorMessage?.let { err ->
+                val connectionMessage = hrState.errorMessage ?: bleConnectionStatusText(hrState)
+                if (connectionMessage != null) {
+                    val hasError = hrState.errorMessage != null
                     Surface(
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
-                        color = cs.errorContainer
+                        color = if (hasError) cs.errorContainer else cs.secondaryContainer
                     ) {
                         Text(
-                            text = err,
+                            text = connectionMessage,
                             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
-                            color = cs.onErrorContainer,
+                            color = if (hasError) cs.onErrorContainer else cs.onSecondaryContainer,
                             modifier = Modifier.padding(12.dp)
                         )
                     }

@@ -244,10 +244,6 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     }
 
     // BLE Heart Rate controls
-    fun refreshLocalBleDevices() {
-        HeartRateRepository.refreshLocalDevices(getApplication())
-    }
-
     fun startBleScan() {
         HeartRateRepository.startScan(getApplication())
     }

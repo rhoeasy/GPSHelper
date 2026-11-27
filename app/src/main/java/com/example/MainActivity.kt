@@ -56,7 +56,6 @@ class MainActivity : ComponentActivity() {
     private val viewModel: GpsDashboardViewModel by viewModels()
     private var previousInterruptionFilter: Int? = null
     private var focusLockActiveState by mutableStateOf(false)
-    private var autoFocusAppliedOnLaunch = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,8 +63,17 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT)
         )
+        val launchWithFocusLock = savedInstanceState == null && viewModel.autoFocusOnLaunch.value
 
         setContent {
+            LaunchedEffect(Unit) {
+                if (launchWithFocusLock) {
+                    window.decorView.post {
+                        if (!isFinishing && !isDestroyed) enterFocusLockMode(showToast = false)
+                    }
+                }
+            }
+
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             val themePalette by viewModel.themePalette.collectAsStateWithLifecycle()
             val systemDark = isSystemInDarkTheme()
@@ -146,6 +154,7 @@ class MainActivity : ComponentActivity() {
                 var showTrackRecorderSheet by rememberSaveable { mutableStateOf(false) }
                 var showAiAnalysisHistory by rememberSaveable { mutableStateOf(false) }
                 var showBleDialog by rememberSaveable { mutableStateOf(false) }
+                var reconnectBleAfterPermission by rememberSaveable { mutableStateOf(false) }
                 var showFocusDialog by rememberSaveable { mutableStateOf(false) }
                 var mergeCompletedSignal by rememberSaveable { mutableStateOf(0) }
                 var isActivityStarted by rememberSaveable { mutableStateOf(true) }
@@ -170,16 +179,6 @@ class MainActivity : ComponentActivity() {
                     }
                     onDispose {
                         viewModel.stopEnvironmentSensors()
-                    }
-                }
-
-                // Auto-enter Focus Lock Mode on launch if user enabled it
-                LaunchedEffect(autoFocusOnLaunch) {
-                    if (autoFocusOnLaunch && !autoFocusAppliedOnLaunch) {
-                        autoFocusAppliedOnLaunch = true
-                        window.decorView.post {
-                            enterFocusLockMode(showToast = false)
-                        }
                     }
                 }
 
@@ -225,21 +224,27 @@ class MainActivity : ComponentActivity() {
                     viewModel.refreshPermissions()
                 }
 
+                fun continueBleAction(reconnectLast: Boolean) {
+                    if (!HeartRateRepository.isBluetoothEnabled(this)) {
+                        Toast.makeText(
+                            this,
+                            getString(R.string.toast_bluetooth_disabled),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                    } else if (!reconnectLast || !viewModel.quickReconnectLastBle()) {
+                        showBleDialog = true
+                        viewModel.startBleScan()
+                    }
+                }
+
                 val blePermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestMultiplePermissions()
                 ) {
+                    val reconnectLast = reconnectBleAfterPermission
+                    reconnectBleAfterPermission = false
                     if (HeartRateRepository.hasBlePermissions(this)) {
-                        if (!HeartRateRepository.isBluetoothEnabled(this)) {
-                            Toast.makeText(
-                                this,
-                                getString(R.string.toast_bluetooth_disabled),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else {
-                            viewModel.refreshLocalBleDevices()
-                            showBleDialog = true
-                            viewModel.startBleScan()
-                        }
+                        continueBleAction(reconnectLast)
                     } else {
                         Toast.makeText(
                             this,
@@ -247,6 +252,20 @@ class MainActivity : ComponentActivity() {
                             Toast.LENGTH_SHORT
                         ).show()
                     }
+                }
+
+                fun requestBleAction(reconnectLast: Boolean) {
+                    if (HeartRateRepository.hasBlePermissions(this)) {
+                        continueBleAction(reconnectLast)
+                        return
+                    }
+                    reconnectBleAfterPermission = reconnectLast
+                    val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+                    } else {
+                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                    }
+                    blePermissionLauncher.launch(permissions)
                 }
 
                 LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
@@ -420,56 +439,8 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     },
-                    onOpenBlePicker = {
-                        if (!HeartRateRepository.hasBlePermissions(this)) {
-                            val blePermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                arrayOf(
-                                    Manifest.permission.BLUETOOTH_SCAN,
-                                    Manifest.permission.BLUETOOTH_CONNECT
-                                )
-                            } else {
-                                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-                            }
-                            blePermissionLauncher.launch(blePermissions)
-                        } else if (!HeartRateRepository.isBluetoothEnabled(this)) {
-                            Toast.makeText(
-                                this,
-                                getString(R.string.toast_bluetooth_disabled),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-                        } else {
-                            viewModel.refreshLocalBleDevices()
-                            showBleDialog = true
-                            viewModel.startBleScan()
-                        }
-                    },
-                    onQuickReconnectBle = {
-                        if (!HeartRateRepository.hasBlePermissions(this)) {
-                            val blePermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                arrayOf(
-                                    Manifest.permission.BLUETOOTH_SCAN,
-                                    Manifest.permission.BLUETOOTH_CONNECT
-                                )
-                            } else {
-                                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-                            }
-                            blePermissionLauncher.launch(blePermissions)
-                        } else if (!HeartRateRepository.isBluetoothEnabled(this)) {
-                            Toast.makeText(
-                                this,
-                                getString(R.string.toast_bluetooth_disabled),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-                        } else {
-                            if (!viewModel.quickReconnectLastBle()) {
-                                viewModel.refreshLocalBleDevices()
-                                showBleDialog = true
-                                viewModel.startBleScan()
-                            }
-                        }
-                    },
+                    onOpenBlePicker = { requestBleAction(reconnectLast = false) },
+                    onQuickReconnectBle = { requestBleAction(reconnectLast = true) },
                     onDisconnectBle = {
                         viewModel.disconnectBleDevice()
                     },
@@ -679,10 +650,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onStartScan = { viewModel.startBleScan() },
                         onStopScan = { viewModel.stopBleScan() },
-                        onSelectDevice = { name, addr ->
-                            viewModel.connectBleDevice(name, addr)
-                            showBleDialog = false
-                        },
+                        onSelectDevice = viewModel::connectBleDevice,
                         onDismiss = {
                             viewModel.stopBleScan()
                             showBleDialog = false
