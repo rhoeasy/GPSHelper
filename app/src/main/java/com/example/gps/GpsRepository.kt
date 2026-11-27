@@ -143,6 +143,13 @@ object GpsRepository {
     private val _isOverlayRunning = MutableStateFlow(false)
     val isOverlayRunning: StateFlow<Boolean> = _isOverlayRunning.asStateFlow()
 
+    private val _satellites = MutableStateFlow<List<GnssSatelliteInfo>>(emptyList())
+    val satellites: StateFlow<List<GnssSatelliteInfo>> = _satellites.asStateFlow()
+
+    private val altitudeTracker = AltitudeSessionTracker()
+    private val _altitudeTelemetry = MutableStateFlow(AltitudeTelemetry())
+    val altitudeTelemetry: StateFlow<AltitudeTelemetry> = _altitudeTelemetry.asStateFlow()
+
     private var prefsLoaded = false
 
     fun ensurePrefsLoaded(context: Context) {
@@ -341,6 +348,23 @@ object GpsRepository {
 
     fun setOverlayRunning(running: Boolean) {
         _isOverlayRunning.value = running
+    }
+
+    fun resetAltitudeSession() {
+        synchronized(lock) {
+            altitudeTracker.reset()
+            val curAlt = _gpsData.value.altitudeMeters
+            _altitudeTelemetry.value = if (curAlt != null && _gpsData.value.hasFix) {
+                altitudeTracker.onAltitudeSample(
+                    altitudeM = curAlt,
+                    verticalAccuracyM = _altitudeTelemetry.value.verticalAccuracyM,
+                    horizontalSpeedMps = _gpsData.value.speedMps,
+                    elapsedMs = SystemClock.elapsedRealtime()
+                )
+            } else {
+                AltitudeTelemetry()
+            }
+        }
     }
 
     fun hasLocationPermission(context: Context): Boolean {
@@ -581,17 +605,54 @@ object GpsRepository {
                 lastUpdateElapsedRealtimeMs = nowElapsedMs
             )
         }
+
+        if (location.hasAltitude()) {
+            val vAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasVerticalAccuracy()) {
+                location.verticalAccuracyMeters
+            } else {
+                null
+            }
+            val horizSpeed = if (location.hasSpeed()) location.speed else _gpsData.value.speedMps
+            val updatedAlt = synchronized(lock) {
+                altitudeTracker.onAltitudeSample(
+                    altitudeM = location.altitude,
+                    verticalAccuracyM = vAcc,
+                    horizontalSpeedMps = horizSpeed,
+                    elapsedMs = nowElapsedMs
+                )
+            }
+            _altitudeTelemetry.value = updatedAlt
+        }
     }
 
     private val gnssStatusCallback = object : GnssStatus.Callback() {
         override fun onSatelliteStatusChanged(status: GnssStatus) {
             val totalVisible = status.satelliteCount
             var usedCount = 0
+            val satList = ArrayList<GnssSatelliteInfo>(totalVisible)
             for (i in 0 until totalVisible) {
-                if (status.usedInFix(i)) {
-                    usedCount++
-                }
+                val used = status.usedInFix(i)
+                if (used) usedCount++
+                satList.add(
+                    GnssSatelliteInfo(
+                        svid = status.getSvid(i),
+                        constellation = GnssConstellation.fromGnssStatusType(status.getConstellationType(i)),
+                        cn0DbHz = status.getCn0DbHz(i),
+                        elevationDegrees = status.getElevationDegrees(i),
+                        azimuthDegrees = status.getAzimuthDegrees(i),
+                        usedInFix = used,
+                        hasAlmanac = status.hasAlmanacData(i),
+                        hasEphemeris = status.hasEphemerisData(i)
+                    )
+                )
             }
+            satList.sortWith(
+                compareByDescending<GnssSatelliteInfo> { it.usedInFix }
+                    .thenByDescending { it.cn0DbHz }
+                    .thenBy { it.constellation.ordinal }
+                    .thenBy { it.svid }
+            )
+            _satellites.value = satList
             _gpsData.update { current ->
                 current.copy(
                     satellitesUsed = usedCount,
@@ -602,6 +663,7 @@ object GpsRepository {
         }
 
         override fun onStopped() {
+            _satellites.value = emptyList()
             _gpsData.update { current ->
                 current.copy(
                     satellitesUsed = 0,

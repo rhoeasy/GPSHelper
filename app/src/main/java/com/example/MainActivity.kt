@@ -45,6 +45,7 @@ import com.example.ui.FocusModeDialog
 import com.example.ui.GpsDashboardViewModel
 import com.example.ui.GpsHudAppShell
 import com.example.ui.MainTab
+import com.example.ui.TelemetryDetailPage
 import com.example.ui.theme.GpsHudTheme
 import com.example.ui.theme.ThemeMode
 
@@ -85,6 +86,9 @@ class MainActivity : ComponentActivity() {
 
             GpsHudTheme(themeMode = themeMode) {
                 val gpsData by viewModel.gpsData.collectAsStateWithLifecycle()
+                val satellites by viewModel.satellites.collectAsStateWithLifecycle()
+                val altitudeTelemetry by viewModel.altitudeTelemetry.collectAsStateWithLifecycle()
+                val environmentTelemetry by viewModel.environmentTelemetry.collectAsStateWithLifecycle()
                 val gForceData by viewModel.gForceData.collectAsStateWithLifecycle()
                 val speedUnit by viewModel.speedUnit.collectAsStateWithLifecycle()
                 val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
@@ -96,9 +100,11 @@ class MainActivity : ComponentActivity() {
                 val permissionStatus by viewModel.permissionStatus.collectAsStateWithLifecycle()
 
                 val heartRateState by viewModel.heartRateState.collectAsStateWithLifecycle()
+                val localBleDevices by viewModel.localBleDevices.collectAsStateWithLifecycle()
                 val scannedBleDevices by viewModel.scannedBleDevices.collectAsStateWithLifecycle()
                 val isBleScanning by viewModel.isBleScanning.collectAsStateWithLifecycle()
                 val lastSavedBleDevice by viewModel.lastSavedBleDevice.collectAsStateWithLifecycle()
+                val autoReconnectBle by viewModel.autoReconnectBle.collectAsStateWithLifecycle()
 
                 val recordingSnapshot by viewModel.recordingSnapshot.collectAsStateWithLifecycle()
                 val savedSessions by viewModel.savedSessions.collectAsStateWithLifecycle()
@@ -123,8 +129,33 @@ class MainActivity : ComponentActivity() {
                 }
 
                 var activeTab by rememberSaveable { mutableStateOf(MainTab.DASHBOARD) }
+                var selectedTelemetryDetail by rememberSaveable { mutableStateOf<TelemetryDetailPage?>(null) }
                 var showBleDialog by rememberSaveable { mutableStateOf(false) }
                 var showFocusDialog by rememberSaveable { mutableStateOf(false) }
+                var isActivityStarted by rememberSaveable { mutableStateOf(true) }
+
+                LifecycleEventEffect(Lifecycle.Event.ON_START) {
+                    isActivityStarted = true
+                }
+                LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+                    isActivityStarted = false
+                }
+
+                // Register hardware compass & barometer only while Altitude or Compass detail screen is visible
+                DisposableEffect(selectedTelemetryDetail, isActivityStarted) {
+                    val needsEnvSensors = isActivityStarted && (
+                        selectedTelemetryDetail == TelemetryDetailPage.ALTITUDE ||
+                            selectedTelemetryDetail == TelemetryDetailPage.COMPASS
+                        )
+                    if (needsEnvSensors) {
+                        viewModel.startEnvironmentSensors()
+                    } else {
+                        viewModel.stopEnvironmentSensors()
+                    }
+                    onDispose {
+                        viewModel.stopEnvironmentSensors()
+                    }
+                }
 
                 // Auto-enter Focus Lock Mode on launch if user enabled it
                 LaunchedEffect(autoFocusOnLaunch) {
@@ -137,7 +168,11 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // Block accidental hardware/gesture Back exits while Focus Lock is active
-                BackHandler(enabled = focusLockActiveState && selectedSessionDetail == null) {
+                BackHandler(
+                    enabled = focusLockActiveState &&
+                        selectedSessionDetail == null &&
+                        selectedTelemetryDetail == null
+                ) {
                     Toast.makeText(
                         this,
                         getString(R.string.toast_focus_locked_back),
@@ -184,6 +219,7 @@ class MainActivity : ComponentActivity() {
                                 Toast.LENGTH_SHORT
                             ).show()
                         } else {
+                            viewModel.refreshLocalBleDevices()
                             showBleDialog = true
                             viewModel.startBleScan()
                         }
@@ -217,9 +253,14 @@ class MainActivity : ComponentActivity() {
                     isOverlayRunning = isOverlayRunning,
                     permissionStatus = permissionStatus,
                     heartRateState = heartRateState,
+                    lastSavedBleDevice = lastSavedBleDevice,
                     recordingSnapshot = recordingSnapshot,
                     savedSessions = savedSessions,
                     selectedSessionDetail = selectedSessionDetail,
+                    selectedTelemetryDetail = selectedTelemetryDetail,
+                    satellites = satellites,
+                    altitudeTelemetry = altitudeTelemetry,
+                    environmentTelemetry = environmentTelemetry,
                     onSelectSpeedUnit = { unit -> viewModel.setSpeedUnit(unit) },
                     onToggleKeepScreenOn = { enabled -> viewModel.setKeepScreenOn(enabled) },
                     onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
@@ -257,6 +298,33 @@ class MainActivity : ComponentActivity() {
                     },
                     onResetGForcePeak = {
                         viewModel.resetGForcePeak()
+                    },
+                    onOpenTelemetryDetail = { page ->
+                        selectedTelemetryDetail = page
+                    },
+                    onCloseTelemetryDetail = {
+                        selectedTelemetryDetail = null
+                    },
+                    onResetAltitudeSession = {
+                        viewModel.resetAltitudeSession()
+                        Toast.makeText(
+                            this,
+                            getString(R.string.toast_altitude_session_reset),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onCalibrateBarometer = {
+                        val calibrated = viewModel.calibrateBarometerToGps()
+                        Toast.makeText(
+                            this,
+                            getString(
+                                if (calibrated) R.string.toast_barometer_calibrated else R.string.toast_barometer_need_gps
+                            ),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onResetBarometerQnh = {
+                        viewModel.resetBarometerQnh()
                     },
                     onCopyCoordinates = {
                         val coords = gpsData.formattedCoordinates()
@@ -332,8 +400,35 @@ class MainActivity : ComponentActivity() {
                             ).show()
                             runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
                         } else {
+                            viewModel.refreshLocalBleDevices()
                             showBleDialog = true
                             viewModel.startBleScan()
+                        }
+                    },
+                    onQuickReconnectBle = {
+                        if (!HeartRateRepository.hasBlePermissions(this)) {
+                            val blePermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                arrayOf(
+                                    Manifest.permission.BLUETOOTH_SCAN,
+                                    Manifest.permission.BLUETOOTH_CONNECT
+                                )
+                            } else {
+                                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                            }
+                            blePermissionLauncher.launch(blePermissions)
+                        } else if (!HeartRateRepository.isBluetoothEnabled(this)) {
+                            Toast.makeText(
+                                this,
+                                getString(R.string.toast_bluetooth_disabled),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                        } else {
+                            if (!viewModel.quickReconnectLastBle()) {
+                                viewModel.refreshLocalBleDevices()
+                                showBleDialog = true
+                                viewModel.startBleScan()
+                            }
                         }
                     },
                     onDisconnectBle = {
@@ -395,10 +490,27 @@ class MainActivity : ComponentActivity() {
                     onCloseSessionDetail = {
                         viewModel.closeSessionDetail()
                     },
-                    onExportJson = { detail ->
-                        viewModel.exportDetailToJson(detail) { uri ->
+                    onCopyJson = { detail, includeAiPrompt ->
+                        viewModel.buildJsonClipboardPayload(detail, includeAiPrompt) { payload ->
+                            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText(detail.session.name, payload))
+                            Toast.makeText(
+                                this,
+                                getString(
+                                    if (includeAiPrompt) {
+                                        R.string.toast_json_copied_with_prompt
+                                    } else {
+                                        R.string.toast_json_copied_plain
+                                    }
+                                ),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    onExportJson = { detail, includeAiPrompt ->
+                        viewModel.exportDetailToJson(detail, includeAiPrompt) { uri ->
                             if (uri != null) {
-                                shareJsonUri(uri, detail.session.name)
+                                shareJsonUri(uri, detail.session.name, includeAiPrompt)
                             } else {
                                 Toast.makeText(
                                     this,
@@ -421,6 +533,9 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
+                    onShareSocialImage = { uri, sessionName ->
+                        shareSocialImageUri(uri, sessionName)
+                    },
                     onDeleteSession = { sessionId ->
                         viewModel.deleteSession(sessionId)
                     }
@@ -430,8 +545,16 @@ class MainActivity : ComponentActivity() {
                     BleDevicePickerDialog(
                         hrState = heartRateState,
                         isScanning = isBleScanning,
-                        devices = scannedBleDevices,
+                        localDevices = localBleDevices,
+                        scannedDevices = scannedBleDevices,
                         lastSavedDevice = lastSavedBleDevice,
+                        autoReconnectEnabled = autoReconnectBle,
+                        onToggleAutoReconnect = { enabled ->
+                            viewModel.setAutoReconnectBle(enabled)
+                        },
+                        onForgetLastDevice = {
+                            viewModel.clearLastSavedBleDevice()
+                        },
                         onStartScan = { viewModel.startBleScan() },
                         onStopScan = { viewModel.stopBleScan() },
                         onSelectDevice = { name, addr ->
@@ -476,6 +599,7 @@ class MainActivity : ComponentActivity() {
         GpsRepository.startTracking(applicationContext, ACTIVITY_CLIENT_ID)
         viewModel.startMotionSensors()
         MotionSensorManager.refreshDisplayRotation(this)
+        viewModel.tryAutoReconnectBle()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -585,9 +709,9 @@ class MainActivity : ComponentActivity() {
             }
     }
 
-    private fun shareJsonUri(uri: Uri, sessionName: String) {
+    private fun shareJsonUri(uri: Uri, sessionName: String, isPromptText: Boolean = false) {
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/json"
+            type = if (isPromptText) "text/plain" else "application/json"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, sessionName)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -610,6 +734,20 @@ class MainActivity : ComponentActivity() {
             startActivity(Intent.createChooser(shareIntent, getString(R.string.share_gpx_chooser)))
         }.onFailure {
             Toast.makeText(this, getString(R.string.toast_gpx_export_failed), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun shareSocialImageUri(uri: Uri, sessionName: String) {
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, sessionName)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching {
+            startActivity(Intent.createChooser(shareIntent, getString(R.string.share_social_image_chooser)))
+        }.onFailure {
+            Toast.makeText(this, getString(R.string.toast_social_save_failed), Toast.LENGTH_SHORT).show()
         }
     }
 

@@ -7,7 +7,12 @@ import androidx.room.PrimaryKey
 
 enum class ActivityMode(val labelZh: String) {
     KARTING("卡丁车"),
-    HIKING("徒步");
+    HIKING("徒步"),
+    OFFROAD_CROSSING("越野穿越");
+
+    /** True for mountain / elevation-focused trail modes (Hiking and Moto Off-road Crossing). */
+    val isElevationTrail: Boolean
+        get() = this == HIKING || this == OFFROAD_CROSSING
 
     companion object {
         fun fromName(name: String): ActivityMode =

@@ -1,8 +1,10 @@
 package com.example.ui
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,17 +25,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DataObject
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.Hiking
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Route
-import androidx.compose.material.icons.rounded.SportsScore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -47,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -103,24 +107,39 @@ fun TrackHistoryScreen(
                 color = cs.onSurface
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 FilterChip(
                     selected = filterMode == null,
                     onClick = { filterMode = null },
                     label = { Text(stringResource(R.string.filter_all)) },
-                    shape = RoundedCornerShape(50)
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.testTag("filter_chip_all")
                 )
                 FilterChip(
                     selected = filterMode == ActivityMode.KARTING,
                     onClick = { filterMode = ActivityMode.KARTING },
                     label = { Text(stringResource(R.string.mode_karting)) },
-                    shape = RoundedCornerShape(50)
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.testTag("filter_chip_karting")
                 )
                 FilterChip(
                     selected = filterMode == ActivityMode.HIKING,
                     onClick = { filterMode = ActivityMode.HIKING },
                     label = { Text(stringResource(R.string.mode_hiking)) },
-                    shape = RoundedCornerShape(50)
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.testTag("filter_chip_hiking")
+                )
+                FilterChip(
+                    selected = filterMode == ActivityMode.OFFROAD_CROSSING,
+                    onClick = { filterMode = ActivityMode.OFFROAD_CROSSING },
+                    label = { Text(stringResource(R.string.mode_offroad)) },
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.testTag("filter_chip_offroad")
                 )
             }
 
@@ -193,8 +212,11 @@ private fun TrackSessionCard(
     val cs = MaterialTheme.colorScheme
     val tc = LocalTelemetryColors.current
     val isKart = session.activityMode == ActivityMode.KARTING
-    val badgeBg = if (isKart) cs.tertiaryContainer else cs.secondaryContainer
-    val badgeFg = if (isKart) cs.onTertiaryContainer else cs.onSecondaryContainer
+    val (badgeBg, badgeFg) = when (session.activityMode) {
+        ActivityMode.KARTING -> cs.tertiaryContainer to cs.onTertiaryContainer
+        ActivityMode.HIKING -> cs.secondaryContainer to cs.onSecondaryContainer
+        ActivityMode.OFFROAD_CROSSING -> cs.primaryContainer to cs.onPrimaryContainer
+    }
 
     Surface(
         modifier = Modifier
@@ -231,7 +253,7 @@ private fun TrackSessionCard(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Icon(
-                                imageVector = if (isKart) Icons.Rounded.SportsScore else Icons.Rounded.Hiking,
+                                imageVector = activityModeIcon(session.activityMode),
                                 contentDescription = null,
                                 tint = badgeFg,
                                 modifier = Modifier.size(14.dp)
@@ -350,18 +372,157 @@ fun TrackDetailScreen(
     isFocusLockActive: Boolean,
     onExitFocusLock: () -> Unit,
     onBack: () -> Unit,
-    onExportJson: () -> Unit,
+    onCopyJson: (includeAiPrompt: Boolean) -> Unit,
+    onExportJson: (includeAiPrompt: Boolean) -> Unit,
     onExportGpx: () -> Unit,
+    onShareSocialImage: (Uri) -> Unit,
     onDeleteSession: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    BackHandler(onBack = onBack)
     val cs = MaterialTheme.colorScheme
     val tc = LocalTelemetryColors.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showJsonExportDialog by remember { mutableStateOf(false) }
+    var includeAiPrompt by rememberSaveable { mutableStateOf(true) }
+    var showSocialStudio by rememberSaveable(detail.session.id) { mutableStateOf(false) }
+    var selectedPointIndex by remember(detail.session.id) { mutableStateOf<Int?>(null) }
+
+    if (showSocialStudio) {
+        SocialShareCardScreen(
+            detail = detail,
+            speedUnit = speedUnit,
+            onBack = { showSocialStudio = false },
+            onSharePngUri = onShareSocialImage,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(cs.background)
+        )
+        return
+    }
+
+    BackHandler(onBack = onBack)
 
     val session = detail.session
     val isKart = session.activityMode == ActivityMode.KARTING
+
+    if (showJsonExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showJsonExportDialog = false },
+            title = {
+                Text(
+                    text = stringResource(R.string.json_export_dialog_title),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Surface(
+                        onClick = { includeAiPrompt = !includeAiPrompt },
+                        shape = RoundedCornerShape(16.dp),
+                        color = cs.surfaceContainerHigh,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("row_toggle_ai_prompt")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Checkbox(
+                                checked = includeAiPrompt,
+                                onCheckedChange = { includeAiPrompt = it },
+                                modifier = Modifier.testTag("checkbox_ai_prompt")
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(top = 2.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.json_export_ai_prompt_title),
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = cs.onSurface
+                                )
+                                Text(
+                                    text = stringResource(
+                                        when (session.activityMode) {
+                                            ActivityMode.KARTING -> R.string.json_export_ai_prompt_desc_karting
+                                            ActivityMode.HIKING -> R.string.json_export_ai_prompt_desc_hiking
+                                            ActivityMode.OFFROAD_CROSSING -> R.string.json_export_ai_prompt_desc_offroad
+                                        }
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = cs.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                showJsonExportDialog = false
+                                onCopyJson(includeAiPrompt)
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("btn_copy_json_clipboard"),
+                            shape = RoundedCornerShape(50),
+                            contentPadding = PaddingValues(horizontal = 12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(R.string.json_export_copy_clipboard),
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+
+                        FilledTonalButton(
+                            onClick = {
+                                showJsonExportDialog = false
+                                onExportJson(includeAiPrompt)
+                            },
+                            modifier = Modifier
+                                .height(46.dp)
+                                .testTag("btn_share_json_file"),
+                            shape = RoundedCornerShape(50),
+                            contentPadding = PaddingValues(horizontal = 14.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.IosShare,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = stringResource(R.string.json_export_share_file),
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showJsonExportDialog = false }) {
+                    Text(stringResource(R.string.detail_cancel))
+                }
+            }
+        )
+    }
 
     if (showDeleteConfirm) {
         AlertDialog(
@@ -449,21 +610,45 @@ fun TrackDetailScreen(
                 }
             }
 
-            // Dual export bar: Structured JSON for AI Agents + GPX for maps
+            // Primary Social Poster Studio button + JSON (AI Prompt) / GPX export row
+            Button(
+                onClick = { showSocialStudio = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("btn_make_social_card"),
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = cs.primary,
+                    contentColor = cs.onPrimary
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = stringResource(R.string.detail_make_social_card),
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Button(
-                    onClick = onExportJson,
+                FilledTonalButton(
+                    onClick = { showJsonExportDialog = true },
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
                         .testTag("btn_export_json"),
                     shape = RoundedCornerShape(50),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = cs.primary,
-                        contentColor = cs.onPrimary
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = cs.primaryContainer,
+                        contentColor = cs.onPrimaryContainer
                     )
                 ) {
                     Icon(
@@ -506,7 +691,8 @@ fun TrackDetailScreen(
             VectorTrackCanvasCard(
                 points = detail.points,
                 mode = session.activityMode,
-                speedUnit = speedUnit
+                speedUnit = speedUnit,
+                highlightedIndex = selectedPointIndex
             )
 
             Surface(
@@ -571,6 +757,7 @@ fun TrackDetailScreen(
                             )
                         }
                     } else {
+                        val isOffroad = session.activityMode == ActivityMode.OFFROAD_CROSSING
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -587,15 +774,24 @@ fun TrackDetailScreen(
                                 accent = cs.onSurface,
                                 modifier = Modifier.weight(1f)
                             )
-                            DetailMetricCell(
-                                label = stringResource(R.string.metric_avg_pace),
-                                value = TrackFormatters.formatPaceMinPerKm(
-                                    session.distanceMeters,
-                                    session.durationMs
-                                ),
-                                accent = cs.tertiary,
-                                modifier = Modifier.weight(1f)
-                            )
+                            if (isOffroad) {
+                                DetailMetricCell(
+                                    label = stringResource(R.string.metric_avg_speed),
+                                    value = TrackFormatters.formatSpeed(session.avgSpeedMps, speedUnit),
+                                    accent = cs.tertiary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            } else {
+                                DetailMetricCell(
+                                    label = stringResource(R.string.metric_avg_pace),
+                                    value = TrackFormatters.formatPaceMinPerKm(
+                                        session.distanceMeters,
+                                        session.durationMs
+                                    ),
+                                    accent = cs.tertiary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
 
                         HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.6f))
@@ -616,12 +812,25 @@ fun TrackDetailScreen(
                                 accent = cs.onSurfaceVariant,
                                 modifier = Modifier.weight(1f)
                             )
-                            DetailMetricCell(
-                                label = stringResource(R.string.metric_avg_speed),
-                                value = TrackFormatters.formatSpeed(session.avgSpeedMps, speedUnit),
-                                accent = cs.onSurface,
-                                modifier = Modifier.weight(1f)
-                            )
+                            if (isOffroad) {
+                                DetailMetricCell(
+                                    label = stringResource(R.string.metric_peak_lat_g),
+                                    value = if (session.peakLateralG > 0.05f) {
+                                        String.format(Locale.US, "%.2f G", session.peakLateralG)
+                                    } else {
+                                        "--"
+                                    },
+                                    accent = cs.primary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            } else {
+                                DetailMetricCell(
+                                    label = stringResource(R.string.metric_avg_speed),
+                                    value = TrackFormatters.formatSpeed(session.avgSpeedMps, speedUnit),
+                                    accent = cs.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
 
@@ -661,7 +870,9 @@ fun TrackDetailScreen(
             TelemetryProfileChartCard(
                 points = detail.points,
                 mode = session.activityMode,
-                speedUnit = speedUnit
+                speedUnit = speedUnit,
+                selectedPointIndex = selectedPointIndex,
+                onSelectPointIndex = { selectedPointIndex = it }
             )
 
             if (isKart) {

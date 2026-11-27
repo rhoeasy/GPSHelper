@@ -93,22 +93,38 @@
     <string name="hr_card_title">蓝牙心率</string>
     <string name="hr_unit_bpm">bpm</string>
     <string name="hr_connect_btn">连接手环</string>
+    <string name="hr_reconnect_btn">一键重连</string>
+    <string name="hr_switch_device_cd">选择其他蓝牙设备</string>
     <string name="hr_disconnect_btn">断开</string>
     <string name="hr_status_disconnected">未连接小米手环或心率带</string>
+    <string name="hr_status_last_prefix">上次连接：%s</string>
     <string name="hr_status_connecting">正在连接…</string>
     <string name="hr_dialog_title">连接蓝牙心率设备</string>
-    <string name="hr_mi_band_tip">小米手环使用提示：请先在「小米运动健康 / Zepp Life」App 中开启手环的「心率广播 / 蓝牙广播」功能，再点击下方扫描连接。</string>
+    <string name="hr_mi_band_tip">小米手环提示：已在「小米运动健康」连上手环的，直接点下方「本机已连接」中的手环即可；首次使用请先在手环端开启「心率广播」。</string>
     <string name="hr_scanning">正在扫描附近蓝牙设备…</string>
     <string name="hr_rescan">重新扫描</string>
     <string name="hr_stop_scan">停止扫描</string>
-    <string name="hr_empty_scan">暂未发现设备，请确保手环靠近手机并已开启蓝牙心率广播</string>
-    <string name="hr_badge_service">心率服务</string>
+    <string name="hr_empty_scan">暂未发现其他附近设备，可点「重新扫描」或切换到「全部设备」查看</string>
+    <string name="hr_badge_service">心率广播</string>
+    <string name="hr_badge_connected_local">本机已连接</string>
+    <string name="hr_badge_paired_local">系统已配对</string>
+    <string name="hr_badge_wearable">手环/手表</string>
     <string name="hr_last_device">上次连接</string>
+    <string name="hr_last_device_section">上次连接的设备</string>
+    <string name="hr_local_devices_section">本机已连接与配对</string>
+    <string name="hr_nearby_devices_section">附近扫描发现</string>
+    <string name="hr_auto_reconnect_label">打开时自动重连上次设备</string>
+    <string name="hr_forget_device_cd">清除上次连接记录</string>
+    <string name="hr_filter_recommended">手环与心率</string>
+    <string name="hr_filter_all">全部设备</string>
+    <string name="hr_search_placeholder">搜索手环或设备名称…</string>
+    <string name="hr_search_empty">未找到包含该关键词的设备</string>
     <string name="hr_close">关闭</string>
 
     <!-- Track Recording -->
     <string name="mode_karting">卡丁车</string>
     <string name="mode_hiking">徒步</string>
+    <string name="mode_offroad">越野穿越</string>
     <string name="filter_all">全部</string>
     <string name="record_card_title">轨迹记录</string>
     <string name="record_start">开始记录</string>
@@ -120,6 +136,7 @@
     <string name="record_status_paused">已暂停</string>
     <string name="record_hint_karting">自动识别绕圈起终点，实时记录圈速与最高时速</string>
     <string name="record_hint_hiking">持续记录路线轨迹、累计爬升与海拔变化</string>
+    <string name="record_hint_offroad">记录摩托车翻山越岭路线、海拔爬升、时速、压弯 G 力与心率</string>
     <string name="toast_gate_updated">已将当前位置设为新的起终点线</string>
     <string name="toast_gate_waiting_gps">尚未获取到定位，请等待 GPS 锁定后再设定起终点</string>
     <string name="toast_track_saved">轨迹已保存至本地记录</string>
@@ -147,20 +164,26 @@
     <string name="metric_avg_hr">平均心率</string>
     <string name="metric_max_hr">最高心率</string>
     <string name="metric_peak_g">峰值 G 力</string>
+    <string name="metric_peak_lat_g">峰值横向 G</string>
     <string name="tracks_empty_title">还没有轨迹记录</string>
-    <string name="tracks_empty_desc">在仪表盘选择「卡丁车」或「徒步」模式点击开始记录，结束后会自动保存在本机，支持导出结构化 JSON（供 AI Agent 分析）或 GPX。</string>
+    <string name="tracks_empty_desc">在仪表盘选择「卡丁车」「徒步」或「越野穿越」点击开始记录，结束后会自动保存在本机，支持制作社交图与导出 JSON / GPX。</string>
     <string name="detail_back_cd">返回轨迹列表</string>
     <string name="detail_export_json">导出 JSON</string>
     <string name="detail_export_gpx">导出 GPX</string>
+    <string name="detail_make_social_card">制作社交图</string>
     <string name="detail_delete">删除</string>
     <string name="detail_delete_title">删除轨迹记录</string>
     <string name="detail_delete_confirm">确定要删除这条轨迹吗？删除后无法恢复。</string>
     <string name="detail_cancel">取消</string>
     <string name="detail_track_canvas_title">矢量轨迹路线</string>
     <string name="detail_chart_title">行程剖面曲线</string>
+    <string name="detail_chart_stacked_title">同步时间轴剖面</string>
+    <string name="detail_chart_scrub_hint">按住或左右滑动图表，查看该时刻海拔、速度与心率</string>
+    <string name="detail_chart_clear_scrub">重置</string>
     <string name="detail_chart_elevation">海拔</string>
     <string name="detail_chart_speed">速度</string>
     <string name="detail_chart_hr">心率</string>
+    <string name="detail_chart_time">时刻</string>
     <string name="detail_laps_title">单圈圈速明细</string>
     <string name="detail_lap_best_tag">最佳</string>
     <string name="detail_legend_low">低</string>
@@ -168,6 +191,49 @@
     <string name="detail_no_laps">本次未触发完整绕圈（需离开起终点 25 米后返回）</string>
     <string name="share_gpx_chooser">分享 GPX 轨迹文件</string>
     <string name="share_json_chooser">分享结构化 JSON 遥测数据</string>
+    <string name="share_social_image_chooser">分享社交轨迹图片</string>
+
+    <!-- JSON AI Prompt Export Dialog -->
+    <string name="json_export_dialog_title">导出结构化 JSON</string>
+    <string name="json_export_ai_prompt_title">附带 AI 专业分析提示词 (Prompt)</string>
+    <string name="json_export_ai_prompt_desc_karting">自动附加卡丁车赛道教练分析指令（圈速、刹车点、G力与心率负荷），粘贴给 AI 即可直接分析</string>
+    <string name="json_export_ai_prompt_desc_hiking">自动附加徒步体能与路线分析指令（爬升节奏、配速、心率区间与恢复建议），粘贴给 AI 即可直接分析</string>
+    <string name="json_export_ai_prompt_desc_offroad">自动附加摩托车越野穿越教练分析指令（翻山海拔、山路时速、压弯 G 力与心率负荷），粘贴给 AI 即可直接分析</string>
+    <string name="json_export_copy_clipboard">复制到剪贴板</string>
+    <string name="json_export_share_file">分享文件</string>
+    <string name="toast_json_copied_with_prompt">已复制含 AI 分析提示词的 JSON 到剪贴板</string>
+    <string name="toast_json_copied_plain">已复制 JSON 轨迹数据到剪贴板</string>
+
+    <!-- Social Share Card Studio -->
+    <string name="social_title">制作社交分享图</string>
+    <string name="social_back_cd">返回轨迹详情</string>
+    <string name="social_import_photo">导入照片</string>
+    <string name="social_replace_photo">更换照片</string>
+    <string name="social_clear_photo">移除照片</string>
+    <string name="social_section_background">背景样式</string>
+    <string name="social_bg_photo">导入照片</string>
+    <string name="social_bg_transparent">透明 PNG</string>
+    <string name="social_ink_light">浅色字</string>
+    <string name="social_ink_dark">深色字</string>
+    <string name="social_overlay_style_clear">透明悬浮</string>
+    <string name="social_overlay_style_scrim">渐变遮罩</string>
+    <string name="social_overlay_style_frosted">磨砂底板</string>
+    <string name="social_section_overlays">覆盖数据项</string>
+    <string name="social_chip_route">路线轨迹图</string>
+    <string name="social_chip_title">标题与日期</string>
+    <string name="social_chip_distance">总里程</string>
+    <string name="social_chip_duration">用时</string>
+    <string name="social_chip_elevation">爬升与海拔</string>
+    <string name="social_chip_laps">圈数与最佳圈</string>
+    <string name="social_chip_speed">速度</string>
+    <string name="social_chip_hr">心率</string>
+    <string name="social_chip_peak_g">峰值 G 力</string>
+    <string name="social_chip_profile">剖面曲线</string>
+    <string name="social_save_gallery">保存到相册</string>
+    <string name="social_share_png">分享图片</string>
+    <string name="toast_social_saved">社交图片已保存到相册（支持透明 PNG）</string>
+    <string name="toast_social_save_failed">保存图片失败，请重试</string>
+    <string name="toast_social_photo_failed">无法读取所选照片，请换一张重试</string>
 
     <!-- Focus / Anti-Interruption Mode -->
     <string name="focus_pill_label">防打扰</string>
@@ -260,4 +326,55 @@
     <string name="notification_title_recording">轨迹录制中（后台定位保活）</string>
     <string name="notification_title_both">悬浮仪表 · 轨迹录制中</string>
     <string name="notification_waiting_fix">正在搜索卫星信号…</string>
+
+    <!-- Telemetry Detail Screens (Altitude / Compass / Satellites) -->
+    <string name="detail_back_dashboard_cd">返回仪表盘</string>
+    <string name="alt_detail_title">海拔与气压</string>
+    <string name="alt_unit_m">米 (m)</string>
+    <string name="alt_unit_ft">英尺 (ft)</string>
+    <string name="alt_vertical_accuracy">垂直精度</string>
+    <string name="alt_vertical_speed">升降速率</string>
+    <string name="alt_grade_label">估算坡度</string>
+    <string name="alt_chart_title">实时海拔变化曲线</string>
+    <string name="alt_chart_empty">移动或持续定位后将自动绘制实时海拔曲线</string>
+    <string name="alt_reset_session">重置统计</string>
+    <string name="alt_barometer_title">硬件气压高度计</string>
+    <string name="alt_barometer_pressure">当前大气压</string>
+    <string name="alt_barometer_altitude">气压推算海拔</string>
+    <string name="alt_barometer_qnh">参考海平面气压 (QNH)</string>
+    <string name="alt_barometer_calibrate_gps">用 GPS 海拔校准</string>
+    <string name="alt_barometer_reset_qnh">标准大气压</string>
+    <string name="alt_barometer_unavailable">本机未配备硬件气压计传感器，当前已自动采用 GNSS 卫星实时海拔数据。</string>
+    <string name="toast_barometer_calibrated">已按当前 GNSS 海拔校准气压高度计</string>
+    <string name="toast_barometer_need_gps">等待 GPS 锁定有效海拔后再进行气压校准</string>
+    <string name="toast_altitude_session_reset">已重置本次海拔爬升与曲线统计</string>
+
+    <string name="compass_detail_title">指南针与航向</string>
+    <string name="compass_mode_true">真北</string>
+    <string name="compass_mode_magnetic">磁北</string>
+    <string name="compass_declination_prefix">磁偏角</string>
+    <string name="compass_gps_course_title">GPS 行进航向</string>
+    <string name="compass_gps_course_hint">移动时由卫星解算的实际前进方向</string>
+    <string name="compass_field_title">地磁强度</string>
+    <string name="compass_accuracy_high">精度高</string>
+    <string name="compass_accuracy_medium">精度中等</string>
+    <string name="compass_accuracy_low">建议校准</string>
+    <string name="compass_calibrate_hint">检测到周围可能存在金属或磁铁干扰（如车把支架），可手持手机画「8」字重新校准罗盘。</string>
+    <string name="compass_level_title">水平仪倾角</string>
+    <string name="compass_pitch_label">俯仰角</string>
+    <string name="compass_roll_label">横滚角</string>
+    <string name="compass_no_sensor">本机缺少磁力计/方向传感器，移动时将仅显示 GPS 卫星行进航向。</string>
+
+    <string name="sat_detail_title">GNSS 卫星信号</string>
+    <string name="sat_used_label">已参与定位</string>
+    <string name="sat_visible_label">当前可见</string>
+    <string name="sat_avg_snr_label">平均信噪比</string>
+    <string name="sat_skyplot_title">实时卫星星空图</string>
+    <string name="sat_skyplot_legend_used">实心：参与定位</string>
+    <string name="sat_skyplot_legend_visible">空心：已捕获</string>
+    <string name="sat_list_title">卫星通道明细</string>
+    <string name="sat_empty_title">正在接收卫星星历…</string>
+    <string name="sat_empty_desc">请移步至开阔室外或窗边，GNSS 芯片捕获北斗/GPS 卫星后将实时展示星空分布与各通道信噪比。</string>
+    <string name="sat_badge_used">定位中</string>
+    <string name="sat_badge_tracking">跟踪中</string>
 </resources>

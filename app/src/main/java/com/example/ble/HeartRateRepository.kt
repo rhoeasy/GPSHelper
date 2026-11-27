@@ -3,6 +3,7 @@ package com.example.ble
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -32,33 +33,38 @@ import java.util.UUID
 /**
  * Native Android BLE Heart Rate Monitor hub supporting Xiaomi Mi Band (with Heart Rate Broadcast
  * enabled) and any standard Bluetooth SIG Heart Rate Service (0x180D / 0x2A37) sensor.
+ *
+ * Also queries locally connected GATT devices and system-paired BLE wearables so bands already
+ * connected to Mi Fitness / Zepp Life appear immediately at the top of the picker.
  */
 object HeartRateRepository {
     private const val TAG = "HeartRateRepository"
     private const val PREFS_NAME = "ble_hr_prefs"
     private const val KEY_LAST_ADDR = "last_hr_address"
     private const val KEY_LAST_NAME = "last_hr_name"
+    private const val KEY_LAST_TIME_MS = "last_hr_connected_ms"
+    private const val KEY_AUTO_RECONNECT = "auto_reconnect_hr"
     private const val SCAN_TIMEOUT_MS = 12_000L
 
     val HEART_RATE_SERVICE_UUID: UUID = UUID.fromString("0000180D-0000-1000-8000-00805F9B34FB")
     val HEART_RATE_MEASUREMENT_UUID: UUID = UUID.fromString("00002A37-0000-1000-8000-00805F9B34FB")
     val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
 
-    private val WEARABLE_KEYWORDS = listOf(
-        "xiaomi", "mi band", "smart band", "redmi", "amazfit",
-        "band", "watch", "hrm", "heart", "polar", "garmin", "coros", "wahoo", "magene", "coospo"
-    )
-
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val localDeviceMap = LinkedHashMap<String, BleHrDevice>()
     private val discoveredMap = LinkedHashMap<String, BleHrDevice>()
 
     private var appContext: Context? = null
     private var scanner: BluetoothLeScanner? = null
     private var activeGatt: BluetoothGatt? = null
     private var isScanningInternal = false
+    private var manualDisconnectThisSession = false
 
     private val _heartRateState = MutableStateFlow(HeartRateState())
     val heartRateState: StateFlow<HeartRateState> = _heartRateState.asStateFlow()
+
+    private val _localDevices = MutableStateFlow<List<BleHrDevice>>(emptyList())
+    val localDevices: StateFlow<List<BleHrDevice>> = _localDevices.asStateFlow()
 
     private val _scannedDevices = MutableStateFlow<List<BleHrDevice>>(emptyList())
     val scannedDevices: StateFlow<List<BleHrDevice>> = _scannedDevices.asStateFlow()
@@ -66,8 +72,11 @@ object HeartRateRepository {
     private val _isScanning = MutableStateFlow(false)
     val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
-    private val _lastSavedDevice = MutableStateFlow<Pair<String, String>?>(null)
-    val lastSavedDevice: StateFlow<Pair<String, String>?> = _lastSavedDevice.asStateFlow()
+    private val _lastSavedDevice = MutableStateFlow<SavedBleDevice?>(null)
+    val lastSavedDevice: StateFlow<SavedBleDevice?> = _lastSavedDevice.asStateFlow()
+
+    private val _autoReconnectEnabled = MutableStateFlow(true)
+    val autoReconnectEnabled: StateFlow<Boolean> = _autoReconnectEnabled.asStateFlow()
 
     private val stopScanRunnable = Runnable { stopScan() }
 
@@ -77,11 +86,39 @@ object HeartRateRepository {
         val prefs = appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val addr = prefs.getString(KEY_LAST_ADDR, null)
         val name = prefs.getString(KEY_LAST_NAME, null)
+        val connectedMs = prefs.getLong(KEY_LAST_TIME_MS, 0L)
+        _autoReconnectEnabled.value = prefs.getBoolean(KEY_AUTO_RECONNECT, true)
         _lastSavedDevice.value = if (!addr.isNullOrBlank() && !name.isNullOrBlank()) {
-            name to addr
+            SavedBleDevice(name = name, address = addr, lastConnectedAtMs = connectedMs)
         } else {
             null
         }
+    }
+
+    fun setAutoReconnectEnabled(context: Context, enabled: Boolean) {
+        val appCtx = context.applicationContext
+        appContext = appCtx
+        appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_AUTO_RECONNECT, enabled)
+            .apply()
+        _autoReconnectEnabled.value = enabled
+        if (enabled) {
+            manualDisconnectThisSession = false
+        }
+    }
+
+    fun clearLastSavedDevice(context: Context) {
+        val appCtx = context.applicationContext
+        appContext = appCtx
+        appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_LAST_ADDR)
+            .remove(KEY_LAST_NAME)
+            .remove(KEY_LAST_TIME_MS)
+            .apply()
+        _lastSavedDevice.value = null
+        publishDeviceLists()
     }
 
     fun hasBlePermissions(context: Context): Boolean {
@@ -107,11 +144,113 @@ object HeartRateRepository {
         return manager?.adapter?.isEnabled == true
     }
 
+    /**
+     * Automatically reconnects to the remembered wearable on app launch/resume if enabled,
+     * Bluetooth & permissions are ready, and the user has not manually disconnected this session.
+     */
+    fun tryAutoReconnectIfEnabled(context: Context): Boolean {
+        val appCtx = context.applicationContext
+        loadLastDevice(appCtx)
+        if (!_autoReconnectEnabled.value || manualDisconnectThisSession) return false
+        val saved = _lastSavedDevice.value ?: return false
+        val currentStatus = _heartRateState.value.status
+        if (currentStatus == BleConnectionStatus.CONNECTED ||
+            currentStatus == BleConnectionStatus.CONNECTING
+        ) {
+            return false
+        }
+        if (!hasBlePermissions(appCtx) || !isBluetoothEnabled(appCtx)) return false
+        connect(appCtx, address = saved.address, deviceName = saved.name)
+        return true
+    }
+
+    /**
+     * Reads BLE devices already connected locally to this phone (e.g., Mi Band connected to
+     * Mi Fitness / Zepp Life) as well as system-paired BLE/wearable devices.
+     */
+    @SuppressLint("MissingPermission")
+    fun refreshLocalDevices(context: Context) {
+        val appCtx = context.applicationContext
+        appContext = appCtx
+        loadLastDevice(appCtx)
+
+        if (!hasBlePermissions(appCtx)) {
+            localDeviceMap.clear()
+            publishDeviceLists()
+            return
+        }
+
+        val manager = appCtx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        val adapter = manager?.adapter
+        if (manager == null || adapter == null || !adapter.isEnabled) {
+            localDeviceMap.clear()
+            publishDeviceLists()
+            return
+        }
+
+        val lastAddr = _lastSavedDevice.value?.address
+        val refreshed = LinkedHashMap<String, BleHrDevice>()
+
+        // 1. Currently connected BLE GATT peripherals on this phone
+        val connectedGatt = runCatching {
+            manager.getConnectedDevices(BluetoothProfile.GATT)
+        }.getOrDefault(emptyList())
+
+        val connectedServer = runCatching {
+            manager.getConnectedDevices(BluetoothProfile.GATT_SERVER)
+        }.getOrDefault(emptyList())
+
+        (connectedGatt + connectedServer).forEach { device ->
+            val addr = device.address ?: return@forEach
+            val existing = localDeviceMap[addr] ?: discoveredMap[addr]
+            val friendlyName = resolveFriendlyName(device, existing?.name)
+            val advHr = existing?.advertisesHeartRate == true
+            refreshed[addr] = BleHrDevice(
+                name = friendlyName,
+                address = addr,
+                rssi = existing?.rssi,
+                advertisesHeartRate = advHr,
+                source = BleDeviceSource.CONNECTED_LOCAL,
+                category = BleDeviceClassifier.classifyCategory(friendlyName, advHr),
+                isLastConnected = addr.equals(lastAddr, ignoreCase = true)
+            )
+        }
+
+        // 2. System-paired Bluetooth devices (BLE / Dual-mode / recognizable wearables)
+        val bonded = runCatching { adapter.bondedDevices }.getOrNull().orEmpty()
+        bonded.forEach { device ->
+            val addr = device.address ?: return@forEach
+            if (refreshed.containsKey(addr)) return@forEach
+            val existing = localDeviceMap[addr] ?: discoveredMap[addr]
+            val friendlyName = resolveFriendlyName(device, existing?.name)
+            val category = BleDeviceClassifier.classifyCategory(
+                friendlyName,
+                existing?.advertisesHeartRate == true
+            )
+            if (!isEligiblePairedDevice(device, category)) return@forEach
+
+            refreshed[addr] = BleHrDevice(
+                name = friendlyName,
+                address = addr,
+                rssi = existing?.rssi,
+                advertisesHeartRate = existing?.advertisesHeartRate == true,
+                source = BleDeviceSource.PAIRED_LOCAL,
+                category = category,
+                isLastConnected = addr.equals(lastAddr, ignoreCase = true)
+            )
+        }
+
+        localDeviceMap.clear()
+        localDeviceMap.putAll(refreshed)
+        publishDeviceLists()
+    }
+
     @SuppressLint("MissingPermission")
     fun startScan(context: Context) {
         val appCtx = context.applicationContext
         appContext = appCtx
         loadLastDevice(appCtx)
+        refreshLocalDevices(appCtx)
 
         if (!hasBlePermissions(appCtx)) {
             _heartRateState.update { it.copy(errorMessage = "缺少蓝牙权限") }
@@ -132,7 +271,7 @@ object HeartRateRepository {
 
         stopScan()
         discoveredMap.clear()
-        _scannedDevices.value = emptyList()
+        publishDeviceLists()
         _heartRateState.update { it.copy(errorMessage = null) }
 
         val settings = ScanSettings.Builder()
@@ -173,6 +312,7 @@ object HeartRateRepository {
     fun connect(context: Context, address: String, deviceName: String) {
         val appCtx = context.applicationContext
         appContext = appCtx
+        manualDisconnectThisSession = false
         stopScan()
 
         if (!hasBlePermissions(appCtx)) {
@@ -200,9 +340,11 @@ object HeartRateRepository {
             return
         }
 
+        val friendlyName = resolveFriendlyName(device, deviceName)
+
         _heartRateState.value = HeartRateState(
             status = BleConnectionStatus.CONNECTING,
-            deviceName = deviceName,
+            deviceName = friendlyName,
             deviceAddress = address,
             bpm = null,
             errorMessage = null
@@ -230,6 +372,7 @@ object HeartRateRepository {
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
+        manualDisconnectThisSession = true
         stopScan()
         closeActiveGatt()
         _heartRateState.value = HeartRateState(status = BleConnectionStatus.DISCONNECTED)
@@ -250,14 +393,69 @@ object HeartRateRepository {
         return manager?.adapter
     }
 
+    @SuppressLint("MissingPermission")
+    private fun resolveFriendlyName(device: BluetoothDevice, fallbackName: String? = null): String {
+        val alias = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching { device.alias }.getOrNull()?.trim()
+        } else {
+            null
+        }
+        val sysName = runCatching { device.name }.getOrNull()?.trim()
+        return alias.takeUnless { it.isNullOrBlank() }
+            ?: fallbackName?.trim().takeUnless { it.isNullOrBlank() }
+            ?: sysName.takeUnless { it.isNullOrBlank() }
+            ?: "蓝牙设备 (${BleDeviceClassifier.shortAddressTail(device.address ?: "")})"
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun isEligiblePairedDevice(device: BluetoothDevice, category: BleDeviceCategory): Boolean {
+        if (category != BleDeviceCategory.OTHER) return true
+        val type = runCatching { device.type }.getOrDefault(BluetoothDevice.DEVICE_TYPE_UNKNOWN)
+        if (type == BluetoothDevice.DEVICE_TYPE_LE || type == BluetoothDevice.DEVICE_TYPE_DUAL) {
+            return true
+        }
+        // Skip pure Classic Bluetooth car stereos/speakers/phones/computers
+        val majorClass = runCatching { device.bluetoothClass?.majorDeviceClass }.getOrNull()
+        if (type == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
+            return majorClass == BluetoothClass.Device.Major.WEARABLE ||
+                majorClass == BluetoothClass.Device.Major.HEALTH
+        }
+        return majorClass != BluetoothClass.Device.Major.AUDIO_VIDEO &&
+            majorClass != BluetoothClass.Device.Major.PHONE &&
+            majorClass != BluetoothClass.Device.Major.COMPUTER
+    }
+
     private fun saveLastDevice(name: String, address: String) {
         val ctx = appContext ?: return
+        val nowMs = System.currentTimeMillis()
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_LAST_NAME, name)
             .putString(KEY_LAST_ADDR, address)
+            .putLong(KEY_LAST_TIME_MS, nowMs)
             .apply()
-        _lastSavedDevice.value = name to address
+        _lastSavedDevice.value = SavedBleDevice(
+            name = name,
+            address = address,
+            lastConnectedAtMs = nowMs
+        )
+        publishDeviceLists()
+    }
+
+    private fun publishDeviceLists() {
+        val lastAddr = _lastSavedDevice.value?.address
+        val locals = localDeviceMap.values.map { item ->
+            item.copy(isLastConnected = item.address.equals(lastAddr, ignoreCase = true))
+        }
+        _localDevices.value = BleDeviceClassifier.sortDevices(locals)
+
+        // Nearby scanned devices exclude ones already displayed in the local section
+        val nearbyOnly = discoveredMap.values
+            .filterNot { localDeviceMap.containsKey(it.address) }
+            .map { item ->
+                item.copy(isLastConnected = item.address.equals(lastAddr, ignoreCase = true))
+            }
+        _scannedDevices.value = BleDeviceClassifier.sortDevices(nearbyOnly)
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -268,26 +466,46 @@ object HeartRateRepository {
             val advUuids = result.scanRecord?.serviceUuids.orEmpty()
             val advertisesHr = advUuids.any { it == ParcelUuid(HEART_RATE_SERVICE_UUID) }
 
-            val rawName = result.scanRecord?.deviceName ?: runCatching { device.name }.getOrNull()
+            val alias = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                runCatching { device.alias }.getOrNull()?.trim()
+            } else {
+                null
+            }
+            val rawName = alias.takeUnless { it.isNullOrBlank() }
+                ?: result.scanRecord?.deviceName?.trim().takeUnless { it.isNullOrBlank() }
+                ?: runCatching { device.name }.getOrNull()?.trim().takeUnless { it.isNullOrBlank() }
+
+            // If this device is already in local connected/paired list, enrich it with live RSSI & HR badge
+            val existingLocal = localDeviceMap[address]
+            if (existingLocal != null) {
+                val updatedName = rawName ?: existingLocal.name
+                val mergedHr = existingLocal.advertisesHeartRate || advertisesHr
+                localDeviceMap[address] = existingLocal.copy(
+                    name = updatedName,
+                    rssi = result.rssi,
+                    advertisesHeartRate = mergedHr,
+                    category = BleDeviceClassifier.classifyCategory(updatedName, mergedHr)
+                )
+                publishDeviceLists()
+                return
+            }
+
             // Skip unnamed devices unless they explicitly advertise the Heart Rate Service
             if (rawName.isNullOrBlank() && !advertisesHr) return
-            val displayName = rawName?.trim().takeUnless { it.isNullOrBlank() } ?: "BLE 心率设备"
+            val displayName = rawName ?: "BLE 心率设备"
+            val category = BleDeviceClassifier.classifyCategory(displayName, advertisesHr)
+            val lastAddr = _lastSavedDevice.value?.address
 
             discoveredMap[address] = BleHrDevice(
                 name = displayName,
                 address = address,
                 rssi = result.rssi,
-                advertisesHeartRate = advertisesHr
+                advertisesHeartRate = advertisesHr,
+                source = BleDeviceSource.NEARBY_SCAN,
+                category = category,
+                isLastConnected = address.equals(lastAddr, ignoreCase = true)
             )
-
-            _scannedDevices.value = discoveredMap.values.sortedWith(
-                compareByDescending<BleHrDevice> { it.advertisesHeartRate }
-                    .thenByDescending { deviceItem ->
-                        val lower = deviceItem.name.lowercase()
-                        WEARABLE_KEYWORDS.any { lower.contains(it) }
-                    }
-                    .thenByDescending { it.rssi }
-            )
+            publishDeviceLists()
         }
 
         override fun onScanFailed(errorCode: Int) {
@@ -411,7 +629,7 @@ object HeartRateRepository {
                 return
             }
 
-            val currentName = _heartRateState.value.deviceName ?: gatt.device.address
+            val currentName = resolveFriendlyName(gatt.device, _heartRateState.value.deviceName)
             val currentAddr = gatt.device.address
             saveLastDevice(currentName, currentAddr)
 

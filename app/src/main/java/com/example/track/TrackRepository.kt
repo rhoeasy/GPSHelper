@@ -10,9 +10,14 @@ data class TrackSessionDetail(
 )
 
 class TrackRepository(context: Context) {
-    private val dao: TrackDao = TrackDatabase.getInstance(context).trackDao()
+    private val appContext = context.applicationContext
+    private val dao: TrackDao = TrackDatabase.getInstance(appContext).trackDao()
 
     val allSessions: Flow<List<TrackSessionEntity>> = dao.observeAllSessions()
+
+    suspend fun ensureSampleTracksSeeded(): Boolean {
+        return SampleTrackSeeder.seedOnceIfNeeded(appContext, dao)
+    }
 
     suspend fun loadSessionDetail(sessionId: Long): TrackSessionDetail? {
         val session = dao.getSessionById(sessionId) ?: return null

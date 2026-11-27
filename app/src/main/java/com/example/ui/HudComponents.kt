@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.GpsFixed
 import androidx.compose.material.icons.rounded.GpsNotFixed
@@ -575,6 +576,9 @@ fun CoordinatesCard(
 @Composable
 fun TelemetryGrid(
     gpsData: GpsData,
+    onOpenAltitudeDetail: () -> Unit = {},
+    onOpenCompassDetail: () -> Unit = {},
+    onOpenSatelliteDetail: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -600,6 +604,7 @@ fun TelemetryGrid(
                 label = stringResource(R.string.telemetry_altitude),
                 value = gpsData.formattedAltitude(),
                 hasValue = gpsData.hasFix && gpsData.altitudeMeters != null,
+                onClick = onOpenAltitudeDetail,
                 modifier = Modifier
                     .weight(1f)
                     .testTag("metric_altitude_card")
@@ -629,6 +634,7 @@ fun TelemetryGrid(
                 label = stringResource(R.string.telemetry_bearing),
                 value = gpsData.formattedBearing(),
                 hasValue = gpsData.hasFix && gpsData.bearingDegrees != null,
+                onClick = onOpenCompassDetail,
                 modifier = Modifier
                     .weight(1f)
                     .testTag("metric_bearing_card")
@@ -641,6 +647,7 @@ fun TelemetryGrid(
                 value = gpsData.formattedSatellites(),
                 subtitle = stringResource(R.string.telemetry_satellites_sub),
                 hasValue = gpsData.hasSatelliteInfo || gpsData.hasFix,
+                onClick = onOpenSatelliteDetail,
                 modifier = Modifier
                     .weight(1f)
                     .testTag("metric_satellites_card")
@@ -659,14 +666,11 @@ private fun TelemetryMetricCard(
     hasValue: Boolean,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
-    iconRotation: Float = 0f
+    iconRotation: Float = 0f,
+    onClick: (() -> Unit)? = null
 ) {
     val cs = MaterialTheme.colorScheme
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(22.dp),
-        color = cs.surfaceContainerLow
-    ) {
+    val cardContent: @Composable () -> Unit = {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -674,6 +678,7 @@ private fun TelemetryMetricCard(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -698,8 +703,17 @@ private fun TelemetryMetricCard(
                     style = MaterialTheme.typography.titleSmall,
                     color = cs.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
+                if (onClick != null) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = cs.onSurfaceVariant.copy(alpha = 0.65f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -723,5 +737,22 @@ private fun TelemetryMetricCard(
                 }
             }
         }
+    }
+
+    if (onClick != null) {
+        Surface(
+            onClick = onClick,
+            modifier = modifier,
+            shape = RoundedCornerShape(22.dp),
+            color = cs.surfaceContainerLow,
+            content = cardContent
+        )
+    } else {
+        Surface(
+            modifier = modifier,
+            shape = RoundedCornerShape(22.dp),
+            color = cs.surfaceContainerLow,
+            content = cardContent
+        )
     }
 }

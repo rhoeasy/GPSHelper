@@ -78,7 +78,11 @@ object GpxExporter {
     ): Uri {
         val gpxDir = File(context.cacheDir, "gpx").apply { mkdirs() }
         val fileDate = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(session.startTimeMs))
-        val prefix = if (session.activityMode == ActivityMode.KARTING) "karting" else "hiking"
+        val prefix = when (session.activityMode) {
+            ActivityMode.KARTING -> "karting"
+            ActivityMode.HIKING -> "hiking"
+            ActivityMode.OFFROAD_CROSSING -> "offroad"
+        }
         val outFile = File(gpxDir, "${prefix}_${fileDate}.gpx")
         outFile.writeText(buildGpxXml(session, points), Charsets.UTF_8)
         return FileProvider.getUriForFile(

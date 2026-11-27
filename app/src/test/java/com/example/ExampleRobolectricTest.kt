@@ -2,14 +2,22 @@ package com.example
 
 import android.app.Application
 import android.content.Context
+import android.graphics.Color
 import android.graphics.PixelFormat
+import android.location.GnssStatus
 import android.view.Surface
 import android.view.WindowManager
 import androidx.test.core.app.ApplicationProvider
 import com.example.alert.SafetyAlertMonitor
 import com.example.ble.BleConnectionStatus
+import com.example.ble.BleDeviceCategory
+import com.example.ble.BleDeviceClassifier
+import com.example.ble.BleDeviceSource
+import com.example.ble.BleHrDevice
 import com.example.ble.HeartRateState
 import com.example.ble.parseHeartRateBpm
+import com.example.gps.AltitudeSessionTracker
+import com.example.gps.GnssConstellation
 import com.example.gps.GpsData
 import com.example.gps.GpsFixStatus
 import com.example.gps.GpsRepository
@@ -17,9 +25,14 @@ import com.example.gps.OverlayScale
 import com.example.gps.SafetyAlertConfig
 import com.example.gps.SpeedUnit
 import com.example.overlay.OverlayWindowController
+import com.example.sensor.CompassMath
 import com.example.sensor.GForceFusionEngine
 import com.example.track.ActivityMode
 import com.example.track.GpxExporter
+import com.example.track.SampleTrackSeeder
+import com.example.track.SocialBgPreset
+import com.example.track.SocialCardBitmapRenderer
+import com.example.track.SocialCardConfig
 import com.example.track.TelemetryJsonExporter
 import com.example.track.TrackFormatters
 import com.example.track.TrackLapEntity
@@ -27,6 +40,7 @@ import com.example.track.TrackPointEntity
 import com.example.track.TrackRecorder
 import com.example.track.TrackSessionEntity
 import com.example.ui.GpsDashboardViewModel
+import com.example.ui.findNearestPointIndexByTimeFraction
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -591,5 +605,294 @@ class ExampleRobolectricTest {
             "Braking lobe should be cleared after resetPeak",
             (state.peakEnvelope.getOrNull(9) ?: 0f) < 0.05f
         )
+    }
+
+    @Test
+    fun `altitude session tracker filters jitter deadband and computes climb descent grade and reset`() {
+        val tracker = AltitudeSessionTracker()
+
+        // Initial point at 100.0m
+        var stats = tracker.onAltitudeSample(
+            altitudeM = 100.0,
+            verticalAccuracyM = 3.2f,
+            horizontalSpeedMps = 5.0f,
+            elapsedMs = 1_000L
+        )
+        assertEquals(100.0, stats.minAltitudeM!!, 0.01)
+        assertEquals(100.0, stats.maxAltitudeM!!, 0.01)
+        assertEquals(0.0, stats.elevationGainM, 0.01)
+
+        // Small GPS jitter (+0.8m < 1.5m deadband) should not inflate gain
+        stats = tracker.onAltitudeSample(
+            altitudeM = 100.8,
+            verticalAccuracyM = 3.0f,
+            horizontalSpeedMps = 5.0f,
+            elapsedMs = 3_000L
+        )
+        assertEquals(0.0, stats.elevationGainM, 0.01)
+
+        // Real climb to 112.0m (+12.0m over 4 seconds = 3 m/s vertical, grade > 0)
+        stats = tracker.onAltitudeSample(
+            altitudeM = 112.0,
+            verticalAccuracyM = 2.8f,
+            horizontalSpeedMps = 10.0f,
+            elapsedMs = 7_000L
+        )
+        assertEquals(12.0, stats.elevationGainM, 0.05)
+        assertEquals(0.0, stats.elevationLossM, 0.05)
+        assertEquals(112.0, stats.maxAltitudeM!!, 0.01)
+        assertTrue("Expected positive vertical speed, got ${stats.verticalSpeedMps}", stats.verticalSpeedMps > 0.5f)
+        assertTrue("Expected positive climb grade %, got ${stats.gradePercent}", (stats.gradePercent ?: 0f) > 5f)
+
+        // Real descent to 105.0m (-7.0m)
+        stats = tracker.onAltitudeSample(
+            altitudeM = 105.0,
+            verticalAccuracyM = 2.8f,
+            horizontalSpeedMps = 10.0f,
+            elapsedMs = 11_000L
+        )
+        assertEquals(12.0, stats.elevationGainM, 0.05)
+        assertEquals(7.0, stats.elevationLossM, 0.05)
+        assertEquals(100.0, stats.minAltitudeM!!, 0.01)
+        assertEquals(4, stats.samples.size)
+
+        // Reset clears cumulative stats and sample curve cleanly
+        tracker.reset()
+        stats = tracker.onAltitudeSample(
+            altitudeM = 200.0,
+            verticalAccuracyM = 2.0f,
+            horizontalSpeedMps = 0f,
+            elapsedMs = 15_000L
+        )
+        assertEquals(200.0, stats.minAltitudeM!!, 0.01)
+        assertEquals(200.0, stats.maxAltitudeM!!, 0.01)
+        assertEquals(0.0, stats.elevationGainM, 0.01)
+        assertEquals(0.0, stats.elevationLossM, 0.01)
+        assertEquals(1, stats.samples.size)
+        assertNull(stats.gradePercent)
+    }
+
+    @Test
+    fun `compass math handles 360 wrap around smoothing barometer QNH calibration and constellations`() {
+        // Wrap-around shortest angular delta across North (355° -> 5° is +10°, not -350°)
+        assertEquals(10f, CompassMath.shortestAngleDelta(355f, 5f), 0.001f)
+        assertEquals(-10f, CompassMath.shortestAngleDelta(5f, 355f), 0.001f)
+        assertEquals(0f, CompassMath.smoothAzimuth(355f, 5f, alpha = 0.5f), 0.001f)
+        assertEquals("北", CompassMath.compassCardinalLabelZh(359f))
+        assertEquals("东南", CompassMath.compassCardinalLabelZh(135f))
+        assertEquals("西", CompassMath.compassCardinalLabelZh(270f))
+
+        // Barometer QNH calibration round-trip: calibrating at known 520m reproduces 520m
+        val measuredHpa = 955.0f
+        val qnh = CompassMath.calibrateSeaLevelPressureHpa(measuredHpa, knownAltitudeMeters = 520.0)
+        val recalcAlt = CompassMath.pressureToAltitudeMeters(qnh, measuredHpa)
+        assertEquals(520.0f, recalcAlt, 0.5f)
+
+        // GNSS constellation mapping
+        assertEquals(GnssConstellation.BEIDOU, GnssConstellation.fromGnssStatusType(GnssStatus.CONSTELLATION_BEIDOU))
+        assertEquals(GnssConstellation.GPS, GnssConstellation.fromGnssStatusType(GnssStatus.CONSTELLATION_GPS))
+        assertEquals(GnssConstellation.GLONASS, GnssConstellation.fromGnssStatusType(GnssStatus.CONSTELLATION_GLONASS))
+        assertEquals(GnssConstellation.GALILEO, GnssConstellation.fromGnssStatusType(GnssStatus.CONSTELLATION_GALILEO))
+    }
+
+    @Test
+    fun `ble device classifier formats human readable labels and prioritizes local connected wearables`() {
+        assertEquals(
+            BleDeviceCategory.WEARABLE,
+            BleDeviceClassifier.classifyCategory("Xiaomi Smart Band 9", advertisesHeartRate = false)
+        )
+        assertEquals(
+            BleDeviceCategory.HEART_RATE_SENSOR,
+            BleDeviceClassifier.classifyCategory("Polar H10", advertisesHeartRate = false)
+        )
+        assertEquals(
+            BleDeviceCategory.HEART_RATE_SENSOR,
+            BleDeviceClassifier.classifyCategory("Unknown Device", advertisesHeartRate = true)
+        )
+        assertEquals("就在手边 · 信号极强", BleDeviceClassifier.signalDescriptionZh(-50, BleDeviceSource.NEARBY_SCAN))
+        assertEquals("系统已直连 · 就在身边", BleDeviceClassifier.signalDescriptionZh(null, BleDeviceSource.CONNECTED_LOCAL))
+        assertEquals("尾号 2B:0C", BleDeviceClassifier.shortAddressTail("D4:8A:39:1F:2B:0C"))
+        assertEquals(4, BleDeviceClassifier.signalBars(-52))
+        assertEquals(1, BleDeviceClassifier.signalBars(-90))
+
+        val tv = BleHrDevice(
+            name = "Living Room TV",
+            address = "AA:BB:CC:DD:EE:01",
+            rssi = -45,
+            source = BleDeviceSource.NEARBY_SCAN,
+            category = BleDeviceCategory.OTHER
+        )
+        val localBand = BleHrDevice(
+            name = "Xiaomi Smart Band 9",
+            address = "AA:BB:CC:DD:EE:02",
+            rssi = null,
+            source = BleDeviceSource.CONNECTED_LOCAL,
+            category = BleDeviceCategory.WEARABLE
+        )
+        val lastBand = BleHrDevice(
+            name = "我的小米手环",
+            address = "AA:BB:CC:DD:EE:03",
+            rssi = -65,
+            advertisesHeartRate = true,
+            source = BleDeviceSource.PAIRED_LOCAL,
+            category = BleDeviceCategory.HEART_RATE_SENSOR,
+            isLastConnected = true
+        )
+        val sorted = BleDeviceClassifier.sortDevices(listOf(tv, localBand, lastBand))
+        assertEquals(lastBand.address, sorted[0].address)
+        assertEquals(localBand.address, sorted[1].address)
+        assertEquals(tv.address, sorted[2].address)
+
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val vm = GpsDashboardViewModel(app)
+        vm.setAutoReconnectBle(false)
+        assertFalse(vm.autoReconnectBle.value)
+        vm.setAutoReconnectBle(true)
+        assertTrue(vm.autoReconnectBle.value)
+    }
+
+    @Test
+    fun `sample track seeder builds realistic karting 3-lap circuit and hiking mountain loop`() {
+        val now = 1_750_000_000_000L
+        val karting = SampleTrackSeeder.buildSampleKartingTrack(now)
+        assertEquals(ActivityMode.KARTING, karting.session.activityMode)
+        assertEquals(3, karting.session.lapCount)
+        assertEquals(3, karting.laps.size)
+        assertTrue("Expected > 150 karting points", karting.points.size > 150)
+        assertTrue("Expected karting distance > 2000m, got ${karting.session.distanceMeters}", karting.session.distanceMeters > 2_000.0)
+        assertTrue("Expected realistic karting peakG > 0.8G, got ${karting.session.peakTotalG}", karting.session.peakTotalG > 0.8f)
+        assertTrue("Expected realistic karting HR > 140", (karting.session.avgHeartRate ?: 0) > 140)
+        assertEquals(karting.laps.minOf { it.lapDurationMs }, karting.session.bestLapMs)
+
+        val hiking = SampleTrackSeeder.buildSampleHikingTrack(now)
+        assertEquals(ActivityMode.HIKING, hiking.session.activityMode)
+        assertEquals(0, hiking.session.lapCount)
+        assertTrue(hiking.laps.isEmpty())
+        assertTrue("Expected > 100 hiking points", hiking.points.size > 100)
+        assertTrue("Expected hiking distance > 3500m, got ${hiking.session.distanceMeters}", hiking.session.distanceMeters > 3_500.0)
+        assertTrue("Expected hiking elevation gain > 200m, got ${hiking.session.elevationGainMeters}", hiking.session.elevationGainMeters > 200.0)
+        assertTrue("Expected hiking max altitude > 550m", (hiking.session.maxAltitudeMeters ?: 0.0) > 550.0)
+
+        // Ensure GPX & structured JSON export succeed cleanly on both sample tracks
+        val gpx = GpxExporter.buildGpxXml(hiking.session, hiking.points)
+        assertTrue(gpx.contains("<trkpt"))
+        val json = JSONObject(TelemetryJsonExporter.buildStructuredJson(karting.session, karting.points, karting.laps))
+        assertEquals(3, json.getJSONArray("laps").length())
+    }
+
+    @Test
+    fun `social share bitmap renderer supports transparent png and solid presets plus stacked chart scrub and ai prompt`() {
+        val now = 1_750_000_000_000L
+        val hiking = SampleTrackSeeder.buildSampleHikingTrack(now)
+        val karting = SampleTrackSeeder.buildSampleKartingTrack(now)
+
+        // 1. Transparent PNG preserves alpha=0 corner pixels
+        val transparentBmp = SocialCardBitmapRenderer.renderBitmap(
+            detail = hiking,
+            speedUnit = SpeedUnit.KMH,
+            config = SocialCardConfig(
+                useImportedPhoto = false,
+                bgPreset = SocialBgPreset.TRANSPARENT,
+                showRoute = true,
+                showTitle = true
+            ),
+            targetWidth = 540
+        )
+        assertEquals(540, transparentBmp.width)
+        assertEquals(0, Color.alpha(transparentBmp.getPixel(2, 2)))
+        transparentBmp.recycle()
+
+        // 2. Solid color preset renders opaque background pixels
+        val solidBmp = SocialCardBitmapRenderer.renderBitmap(
+            detail = karting,
+            speedUnit = SpeedUnit.KMH,
+            config = SocialCardConfig(
+                useImportedPhoto = false,
+                bgPreset = SocialBgPreset.OBSIDIAN,
+                showRoute = true
+            ),
+            targetWidth = 540
+        )
+        assertEquals(255, Color.alpha(solidBmp.getPixel(2, 2)))
+        solidBmp.recycle()
+
+        // 3. Stacked hiking chart X-axis time alignment helper
+        val startIdx = findNearestPointIndexByTimeFraction(hiking.points, 0f)
+        val midIdx = findNearestPointIndexByTimeFraction(hiking.points, 0.5f)
+        val endIdx = findNearestPointIndexByTimeFraction(hiking.points, 1f)
+        assertEquals(0, startIdx)
+        assertEquals(hiking.points.lastIndex, endIdx)
+        assertTrue("Mid index should sit near center of track", midIdx in (hiking.points.size / 4)..(hiking.points.size * 3 / 4))
+
+        // 4. AI analysis prompt + JSON clipboard payload
+        val kartPromptPayload = TelemetryJsonExporter.buildClipboardPayload(
+            session = karting.session,
+            points = karting.points,
+            laps = karting.laps,
+            includeAiPrompt = true
+        )
+        assertTrue(kartPromptPayload.contains("卡丁车赛道遥测数据分析教练"))
+        assertTrue(kartPromptPayload.contains("```json"))
+        assertTrue(kartPromptPayload.contains("\"laps\""))
+
+        val hikePlainPayload = TelemetryJsonExporter.buildClipboardPayload(
+            session = hiking.session,
+            points = hiking.points,
+            laps = hiking.laps,
+            includeAiPrompt = false
+        )
+        assertFalse(hikePlainPayload.contains("```json"))
+        assertEquals("HIKING", JSONObject(hikePlainPayload).getString("activity_type"))
+    }
+
+    @Test
+    fun `offroad crossing mode supports sample mountain route social card stats gpx and moto ai prompt`() {
+        val now = 1_750_000_000_000L
+        val offroad = SampleTrackSeeder.buildSampleOffroadCrossingTrack(now)
+
+        assertEquals(ActivityMode.OFFROAD_CROSSING, offroad.session.activityMode)
+        assertEquals("越野穿越", offroad.session.activityMode.labelZh)
+        assertTrue(offroad.session.activityMode.isElevationTrail)
+        assertTrue(offroad.laps.isEmpty())
+        assertTrue("Expected > 100 offroad points", offroad.points.size > 100)
+        assertTrue("Expected distance > 10km, got ${offroad.session.distanceMeters}", offroad.session.distanceMeters > 10_000.0)
+        assertTrue("Expected mountain gain > 500m, got ${offroad.session.elevationGainMeters}", offroad.session.elevationGainMeters > 500.0)
+
+        // Social card stats for offroad should show 最高时速 & 累计爬升 & 峰值 G 力 (not hiking pace)
+        val badges = SocialCardBitmapRenderer.buildSelectedStats(
+            detail = offroad,
+            speedUnit = SpeedUnit.KMH,
+            config = SocialCardConfig(
+                showElevation = true,
+                showSpeed = true,
+                showPeakG = true
+            )
+        )
+        assertTrue(badges.any { it.label == "累计爬升" })
+        assertTrue(badges.any { it.label == "最高时速" })
+        assertFalse(badges.any { it.label == "平均配速" })
+
+        val offroadBmp = SocialCardBitmapRenderer.renderBitmap(
+            detail = offroad,
+            speedUnit = SpeedUnit.KMH,
+            config = SocialCardConfig(bgPreset = SocialBgPreset.SUNSET_AMBER),
+            targetWidth = 540
+        )
+        assertEquals(255, Color.alpha(offroadBmp.getPixel(2, 2)))
+        offroadBmp.recycle()
+
+        // GPX & AI coaching prompt for motorcycle off-road crossing
+        val gpx = GpxExporter.buildGpxXml(offroad.session, offroad.points)
+        assertTrue(gpx.contains("<type>offroad_crossing</type>"))
+
+        val aiPayload = TelemetryJsonExporter.buildClipboardPayload(
+            session = offroad.session,
+            points = offroad.points,
+            laps = offroad.laps,
+            includeAiPrompt = true
+        )
+        assertTrue(aiPayload.contains("摩托车越野穿越"))
+        assertTrue(aiPayload.contains("\"activity_type\": \"OFFROAD_CROSSING\""))
+        assertTrue(aiPayload.contains("\"activity_label\": \"越野穿越\""))
     }
 }

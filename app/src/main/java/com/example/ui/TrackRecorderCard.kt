@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SportsScore
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.TwoWheeler
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.ble.BleConnectionStatus
 import com.example.ble.HeartRateState
+import com.example.gps.SpeedUnit
 import com.example.track.ActivityMode
 import com.example.track.RecordingSnapshot
 import com.example.track.RecordingStatus
@@ -72,6 +74,7 @@ fun TrackRecorderCard(
     onResumeRecording: () -> Unit,
     onFinishRecording: () -> Unit,
     onSetStartGate: () -> Unit,
+    speedUnit: SpeedUnit = SpeedUnit.KMH,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -141,20 +144,45 @@ fun TrackRecorderCard(
                     }
                 }
 
-                ActivityModeSelector(
-                    selectedMode = snapshot.mode,
-                    enabled = !snapshot.isActive,
-                    onSelectMode = onSelectMode
-                )
+                if (snapshot.isActive) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = cs.primaryContainer
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = activityModeIcon(snapshot.mode),
+                                contentDescription = null,
+                                tint = cs.onPrimaryContainer,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = snapshot.mode.labelZh,
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = cs.onPrimaryContainer
+                            )
+                        }
+                    }
+                }
             }
 
             if (!snapshot.isActive) {
+                ActivityModeSelector(
+                    selectedMode = snapshot.mode,
+                    enabled = true,
+                    onSelectMode = onSelectMode
+                )
+
                 Text(
                     text = stringResource(
-                        if (snapshot.mode == ActivityMode.KARTING) {
-                            R.string.record_hint_karting
-                        } else {
-                            R.string.record_hint_hiking
+                        when (snapshot.mode) {
+                            ActivityMode.KARTING -> R.string.record_hint_karting
+                            ActivityMode.HIKING -> R.string.record_hint_hiking
+                            ActivityMode.OFFROAD_CROSSING -> R.string.record_hint_offroad
                         }
                     ),
                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.5.sp),
@@ -293,14 +321,22 @@ fun TrackRecorderCard(
                             value = TrackFormatters.formatAltitude(snapshot.maxAltitudeMeters),
                             accent = cs.primary
                         )
-                        LiveStatPill(
-                            label = stringResource(R.string.metric_avg_pace),
-                            value = TrackFormatters.formatPaceMinPerKm(
-                                snapshot.distanceMeters,
-                                snapshot.elapsedMs
-                            ),
-                            accent = cs.onSecondaryContainer
-                        )
+                        if (snapshot.mode == ActivityMode.OFFROAD_CROSSING) {
+                            LiveStatPill(
+                                label = stringResource(R.string.metric_avg_speed),
+                                value = TrackFormatters.formatSpeed(snapshot.avgSpeedMps, speedUnit),
+                                accent = cs.onSecondaryContainer
+                            )
+                        } else {
+                            LiveStatPill(
+                                label = stringResource(R.string.metric_avg_pace),
+                                value = TrackFormatters.formatPaceMinPerKm(
+                                    snapshot.distanceMeters,
+                                    snapshot.elapsedMs
+                                ),
+                                accent = cs.onSecondaryContainer
+                            )
+                        }
                     }
                 }
 
@@ -369,6 +405,12 @@ fun TrackRecorderCard(
     }
 }
 
+internal fun activityModeIcon(mode: ActivityMode) = when (mode) {
+    ActivityMode.KARTING -> Icons.Rounded.SportsScore
+    ActivityMode.HIKING -> Icons.Rounded.Hiking
+    ActivityMode.OFFROAD_CROSSING -> Icons.Rounded.TwoWheeler
+}
+
 @Composable
 private fun ActivityModeSelector(
     selectedMode: ActivityMode,
@@ -378,40 +420,41 @@ private fun ActivityModeSelector(
     val cs = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
+            .fillMaxWidth()
             .clip(RoundedCornerShape(50))
             .background(cs.surfaceContainer)
-            .padding(3.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         ActivityMode.entries.forEach { mode ->
             val selected = mode == selectedMode
             Row(
                 modifier = Modifier
+                    .weight(1f)
                     .clip(RoundedCornerShape(50))
                     .background(if (selected) cs.primaryContainer else Color.Transparent)
                     .clickable(enabled = enabled) { onSelectMode(mode) }
-                    .padding(horizontal = 11.dp, vertical = 5.dp)
+                    .padding(horizontal = 8.dp, vertical = 9.dp)
                     .testTag("mode_chip_${mode.name.lowercase()}"),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
             ) {
                 Icon(
-                    imageVector = if (mode == ActivityMode.KARTING) {
-                        Icons.Rounded.SportsScore
-                    } else {
-                        Icons.Rounded.Hiking
-                    },
+                    imageVector = activityModeIcon(mode),
                     contentDescription = null,
                     tint = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant,
-                    modifier = Modifier.size(14.dp)
+                    modifier = Modifier.size(15.dp)
                 )
                 Text(
                     text = mode.labelZh,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                         fontSize = 12.sp
                     ),
-                    color = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant
+                    color = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

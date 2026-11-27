@@ -1,5 +1,6 @@
 package com.example.ui
 
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -71,10 +72,14 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.alert.SafetyAlertState
 import com.example.ble.HeartRateState
+import com.example.ble.SavedBleDevice
+import com.example.gps.AltitudeTelemetry
+import com.example.gps.GnssSatelliteInfo
 import com.example.gps.GpsData
 import com.example.gps.OverlayDisplayConfig
 import com.example.gps.SafetyAlertConfig
 import com.example.gps.SpeedUnit
+import com.example.sensor.EnvironmentTelemetry
 import com.example.sensor.GForceData
 import com.example.track.ActivityMode
 import com.example.track.RecordingSnapshot
@@ -86,6 +91,12 @@ enum class MainTab {
     DASHBOARD,
     TRACKS,
     SETTINGS
+}
+
+enum class TelemetryDetailPage {
+    ALTITUDE,
+    COMPASS,
+    SATELLITES
 }
 
 @Composable
@@ -105,9 +116,14 @@ fun GpsHudAppShell(
     isOverlayRunning: Boolean,
     permissionStatus: PermissionStatus,
     heartRateState: HeartRateState,
+    lastSavedBleDevice: SavedBleDevice?,
     recordingSnapshot: RecordingSnapshot,
     savedSessions: List<TrackSessionEntity>,
     selectedSessionDetail: TrackSessionDetail?,
+    selectedTelemetryDetail: TelemetryDetailPage?,
+    satellites: List<GnssSatelliteInfo>,
+    altitudeTelemetry: AltitudeTelemetry,
+    environmentTelemetry: EnvironmentTelemetry,
     onSelectSpeedUnit: (SpeedUnit) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
     onSelectThemeMode: (ThemeMode) -> Unit,
@@ -119,6 +135,11 @@ fun GpsHudAppShell(
     onExitFocusLock: () -> Unit,
     onCalibrateGForceZero: () -> Unit,
     onResetGForcePeak: () -> Unit,
+    onOpenTelemetryDetail: (TelemetryDetailPage) -> Unit,
+    onCloseTelemetryDetail: () -> Unit,
+    onResetAltitudeSession: () -> Unit,
+    onCalibrateBarometer: () -> Unit,
+    onResetBarometerQnh: () -> Unit,
     onCopyCoordinates: () -> Unit,
     onRequestLocationPermission: () -> Unit,
     onRequestOverlayPermission: () -> Unit,
@@ -126,6 +147,7 @@ fun GpsHudAppShell(
     onOpenLocationSettings: () -> Unit,
     onToggleOverlay: () -> Unit,
     onOpenBlePicker: () -> Unit,
+    onQuickReconnectBle: () -> Unit,
     onDisconnectBle: () -> Unit,
     onSelectActivityMode: (ActivityMode) -> Unit,
     onStartRecording: () -> Unit,
@@ -135,8 +157,10 @@ fun GpsHudAppShell(
     onSetStartGate: () -> Unit,
     onSelectSession: (Long) -> Unit,
     onCloseSessionDetail: () -> Unit,
-    onExportJson: (TrackSessionDetail) -> Unit,
+    onCopyJson: (TrackSessionDetail, Boolean) -> Unit,
+    onExportJson: (TrackSessionDetail, Boolean) -> Unit,
     onExportGpx: (TrackSessionDetail) -> Unit,
+    onShareSocialImage: (Uri, String) -> Unit,
     onDeleteSession: (Long) -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
@@ -148,8 +172,10 @@ fun GpsHudAppShell(
             isFocusLockActive = isFocusLockActive,
             onExitFocusLock = onExitFocusLock,
             onBack = onCloseSessionDetail,
-            onExportJson = { onExportJson(selectedSessionDetail) },
+            onCopyJson = { includePrompt -> onCopyJson(selectedSessionDetail, includePrompt) },
+            onExportJson = { includePrompt -> onExportJson(selectedSessionDetail, includePrompt) },
             onExportGpx = { onExportGpx(selectedSessionDetail) },
+            onShareSocialImage = { uri -> onShareSocialImage(uri, selectedSessionDetail.session.name) },
             onDeleteSession = { onDeleteSession(selectedSessionDetail.session.id) },
             modifier = Modifier
                 .fillMaxSize()
@@ -157,6 +183,48 @@ fun GpsHudAppShell(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         )
+        return
+    }
+
+    if (selectedTelemetryDetail != null) {
+        when (selectedTelemetryDetail) {
+            TelemetryDetailPage.ALTITUDE -> {
+                AltitudeDetailScreen(
+                    gpsData = gpsData,
+                    altitudeTelemetry = altitudeTelemetry,
+                    envTelemetry = environmentTelemetry,
+                    onBack = onCloseTelemetryDetail,
+                    onResetAltitudeSession = onResetAltitudeSession,
+                    onCalibrateBarometer = onCalibrateBarometer,
+                    onResetBarometerQnh = onResetBarometerQnh,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(cs.background)
+                )
+            }
+
+            TelemetryDetailPage.COMPASS -> {
+                CompassDetailScreen(
+                    gpsData = gpsData,
+                    envTelemetry = environmentTelemetry,
+                    onBack = onCloseTelemetryDetail,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(cs.background)
+                )
+            }
+
+            TelemetryDetailPage.SATELLITES -> {
+                SatelliteDetailScreen(
+                    gpsData = gpsData,
+                    satellites = satellites,
+                    onBack = onCloseTelemetryDetail,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(cs.background)
+                )
+            }
+        }
         return
     }
 
@@ -408,7 +476,9 @@ fun GpsHudAppShell(
 
                                             HeartRateStripCard(
                                                 hrState = heartRateState,
+                                                lastSavedDevice = lastSavedBleDevice,
                                                 onOpenDevicePicker = onOpenBlePicker,
+                                                onQuickReconnect = onQuickReconnectBle,
                                                 onDisconnect = onDisconnectBle,
                                                 isAlertActive = alertState.isHighHeartRate
                                             )
@@ -422,7 +492,8 @@ fun GpsHudAppShell(
                                                 onPauseRecording = onPauseRecording,
                                                 onResumeRecording = onResumeRecording,
                                                 onFinishRecording = onFinishRecording,
-                                                onSetStartGate = onSetStartGate
+                                                onSetStartGate = onSetStartGate,
+                                                speedUnit = speedUnit
                                             )
                                         }
 
@@ -439,7 +510,12 @@ fun GpsHudAppShell(
                                                 onResetPeak = onResetGForcePeak
                                             )
 
-                                            TelemetryGrid(gpsData = gpsData)
+                                            TelemetryGrid(
+                                                gpsData = gpsData,
+                                                onOpenAltitudeDetail = { onOpenTelemetryDetail(TelemetryDetailPage.ALTITUDE) },
+                                                onOpenCompassDetail = { onOpenTelemetryDetail(TelemetryDetailPage.COMPASS) },
+                                                onOpenSatelliteDetail = { onOpenTelemetryDetail(TelemetryDetailPage.SATELLITES) }
+                                            )
 
                                             CoordinatesCard(
                                                 gpsData = gpsData,
@@ -498,7 +574,12 @@ fun GpsHudAppShell(
                                         isAlertActive = alertState.isOverspeed
                                     )
 
-                                    TelemetryGrid(gpsData = gpsData)
+                                    TelemetryGrid(
+                                        gpsData = gpsData,
+                                        onOpenAltitudeDetail = { onOpenTelemetryDetail(TelemetryDetailPage.ALTITUDE) },
+                                        onOpenCompassDetail = { onOpenTelemetryDetail(TelemetryDetailPage.COMPASS) },
+                                        onOpenSatelliteDetail = { onOpenTelemetryDetail(TelemetryDetailPage.SATELLITES) }
+                                    )
 
                                     GForceTelemetryCard(
                                         gForceData = gForceData,
@@ -522,12 +603,15 @@ fun GpsHudAppShell(
                                         onPauseRecording = onPauseRecording,
                                         onResumeRecording = onResumeRecording,
                                         onFinishRecording = onFinishRecording,
-                                        onSetStartGate = onSetStartGate
+                                        onSetStartGate = onSetStartGate,
+                                        speedUnit = speedUnit
                                     )
 
                                     HeartRateStripCard(
                                         hrState = heartRateState,
+                                        lastSavedDevice = lastSavedBleDevice,
                                         onOpenDevicePicker = onOpenBlePicker,
+                                        onQuickReconnect = onQuickReconnectBle,
                                         onDisconnect = onDisconnectBle,
                                         isAlertActive = alertState.isHighHeartRate
                                     )

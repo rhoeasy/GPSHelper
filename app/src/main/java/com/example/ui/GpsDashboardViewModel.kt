@@ -14,11 +14,16 @@ import androidx.lifecycle.viewModelScope
 import com.example.ble.BleHrDevice
 import com.example.ble.HeartRateRepository
 import com.example.ble.HeartRateState
+import com.example.ble.SavedBleDevice
+import com.example.gps.AltitudeTelemetry
+import com.example.gps.GnssSatelliteInfo
 import com.example.gps.GpsData
 import com.example.gps.GpsRepository
 import com.example.gps.OverlayDisplayConfig
 import com.example.gps.SafetyAlertConfig
 import com.example.gps.SpeedUnit
+import com.example.sensor.EnvironmentSensorManager
+import com.example.sensor.EnvironmentTelemetry
 import com.example.sensor.GForceData
 import com.example.sensor.MotionSensorManager
 import com.example.track.ActivityMode
@@ -55,6 +60,9 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     private val trackRepository = TrackRepository(application)
 
     val gpsData: StateFlow<GpsData> = GpsRepository.gpsData
+    val satellites: StateFlow<List<GnssSatelliteInfo>> = GpsRepository.satellites
+    val altitudeTelemetry: StateFlow<AltitudeTelemetry> = GpsRepository.altitudeTelemetry
+    val environmentTelemetry: StateFlow<EnvironmentTelemetry> = EnvironmentSensorManager.telemetry
     val gForceData: StateFlow<GForceData> = MotionSensorManager.gForceData
     val speedUnit: StateFlow<SpeedUnit> = GpsRepository.speedUnit
     val keepScreenOn: StateFlow<Boolean> = GpsRepository.keepScreenOn
@@ -65,9 +73,11 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     val isOverlayRunning: StateFlow<Boolean> = GpsRepository.isOverlayRunning
 
     val heartRateState: StateFlow<HeartRateState> = HeartRateRepository.heartRateState
+    val localBleDevices: StateFlow<List<BleHrDevice>> = HeartRateRepository.localDevices
     val scannedBleDevices: StateFlow<List<BleHrDevice>> = HeartRateRepository.scannedDevices
     val isBleScanning: StateFlow<Boolean> = HeartRateRepository.isScanning
-    val lastSavedBleDevice: StateFlow<Pair<String, String>?> = HeartRateRepository.lastSavedDevice
+    val lastSavedBleDevice: StateFlow<SavedBleDevice?> = HeartRateRepository.lastSavedDevice
+    val autoReconnectBle: StateFlow<Boolean> = HeartRateRepository.autoReconnectEnabled
 
     val recordingSnapshot: StateFlow<RecordingSnapshot> = TrackRecorder.snapshot
 
@@ -90,6 +100,9 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     init {
         GpsRepository.ensurePrefsLoaded(application)
         HeartRateRepository.loadLastDevice(application)
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { trackRepository.ensureSampleTracksSeeded() }
+        }
     }
 
     fun refreshPermissions() {
@@ -143,12 +156,39 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
         MotionSensorManager.resetPeak()
     }
 
+    // Hardware Compass & Barometer (only active while Altitude or Compass detail screen is open)
+    fun startEnvironmentSensors() {
+        EnvironmentSensorManager.startListening(getApplication(), VIEWMODEL_ENV_CLIENT_ID)
+    }
+
+    fun stopEnvironmentSensors() {
+        EnvironmentSensorManager.stopListening(VIEWMODEL_ENV_CLIENT_ID)
+    }
+
+    fun resetAltitudeSession() {
+        GpsRepository.resetAltitudeSession()
+    }
+
+    fun calibrateBarometerToGps(): Boolean {
+        val gpsAlt = altitudeTelemetry.value.currentAltitudeM ?: gpsData.value.altitudeMeters ?: return false
+        return EnvironmentSensorManager.calibrateBarometerToAltitude(gpsAlt)
+    }
+
+    fun resetBarometerQnh() {
+        EnvironmentSensorManager.resetBarometerQnh()
+    }
+
     override fun onCleared() {
         MotionSensorManager.stopListening(VIEWMODEL_SENSOR_CLIENT_ID)
+        EnvironmentSensorManager.stopListening(VIEWMODEL_ENV_CLIENT_ID)
         super.onCleared()
     }
 
     // BLE Heart Rate controls
+    fun refreshLocalBleDevices() {
+        HeartRateRepository.refreshLocalDevices(getApplication())
+    }
+
     fun startBleScan() {
         HeartRateRepository.startScan(getApplication())
     }
@@ -159,6 +199,24 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
 
     fun connectBleDevice(name: String, address: String) {
         HeartRateRepository.connect(getApplication(), address = address, deviceName = name)
+    }
+
+    fun quickReconnectLastBle(): Boolean {
+        val saved = lastSavedBleDevice.value ?: return false
+        HeartRateRepository.connect(getApplication(), address = saved.address, deviceName = saved.name)
+        return true
+    }
+
+    fun tryAutoReconnectBle() {
+        HeartRateRepository.tryAutoReconnectIfEnabled(getApplication())
+    }
+
+    fun setAutoReconnectBle(enabled: Boolean) {
+        HeartRateRepository.setAutoReconnectEnabled(getApplication(), enabled)
+    }
+
+    fun clearLastSavedBleDevice() {
+        HeartRateRepository.clearLastSavedDevice(getApplication())
     }
 
     fun disconnectBleDevice() {
@@ -235,7 +293,29 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    fun exportDetailToJson(detail: TrackSessionDetail, onResult: (Uri?) -> Unit) {
+    fun buildJsonClipboardPayload(
+        detail: TrackSessionDetail,
+        includeAiPrompt: Boolean,
+        onResult: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val payload = withContext(Dispatchers.Default) {
+                TelemetryJsonExporter.buildClipboardPayload(
+                    session = detail.session,
+                    points = detail.points,
+                    laps = detail.laps,
+                    includeAiPrompt = includeAiPrompt
+                )
+            }
+            onResult(payload)
+        }
+    }
+
+    fun exportDetailToJson(
+        detail: TrackSessionDetail,
+        includeAiPrompt: Boolean = false,
+        onResult: (Uri?) -> Unit
+    ) {
         viewModelScope.launch {
             val uri = withContext(Dispatchers.IO) {
                 runCatching {
@@ -243,7 +323,8 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
                         context = getApplication(),
                         session = detail.session,
                         points = detail.points,
-                        laps = detail.laps
+                        laps = detail.laps,
+                        includeAiPrompt = includeAiPrompt
                     )
                 }.getOrNull()
             }
@@ -288,5 +369,6 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
 
     companion object {
         private const val VIEWMODEL_SENSOR_CLIENT_ID = "gps_dashboard_viewmodel"
+        private const val VIEWMODEL_ENV_CLIENT_ID = "gps_dashboard_env_viewmodel"
     }
 }
