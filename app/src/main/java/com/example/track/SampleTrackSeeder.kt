@@ -19,8 +19,10 @@ object SampleTrackSeeder {
     private const val PREFS_NAME = "track_sample_prefs"
     private const val KEY_SEEDED_V1 = "sample_tracks_seeded_v1"
     private const val KEY_SEEDED_OFFROAD_V1 = "sample_offroad_seeded_v1"
+    private const val KEY_SEEDED_KARTING_F1_V2 = "sample_karting_f1_v2"
 
-    const val SAMPLE_KARTING_NAME = "卡丁车 · 示例赛道（3 圈）"
+    private const val LEGACY_SAMPLE_KARTING_NAME = "卡丁车 · 示例赛道（3 圈）"
+    const val SAMPLE_KARTING_NAME = "卡丁车 · 示例赛道（4 圈）"
     const val SAMPLE_HIKING_NAME = "徒步 · 示例山野环线"
     const val SAMPLE_OFFROAD_NAME = "越野穿越 · 示例翻山穿越"
 
@@ -36,7 +38,17 @@ object SampleTrackSeeder {
             val hiking = buildSampleHikingTrack(endTimeMs = nowMs - 26 * 3_600_000L)
             dao.saveCompleteSession(karting.session, karting.points, karting.laps)
             dao.saveCompleteSession(hiking.session, hiking.points, hiking.laps)
-            prefs.edit().putBoolean(KEY_SEEDED_V1, true).apply()
+            prefs.edit()
+                .putBoolean(KEY_SEEDED_V1, true)
+                .putBoolean(KEY_SEEDED_KARTING_F1_V2, true)
+                .apply()
+            seededAny = true
+        } else if (!prefs.getBoolean(KEY_SEEDED_KARTING_F1_V2, false)) {
+            // Upgrade legacy 3-lap Karting sample to 4-lap F1 Purple/Green/Yellow showcase without touching user tracks
+            dao.deleteSessionsByName(LEGACY_SAMPLE_KARTING_NAME)
+            val karting = buildSampleKartingTrack(endTimeMs = nowMs - 2 * 3_600_000L)
+            dao.saveCompleteSession(karting.session, karting.points, karting.laps)
+            prefs.edit().putBoolean(KEY_SEEDED_KARTING_F1_V2, true).apply()
             seededAny = true
         }
 
@@ -79,9 +91,11 @@ object SampleTrackSeeder {
         )
 
         val denseLoop = sampleClosedCatmullRom(controlLoop, samplesPerSegment = 5)
-        val lapTargetsMs = listOf(56_400L, 53_850L, 52_300L)
-        val lapSpeedScale = listOf(0.93f, 0.98f, 1.03f)
-        val lapBaseHr = listOf(146, 158, 167)
+        // 4-lap showcase crafted so Best Lap (L3) exhibits all 3 F1 colors:
+        // L1: warmup (Y/Y/Y) | L2: S1 Green, S2 Purple, S3 Yellow | L3 (Best): S1 Purple, S2 Yellow, S3 Green | L4: S1 Yellow, S2 Yellow, S3 Purple
+        val lapTargetsMs = listOf(56_400L, 53_850L, 52_200L, 52_650L)
+        val lapSpeedScale = listOf(0.93f, 0.98f, 1.03f, 1.01f)
+        val lapBaseHr = listOf(145, 156, 166, 169)
 
         val totalDurationMs = lapTargetsMs.sum()
         val startTimeMs = endTimeMs - totalDurationMs
@@ -139,11 +153,23 @@ object SampleTrackSeeder {
                         abs(curvatures[(i + 1) % n])
                     ) / 4.0
                 val lapProgress = i.toDouble() / n.toDouble()
-                val sectorBias = when {
-                    lapIdx == 1 && lapProgress in 0.30..0.68 -> 1.10 // Lap 2 nails Sector 2 (Purple!)
-                    lapIdx == 2 && lapProgress in 0.30..0.68 -> 0.94 // Lap 3 slight traffic in S2 (Yellow!)
-                    lapIdx == 2 -> 1.07 // Lap 3 dominates S1 & S3 (Purple!)
-                    else -> 1.0
+                val sectorBias = when (lapIdx) {
+                    0 -> 1.0 // Lap 1 baseline warmup (Yellow / Yellow / Yellow)
+                    1 -> when {
+                        lapProgress < 0.34 -> 1.04 // Lap 2 S1 faster than L1, slower than L3 (Green!)
+                        lapProgress < 0.67 -> 1.18 // Lap 2 nails S2 overall fastest (Purple!)
+                        else -> 0.88 // Lap 2 S3 traffic slower than L1 (Yellow!)
+                    }
+                    2 -> when {
+                        lapProgress < 0.34 -> 1.16 // Lap 3 (Best Lap) dominates S1 overall fastest (Purple!)
+                        lapProgress < 0.67 -> 0.92 // Lap 3 S2 slower than L2's purple S2 (Yellow!)
+                        else -> 1.04 // Lap 3 S3 beats L1 & L2, later beaten by L4 (Green!)
+                    }
+                    else -> when {
+                        lapProgress < 0.34 -> 0.94 // Lap 4 S1 slower than L3 (Yellow!)
+                        lapProgress < 0.67 -> 0.95 // Lap 4 S2 slower than L2 (Yellow!)
+                        else -> 1.18 // Lap 4 nails S3 overall fastest (Purple!)
+                    }
                 }
                 val targetSpeedMps = (21.4 - localAbsCurv * 230.0).coerceIn(7.8, 21.2) * speedFactor * sectorBias
                 rawSpeeds[i] = targetSpeedMps.toFloat()

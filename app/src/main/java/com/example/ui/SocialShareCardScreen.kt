@@ -131,6 +131,7 @@ fun SocialShareCardScreen(
                 showClimbDifficulty = true,
                 showSurfaceComplexity = mode.isElevationTrail,
                 showBodyPerformance = mode == ActivityMode.HIKING || mode == ActivityMode.KARTING,
+                showF1Sectors = isKart,
                 showMiniProfile = true
             )
         )
@@ -521,6 +522,12 @@ fun SocialShareCardScreen(
                                 tag = "chip_overlay_duration"
                             )
                             if (isKart) {
+                                OverlayDataChip(
+                                    label = stringResource(R.string.social_chip_f1_sectors),
+                                    selected = config.showF1Sectors,
+                                    onToggle = { config = config.copy(showF1Sectors = !config.showF1Sectors) },
+                                    tag = "chip_overlay_f1_sectors"
+                                )
                                 OverlayDataChip(
                                     label = stringResource(R.string.social_chip_laps),
                                     selected = config.showLaps,

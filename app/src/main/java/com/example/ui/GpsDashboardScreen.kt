@@ -28,13 +28,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Lock
@@ -89,9 +92,13 @@ import com.example.sensor.GForceData
 import com.example.track.ActivityMode
 import com.example.track.AiAnalysisRecordEntity
 import com.example.track.RecordingSnapshot
+import com.example.track.RecordingStatus
 import com.example.track.TrackEndpoints
+import com.example.track.TrackFormatters
 import com.example.track.TrackSessionDetail
 import com.example.track.TrackSessionEntity
+import com.example.ui.theme.AppThemePalette
+import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.ThemeMode
 
 enum class MainTab {
@@ -116,6 +123,7 @@ fun GpsHudAppShell(
     speedUnit: SpeedUnit,
     keepScreenOn: Boolean,
     themeMode: ThemeMode,
+    themePalette: AppThemePalette,
     autoFocusOnLaunch: Boolean,
     overlayConfig: OverlayDisplayConfig,
     safetyAlertConfig: SafetyAlertConfig,
@@ -126,9 +134,13 @@ fun GpsHudAppShell(
     heartRateState: HeartRateState,
     lastSavedBleDevice: SavedBleDevice?,
     recordingSnapshot: RecordingSnapshot,
+    showTrackRecorderSheet: Boolean,
+    onShowTrackRecorderSheetChange: (Boolean) -> Unit,
     savedSessions: List<TrackSessionEntity>,
     selectedSessionDetail: TrackSessionDetail?,
     selectedTelemetryDetail: TelemetryDetailPage?,
+    selectedSettingsSubPage: SettingsSubPage?,
+    onSelectSettingsSubPage: (SettingsSubPage?) -> Unit,
     satellites: List<GnssSatelliteInfo>,
     altitudeTelemetry: AltitudeTelemetry,
     accuracyTelemetry: AccuracyTelemetry,
@@ -138,6 +150,7 @@ fun GpsHudAppShell(
     onSelectSpeedUnit: (SpeedUnit) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
     onSelectThemeMode: (ThemeMode) -> Unit,
+    onSelectThemePalette: (AppThemePalette) -> Unit,
     onToggleAutoFocusOnLaunch: (Boolean) -> Unit,
     onUpdateOverlayConfig: ((OverlayDisplayConfig) -> OverlayDisplayConfig) -> Unit,
     onResetOverlayConfig: () -> Unit,
@@ -535,6 +548,20 @@ fun GpsHudAppShell(
                                         )
                                     }
 
+                                    AnimatedVisibility(
+                                        visible = recordingSnapshot.status != RecordingStatus.IDLE,
+                                        enter = fadeIn() + expandVertically(),
+                                        exit = fadeOut() + shrinkVertically()
+                                    ) {
+                                        DashboardActiveRecordingPill(
+                                            snapshot = recordingSnapshot,
+                                            onClick = {
+                                                onSelectTab(MainTab.TRACKS)
+                                                onShowTrackRecorderSheetChange(true)
+                                            }
+                                        )
+                                    }
+
                                     // Hero Instrument Cluster: Maximized Speedometer (left) + Enlarged G-Force Radar (right)
                                     Row(
                                         modifier = Modifier
@@ -569,7 +596,7 @@ fun GpsHudAppShell(
                                         )
                                     }
 
-                                    // Secondary Telemetry & Controls Grid below the Hero Instrument Cluster
+                                    // Secondary Telemetry Grid below the Hero Instrument Cluster (balanced 2-column)
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -586,11 +613,6 @@ fun GpsHudAppShell(
                                                 onOpenCompassDetail = { onOpenTelemetryDetail(TelemetryDetailPage.COMPASS) },
                                                 onOpenSatelliteDetail = { onOpenTelemetryDetail(TelemetryDetailPage.SATELLITES) }
                                             )
-
-                                            CoordinatesCard(
-                                                gpsData = gpsData,
-                                                onCopyCoordinates = onCopyCoordinates
-                                            )
                                         }
 
                                         Column(
@@ -606,17 +628,9 @@ fun GpsHudAppShell(
                                                 isAlertActive = alertState.isHighHeartRate
                                             )
 
-                                            TrackRecorderCard(
-                                                snapshot = recordingSnapshot,
-                                                heartRateState = heartRateState,
-                                                onOpenBlePicker = onOpenBlePicker,
-                                                onSelectMode = onSelectActivityMode,
-                                                onStartRecording = onStartRecording,
-                                                onPauseRecording = onPauseRecording,
-                                                onResumeRecording = onResumeRecording,
-                                                onFinishRecording = onFinishRecording,
-                                                onSetStartGate = onSetStartGate,
-                                                speedUnit = speedUnit
+                                            CoordinatesCard(
+                                                gpsData = gpsData,
+                                                onCopyCoordinates = onCopyCoordinates
                                             )
                                         }
                                     }
@@ -663,6 +677,20 @@ fun GpsHudAppShell(
                                         )
                                     }
 
+                                    AnimatedVisibility(
+                                        visible = recordingSnapshot.status != RecordingStatus.IDLE,
+                                        enter = fadeIn() + expandVertically(),
+                                        exit = fadeOut() + shrinkVertically()
+                                    ) {
+                                        DashboardActiveRecordingPill(
+                                            snapshot = recordingSnapshot,
+                                            onClick = {
+                                                onSelectTab(MainTab.TRACKS)
+                                                onShowTrackRecorderSheetChange(true)
+                                            }
+                                        )
+                                    }
+
                                     PrimarySpeedCard(
                                         gpsData = gpsData,
                                         speedUnit = speedUnit,
@@ -690,19 +718,6 @@ fun GpsHudAppShell(
                                     CoordinatesCard(
                                         gpsData = gpsData,
                                         onCopyCoordinates = onCopyCoordinates
-                                    )
-
-                                    TrackRecorderCard(
-                                        snapshot = recordingSnapshot,
-                                        heartRateState = heartRateState,
-                                        onOpenBlePicker = onOpenBlePicker,
-                                        onSelectMode = onSelectActivityMode,
-                                        onStartRecording = onStartRecording,
-                                        onPauseRecording = onPauseRecording,
-                                        onResumeRecording = onResumeRecording,
-                                        onFinishRecording = onFinishRecording,
-                                        onSetStartGate = onSetStartGate,
-                                        speedUnit = speedUnit
                                     )
 
                                     HeartRateStripCard(
@@ -737,6 +752,17 @@ fun GpsHudAppShell(
                                     aiHistoryCount = aiAnalysisHistory.size,
                                     onSelectSession = onSelectSession,
                                     onOpenAiHistory = onOpenAiHistory,
+                                    recordingSnapshot = recordingSnapshot,
+                                    heartRateState = heartRateState,
+                                    showRecorderSheet = showTrackRecorderSheet,
+                                    onShowRecorderSheetChange = onShowTrackRecorderSheetChange,
+                                    onOpenBlePicker = onOpenBlePicker,
+                                    onSelectActivityMode = onSelectActivityMode,
+                                    onStartRecording = onStartRecording,
+                                    onPauseRecording = onPauseRecording,
+                                    onResumeRecording = onResumeRecording,
+                                    onFinishRecording = onFinishRecording,
+                                    onSetStartGate = onSetStartGate,
                                     sessionEndpoints = sessionEndpoints,
                                     mergeCompletedSignal = mergeCompletedSignal,
                                     onEnterMergeMode = onEnterMergeMode,
@@ -766,17 +792,21 @@ fun GpsHudAppShell(
                                     heartRateState = heartRateState,
                                     speedUnit = speedUnit,
                                     themeMode = themeMode,
+                                    themePalette = themePalette,
                                     keepScreenOn = keepScreenOn,
                                     autoFocusOnLaunch = autoFocusOnLaunch,
                                     aiGatewayConfig = aiGatewayConfig,
                                     aiFetchedModels = aiFetchedModels,
                                     aiConnectionState = aiConnectionState,
                                     aiHistoryCount = aiAnalysisHistory.size,
+                                    selectedSubPage = selectedSettingsSubPage,
+                                    onSelectSubPage = onSelectSettingsSubPage,
                                     onUpdateOverlayConfig = onUpdateOverlayConfig,
                                     onResetOverlayConfig = onResetOverlayConfig,
                                     onUpdateSafetyAlertConfig = onUpdateSafetyAlertConfig,
                                     onSelectSpeedUnit = onSelectSpeedUnit,
                                     onSelectThemeMode = onSelectThemeMode,
+                                    onSelectThemePalette = onSelectThemePalette,
                                     onToggleKeepScreenOn = onToggleKeepScreenOn,
                                     onToggleAutoFocusOnLaunch = onToggleAutoFocusOnLaunch,
                                     onTestAndFetchAiModels = onTestAndFetchAiModels,
@@ -789,6 +819,67 @@ fun GpsHudAppShell(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardActiveRecordingPill(
+    snapshot: RecordingSnapshot,
+    onClick: () -> Unit
+) {
+    val cs = MaterialTheme.colorScheme
+    val isPaused = snapshot.status == RecordingStatus.PAUSED
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("dashboard_active_recording_pill"),
+        shape = RoundedCornerShape(16.dp),
+        color = if (isPaused) cs.secondaryContainer else cs.errorContainer
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.FiberManualRecord,
+                    contentDescription = null,
+                    tint = if (isPaused) cs.onSecondaryContainer else cs.error,
+                    modifier = Modifier.size(12.dp)
+                )
+                Text(
+                    text = "${snapshot.mode.labelZh} · ${stringResource(R.string.dashboard_recording_active_pill)}",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (isPaused) cs.onSecondaryContainer else cs.onErrorContainer
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = TrackFormatters.formatDuration(snapshot.elapsedMs),
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = if (isPaused) cs.onSecondaryContainer else cs.onErrorContainer
+                )
+                Icon(
+                    imageVector = Icons.Rounded.ChevronRight,
+                    contentDescription = null,
+                    tint = if (isPaused) cs.onSecondaryContainer else cs.onErrorContainer,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }

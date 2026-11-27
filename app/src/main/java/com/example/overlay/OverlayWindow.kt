@@ -72,6 +72,7 @@ import com.example.gps.SafetyAlertConfig
 import com.example.gps.SpeedUnit
 import com.example.sensor.GForceData
 import com.example.ui.drawGForcePeakEnvelope
+import com.example.ui.theme.AppThemePalette
 import com.example.ui.theme.GpsHudTheme
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalTelemetryColors
@@ -97,13 +98,14 @@ fun OverlayWindow(
     config: OverlayDisplayConfig,
     alertState: SafetyAlertState = SafetyAlertState(),
     themeMode: ThemeMode,
+    themePalette: AppThemePalette = AppThemePalette.GOOGLE_BLUE,
     isMiniMode: Boolean,
     onToggleMiniMode: () -> Unit,
     onClose: () -> Unit,
     showCloseButton: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    GpsHudTheme(themeMode = themeMode) {
+    GpsHudTheme(themeMode = themeMode, themePalette = themePalette) {
         val cs = MaterialTheme.colorScheme
         val tc = LocalTelemetryColors.current
 
@@ -652,6 +654,7 @@ class OverlayWindowController(
     private val overlayConfigFlow: StateFlow<OverlayDisplayConfig>,
     private val safetyAlertConfigFlow: StateFlow<SafetyAlertConfig>,
     private val themeModeFlow: StateFlow<ThemeMode>,
+    private val themePaletteFlow: StateFlow<AppThemePalette> = GpsRepository.themePalette,
     private val onCloseRequested: () -> Unit
 ) : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
 
@@ -717,6 +720,7 @@ class OverlayWindowController(
                 val overlayConfig by overlayConfigFlow.collectAsStateWithLifecycle()
                 val safetyAlertConfig by safetyAlertConfigFlow.collectAsStateWithLifecycle()
                 val themeMode by themeModeFlow.collectAsStateWithLifecycle()
+                val themePalette by themePaletteFlow.collectAsStateWithLifecycle()
 
                 val alertState = SafetyAlertMonitor.evaluate(gps, heartRate, safetyAlertConfig)
 
@@ -737,6 +741,7 @@ class OverlayWindowController(
                     config = overlayConfig,
                     alertState = alertState,
                     themeMode = themeMode,
+                    themePalette = themePalette,
                     isMiniMode = isMiniMode,
                     onToggleMiniMode = { isMiniMode = !isMiniMode },
                     onClose = onCloseRequested

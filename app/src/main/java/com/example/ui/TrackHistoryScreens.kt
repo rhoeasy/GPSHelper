@@ -2,6 +2,12 @@ package com.example.ui
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,10 +33,12 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CallMerge
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -37,23 +46,30 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DataObject
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -76,11 +92,14 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.ai.AiAnalysisState
 import com.example.ai.AiGatewayConfig
+import com.example.ble.HeartRateState
 import com.example.gps.SpeedUnit
 import com.example.track.ActivityMode
 import com.example.track.KartingSectorEngine
 import com.example.track.MergeJunctionQuality
 import com.example.track.OffroadAnalysisEngine
+import com.example.track.RecordingSnapshot
+import com.example.track.RecordingStatus
 import com.example.track.TrackEndpoints
 import com.example.track.TrackFormatters
 import com.example.track.TrackLapEntity
@@ -92,6 +111,7 @@ import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalTelemetryColors
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrackHistoryScreen(
     sessions: List<TrackSessionEntity>,
@@ -99,6 +119,17 @@ fun TrackHistoryScreen(
     aiHistoryCount: Int,
     onSelectSession: (Long) -> Unit,
     onOpenAiHistory: () -> Unit,
+    recordingSnapshot: RecordingSnapshot = RecordingSnapshot(),
+    heartRateState: HeartRateState = HeartRateState(),
+    showRecorderSheet: Boolean = false,
+    onShowRecorderSheetChange: (Boolean) -> Unit = {},
+    onOpenBlePicker: () -> Unit = {},
+    onSelectActivityMode: (ActivityMode) -> Unit = {},
+    onStartRecording: () -> Unit = {},
+    onPauseRecording: () -> Unit = {},
+    onResumeRecording: () -> Unit = {},
+    onFinishRecording: () -> Unit = {},
+    onSetStartGate: () -> Unit = {},
     sessionEndpoints: Map<Long, TrackEndpoints> = emptyMap(),
     mergeCompletedSignal: Int = 0,
     onEnterMergeMode: () -> Unit = {},
@@ -109,6 +140,7 @@ fun TrackHistoryScreen(
     var filterMode by remember { mutableStateOf<ActivityMode?>(null) }
     var isMergeMode by rememberSaveable { mutableStateOf(false) }
     var selectedMergeIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    val isRecordingActive = recordingSnapshot.status != RecordingStatus.IDLE
 
     LaunchedEffect(mergeCompletedSignal) {
         if (mergeCompletedSignal > 0) {
@@ -282,6 +314,13 @@ fun TrackHistoryScreen(
                         )
                     }
                 }
+            } else if (isRecordingActive) {
+                ActiveRecordingBannerInTracks(
+                    snapshot = recordingSnapshot,
+                    onPause = onPauseRecording,
+                    onResume = onResumeRecording,
+                    onOpenRecorder = { onShowRecorderSheetChange(true) }
+                )
             }
 
             Row(
@@ -377,7 +416,7 @@ fun TrackHistoryScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
-                    contentPadding = PaddingValues(bottom = 16.dp),
+                    contentPadding = PaddingValues(bottom = if (isMergeMode) 16.dp else 88.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filtered, key = { it.id }) { session ->
@@ -468,6 +507,158 @@ fun TrackHistoryScreen(
                         }
                     }
                 }
+            }
+        }
+
+        // '+' Floating Action Button to launch / control Track Recording right from the Tracks tab
+        if (!isMergeMode) {
+            FloatingActionButton(
+                onClick = { onShowRecorderSheetChange(true) },
+                containerColor = if (isRecordingActive) cs.errorContainer else cs.primaryContainer,
+                contentColor = if (isRecordingActive) cs.onErrorContainer else cs.onPrimaryContainer,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+                    .testTag("fab_open_track_recorder")
+            ) {
+                Icon(
+                    imageVector = if (isRecordingActive) Icons.Rounded.FiberManualRecord else Icons.Rounded.Add,
+                    contentDescription = stringResource(R.string.tracks_add_record_cd),
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+        }
+    }
+
+    if (showRecorderSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { onShowRecorderSheetChange(false) },
+            sheetState = sheetState,
+            containerColor = cs.surfaceContainerLowest,
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .padding(bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.tracks_recorder_sheet_title),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = cs.onSurface,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+
+                TrackRecorderCard(
+                    snapshot = recordingSnapshot,
+                    heartRateState = heartRateState,
+                    onOpenBlePicker = onOpenBlePicker,
+                    onSelectMode = onSelectActivityMode,
+                    onStartRecording = onStartRecording,
+                    onPauseRecording = onPauseRecording,
+                    onResumeRecording = onResumeRecording,
+                    onFinishRecording = {
+                        onFinishRecording()
+                        onShowRecorderSheetChange(false)
+                    },
+                    onSetStartGate = onSetStartGate,
+                    speedUnit = speedUnit
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActiveRecordingBannerInTracks(
+    snapshot: RecordingSnapshot,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onOpenRecorder: () -> Unit
+) {
+    val cs = MaterialTheme.colorScheme
+    val isPaused = snapshot.status == RecordingStatus.PAUSED
+    val blink = rememberInfiniteTransition(label = "tracks_rec_blink")
+    val dotAlpha by blink.animateFloat(
+        initialValue = 0.28f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(680, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "tracks_rec_dot"
+    )
+
+    Surface(
+        onClick = onOpenRecorder,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("tracks_active_recording_banner"),
+        shape = RoundedCornerShape(18.dp),
+        color = if (isPaused) cs.secondaryContainer else cs.errorContainer,
+        border = BorderStroke(1.dp, if (isPaused) cs.outlineVariant else cs.error.copy(alpha = 0.4f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(
+                            (if (isPaused) cs.secondary else cs.error).copy(
+                                alpha = if (isPaused) 1f else dotAlpha
+                            )
+                        )
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text(
+                        text = "${snapshot.mode.labelZh} · ${
+                            stringResource(
+                                if (isPaused) R.string.record_status_paused else R.string.tracks_recording_active_label
+                            )
+                        }",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = if (isPaused) cs.onSecondaryContainer else cs.onErrorContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${TrackFormatters.formatDuration(snapshot.elapsedMs)} · ${
+                            TrackFormatters.formatDistance(snapshot.distanceMeters)
+                        }",
+                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+                        color = (if (isPaused) cs.onSecondaryContainer else cs.onErrorContainer).copy(alpha = 0.85f)
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = { if (isPaused) onResume() else onPause() },
+                modifier = Modifier.testTag("btn_banner_toggle_pause")
+            ) {
+                Icon(
+                    imageVector = if (isPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                    contentDescription = stringResource(
+                        if (isPaused) R.string.record_resume else R.string.record_pause
+                    ),
+                    tint = if (isPaused) cs.onSecondaryContainer else cs.onErrorContainer
+                )
             }
         }
     }

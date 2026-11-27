@@ -33,6 +33,9 @@ interface TrackDao {
     @Query("DELETE FROM track_sessions WHERE id = :sessionId")
     suspend fun deleteSessionById(sessionId: Long)
 
+    @Query("DELETE FROM track_sessions WHERE name = :name")
+    suspend fun deleteSessionsByName(name: String)
+
     @Query("SELECT * FROM track_points WHERE sessionId = :sessionId ORDER BY timestampMs ASC LIMIT 1")
     suspend fun getFirstPointForSession(sessionId: Long): TrackPointEntity?
 

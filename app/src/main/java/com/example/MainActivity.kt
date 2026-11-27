@@ -46,6 +46,7 @@ import com.example.ui.GpsDashboardViewModel
 import com.example.ui.GpsHudAppShell
 import com.example.ui.MainTab
 import com.example.ui.MergeTracksConfirmDialog
+import com.example.ui.SettingsSubPage
 import com.example.ui.TelemetryDetailPage
 import com.example.ui.theme.GpsHudTheme
 import com.example.ui.theme.ThemeMode
@@ -66,6 +67,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            val themePalette by viewModel.themePalette.collectAsStateWithLifecycle()
             val systemDark = isSystemInDarkTheme()
             val isDarkTheme = when (themeMode) {
                 ThemeMode.AUTO -> systemDark
@@ -85,7 +87,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            GpsHudTheme(themeMode = themeMode) {
+            GpsHudTheme(themeMode = themeMode, themePalette = themePalette) {
                 val gpsData by viewModel.gpsData.collectAsStateWithLifecycle()
                 val satellites by viewModel.satellites.collectAsStateWithLifecycle()
                 val altitudeTelemetry by viewModel.altitudeTelemetry.collectAsStateWithLifecycle()
@@ -140,6 +142,8 @@ class MainActivity : ComponentActivity() {
 
                 var activeTab by rememberSaveable { mutableStateOf(MainTab.DASHBOARD) }
                 var selectedTelemetryDetail by rememberSaveable { mutableStateOf<TelemetryDetailPage?>(null) }
+                var selectedSettingsSubPage by rememberSaveable { mutableStateOf<SettingsSubPage?>(null) }
+                var showTrackRecorderSheet by rememberSaveable { mutableStateOf(false) }
                 var showAiAnalysisHistory by rememberSaveable { mutableStateOf(false) }
                 var showBleDialog by rememberSaveable { mutableStateOf(false) }
                 var showFocusDialog by rememberSaveable { mutableStateOf(false) }
@@ -252,12 +256,18 @@ class MainActivity : ComponentActivity() {
 
                 GpsHudAppShell(
                     activeTab = activeTab,
-                    onSelectTab = { activeTab = it },
+                    onSelectTab = { nextTab ->
+                        activeTab = nextTab
+                        if (nextTab != MainTab.SETTINGS) {
+                            selectedSettingsSubPage = null
+                        }
+                    },
                     gpsData = gpsData,
                     gForceData = gForceData,
                     speedUnit = speedUnit,
                     keepScreenOn = keepScreenOn,
                     themeMode = themeMode,
+                    themePalette = themePalette,
                     autoFocusOnLaunch = autoFocusOnLaunch,
                     overlayConfig = overlayConfig,
                     safetyAlertConfig = safetyAlertConfig,
@@ -268,9 +278,13 @@ class MainActivity : ComponentActivity() {
                     heartRateState = heartRateState,
                     lastSavedBleDevice = lastSavedBleDevice,
                     recordingSnapshot = recordingSnapshot,
+                    showTrackRecorderSheet = showTrackRecorderSheet,
+                    onShowTrackRecorderSheetChange = { showTrackRecorderSheet = it },
                     savedSessions = savedSessions,
                     selectedSessionDetail = selectedSessionDetail,
                     selectedTelemetryDetail = selectedTelemetryDetail,
+                    selectedSettingsSubPage = selectedSettingsSubPage,
+                    onSelectSettingsSubPage = { selectedSettingsSubPage = it },
                     satellites = satellites,
                     altitudeTelemetry = altitudeTelemetry,
                     accuracyTelemetry = accuracyTelemetry,
@@ -280,6 +294,7 @@ class MainActivity : ComponentActivity() {
                     onSelectSpeedUnit = { unit -> viewModel.setSpeedUnit(unit) },
                     onToggleKeepScreenOn = { enabled -> viewModel.setKeepScreenOn(enabled) },
                     onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
+                    onSelectThemePalette = { palette -> viewModel.setThemePalette(palette) },
                     onToggleAutoFocusOnLaunch = { enabled -> viewModel.setAutoFocusOnLaunch(enabled) },
                     onUpdateOverlayConfig = { transform ->
                         val applied = viewModel.updateOverlayConfig(transform)
@@ -617,6 +632,7 @@ class MainActivity : ComponentActivity() {
                         viewModel.closeSessionDetail()
                         showAiAnalysisHistory = false
                         activeTab = MainTab.SETTINGS
+                        selectedSettingsSubPage = SettingsSubPage.AI_GATEWAY
                     },
                     onOpenAiHistory = {
                         showAiAnalysisHistory = true

@@ -542,4 +542,37 @@
     <string name="merge_confirming">正在合并…</string>
     <string name="toast_merge_success">已合并 %d 条轨迹并生成完整记录</string>
     <string name="toast_merge_need_two_same_type">请选择至少 2 条同类型的徒步或越野穿越轨迹</string>
+
+    <!-- Karting F1 Social Overlay -->
+    <string name="social_chip_f1_sectors">F1 分段计时</string>
+
+    <!-- Two-Level Settings Menu & Theme Color Palettes -->
+    <string name="settings_back_cd">返回设置菜单</string>
+    <string name="settings_cat_appearance_title">外观与主题配色</string>
+    <string name="settings_cat_appearance_desc">全局配色方案、深浅模式、速度单位与屏幕常亮</string>
+    <string name="settings_cat_overlay_title">悬浮窗配置</string>
+    <string name="settings_cat_overlay_desc">实时预览、显示模块开关、尺寸字号与 G 力峰值</string>
+    <string name="settings_cat_safety_title">安全预警</string>
+    <string name="settings_cat_safety_desc">超速提醒、高心率阈值与震动预警开关</string>
+    <string name="settings_cat_ai_title">AI 网关与分析历史</string>
+    <string name="settings_cat_ai_desc">OpenAI 兼容接口配置、模型拉取与复盘历史</string>
+    <string name="settings_cat_about_title">关于与版本</string>
+    <string name="settings_cat_about_desc">应用版本信息、离线数据与隐私说明</string>
+    <string name="settings_theme_palette_section">主题配色方案</string>
+    <string name="settings_theme_palette_hint">灵感源自社交图背景样式，将同步应用至主界面与悬浮窗</string>
+    <string name="settings_theme_preview_label">当前主题预览</string>
+    <string name="settings_summary_overlay_count">已开启 %1$d 项 · %2$s号</string>
+    <string name="settings_summary_safety_off">当前未开启预警</string>
+    <string name="settings_summary_ai_ready">已配置 · %s</string>
+    <string name="settings_summary_ai_unconfigured">未配置（纯离线模式）</string>
+    <string name="settings_about_privacy_title">本地离线优先</string>
+    <string name="settings_about_privacy_desc">所有 GPS 轨迹、心率与传感器数据默认仅保存在本机数据库。仅在您手动配置 AI 网关并点击分析时，才会向您指定的接口发起请求。</string>
+    <string name="settings_about_sensors_title">硬件遥测引擎</string>
+    <string name="settings_about_sensors_desc">集成原生 GNSS 多星系定位、IMU 惯性 G 力计、气压高度计、电子罗盘与 BLE 蓝牙心率监测。</string>
+
+    <!-- Tracks Tab Recorder FAB & Active Recording Banner -->
+    <string name="tracks_add_record_cd">开始录制新轨迹</string>
+    <string name="tracks_recorder_sheet_title">轨迹录制</string>
+    <string name="tracks_recording_active_label">录制中</string>
+    <string name="dashboard_recording_active_pill">轨迹录制中 · 点击前往控制</string>
 </resources>

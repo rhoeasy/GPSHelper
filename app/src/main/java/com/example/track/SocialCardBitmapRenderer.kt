@@ -69,6 +69,7 @@ data class SocialCardConfig(
     val showClimbDifficulty: Boolean = false,
     val showSurfaceComplexity: Boolean = false,
     val showBodyPerformance: Boolean = false,
+    val showF1Sectors: Boolean = true,
     val showMiniProfile: Boolean = true
 )
 
@@ -468,7 +469,15 @@ object SocialCardBitmapRenderer {
             topCursorY += 66f * s
         }
 
-        // Compute bottom block height for analysis rating pills + stats + optional mini profile curve
+        // Compute bottom block height for F1 sectors + analysis rating pills + stats + optional mini profile curve
+        val kartingF1 = if (session.activityMode == ActivityMode.KARTING && config.showF1Sectors) {
+            KartingSectorEngine.analyze(detail.points, detail.laps)
+        } else {
+            null
+        }
+        val f1BestLapTiming = kartingF1?.timingForLap(kartingF1.bestLapNumber)
+        val f1BlockHeight = if (f1BestLapTiming != null) 142f * s else 0f
+
         val analysisTags = buildAnalysisOverlayTags(detail, config)
         val stats = buildSelectedStats(detail, speedUnit, config)
         val hasMiniProfile = config.showMiniProfile && detail.points.size >= 2
@@ -477,7 +486,10 @@ object SocialCardBitmapRenderer {
         val statsBlockHeight = if (statRows > 0) statRows * (112f * s) + 28f * s else 0f
         val profileBlockHeight = if (hasMiniProfile) 128f * s else 0f
         val bottomPad = 56f * s
-        var bottomPanelHeight = analysisBlockHeight + statsBlockHeight + profileBlockHeight
+        var bottomPanelHeight = f1BlockHeight + analysisBlockHeight + statsBlockHeight + profileBlockHeight
+        if (f1BlockHeight > 0f && (analysisBlockHeight > 0f || statsBlockHeight > 0f || profileBlockHeight > 0f)) {
+            bottomPanelHeight += 18f * s
+        }
         if (analysisBlockHeight > 0f && (statsBlockHeight > 0f || profileBlockHeight > 0f)) {
             bottomPanelHeight += 20f * s
         }
@@ -499,11 +511,13 @@ object SocialCardBitmapRenderer {
                 speedUnit = speedUnit,
                 scale = s,
                 lightInk = config.useLightInk,
-                addPhotoGlow = hasPhoto || config.bgPreset.isTransparent
+                addPhotoGlow = hasPhoto || config.bgPreset.isTransparent,
+                kartingF1 = kartingF1,
+                f1LapTiming = f1BestLapTiming
             )
         }
 
-        // 4. Bottom Analysis Ratings, Stats & Mini Profile Panel
+        // 4. Bottom F1 Sector Strip, Analysis Ratings, Stats & Mini Profile Panel
         if (bottomPanelHeight > 0f) {
             val panelRect = RectF(
                 padX - 16f * s,
@@ -520,6 +534,24 @@ object SocialCardBitmapRenderer {
             }
 
             var cursorY = bottomPanelTop
+            if (kartingF1 != null && f1BestLapTiming != null) {
+                drawF1SectorStrip(
+                    canvas = canvas,
+                    analysis = kartingF1,
+                    lapTiming = f1BestLapTiming,
+                    left = padX,
+                    top = cursorY,
+                    width = width - padX * 2f,
+                    height = f1BlockHeight,
+                    scale = s,
+                    lightInk = config.useLightInk,
+                    inkPrimary = inkPrimary,
+                    inkSecondary = inkSecondary,
+                    isFrosted = config.overlayBackdrop == SocialOverlayBackdrop.FROSTED
+                )
+                cursorY += f1BlockHeight + if (analysisTags.isNotEmpty() || stats.isNotEmpty() || hasMiniProfile) 18f * s else 0f
+            }
+
             if (analysisTags.isNotEmpty()) {
                 drawAnalysisRatingPills(
                     canvas = canvas,
@@ -567,6 +599,134 @@ object SocialCardBitmapRenderer {
         }
 
         return out
+    }
+
+    private fun f1StatusColorArgb(status: F1SectorStatus, lightInk: Boolean): Int {
+        return when (status) {
+            F1SectorStatus.PURPLE -> if (lightInk) 0xFFC864FF.toInt() else 0xFF8E24AA.toInt()
+            F1SectorStatus.GREEN -> if (lightInk) 0xFF2EE56F.toInt() else 0xFF15803D.toInt()
+            F1SectorStatus.YELLOW -> if (lightInk) 0xFFFACC15.toInt() else 0xFFCA8A04.toInt()
+        }
+    }
+
+    private fun drawF1SectorStrip(
+        canvas: Canvas,
+        analysis: KartingF1SectorAnalysis,
+        lapTiming: KartingLapSectorTiming,
+        left: Float,
+        top: Float,
+        width: Float,
+        height: Float,
+        scale: Float,
+        lightInk: Boolean,
+        inkPrimary: Int,
+        inkSecondary: Int,
+        isFrosted: Boolean
+    ) {
+        val headerH = 34f * scale
+        val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = inkPrimary
+            textSize = 22f * scale
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val titleStr = if (analysis.isMultiLap) {
+            "F1 分段计时 · L${lapTiming.lapNumber} 最佳圈"
+        } else {
+            "F1 分段计时 · 自动 3 段"
+        }
+        canvas.drawText(titleStr, left, top + 22f * scale, headerPaint)
+
+        val rightMetaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = f1StatusColorArgb(F1SectorStatus.PURPLE, lightInk)
+            textSize = 21f * scale
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textAlign = Paint.Align.RIGHT
+        }
+        val rightMetaStr = if (analysis.isMultiLap) {
+            "理论最佳 ${TrackFormatters.formatLapTime(analysis.theoreticalBestLapMs)}"
+        } else {
+            "S1 / S2 / S3"
+        }
+        canvas.drawText(rightMetaStr, left + width, top + 22f * scale, rightMetaPaint)
+
+        val pillsTop = top + headerH
+        val pillH = (height - headerH).coerceAtLeast(64f * scale)
+        val gap = 14f * scale
+        val count = lapTiming.sectors.size.coerceAtLeast(1)
+        val cellW = (width - gap * (count - 1)) / count.toFloat()
+
+        val cardBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = when {
+                isFrosted && lightInk -> 0x2BFFFFFF
+                isFrosted && !lightInk -> 0x12000000
+                lightInk -> 0x590D131C
+                else -> 0xD6FFFFFF.toInt()
+            }
+        }
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 2.5f * scale
+        }
+        val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+        val sectorLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 22f * scale
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        }
+        val statusBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 18f * scale
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.RIGHT
+        }
+        val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = inkPrimary
+            textSize = 31f * scale
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        }
+        val deltaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = inkSecondary
+            textSize = 18f * scale
+            typeface = Typeface.MONOSPACE
+        }
+
+        lapTiming.sectors.forEachIndexed { idx, split ->
+            val x = left + idx * (cellW + gap)
+            val rect = RectF(x, pillsTop, x + cellW, pillsTop + pillH)
+            val statusColor = f1StatusColorArgb(split.status, lightInk)
+
+            canvas.drawRoundRect(rect, 20f * scale, 20f * scale, cardBgPaint)
+            borderPaint.color = (statusColor and 0x00FFFFFF) or 0x99000000.toInt()
+            canvas.drawRoundRect(rect, 20f * scale, 20f * scale, borderPaint)
+
+            // Top F1 status color accent strip inside the sector pill
+            barPaint.color = statusColor
+            val barRect = RectF(
+                x + 14f * scale,
+                pillsTop + 7f * scale,
+                x + cellW - 14f * scale,
+                pillsTop + 13f * scale
+            )
+            canvas.drawRoundRect(barRect, 4f * scale, 4f * scale, barPaint)
+
+            val pad = 16f * scale
+            sectorLabelPaint.color = statusColor
+            canvas.drawText(split.label, x + pad, pillsTop + 39f * scale, sectorLabelPaint)
+
+            statusBadgePaint.color = statusColor
+            canvas.drawText(split.status.labelZh, x + cellW - pad, pillsTop + 38f * scale, statusBadgePaint)
+
+            val secTimeStr = String.format(Locale.US, "%.2fs", split.durationMs / 1000.0)
+            canvas.drawText(secTimeStr, x + pad, pillsTop + 73f * scale, timePaint)
+
+            val deltaText = when {
+                split.status == F1SectorStatus.PURPLE || split.deltaToBestMs <= 15L -> "全场最快"
+                split.status == F1SectorStatus.GREEN -> String.format(Locale.US, "+%.2fs · PB", split.deltaToBestMs / 1000.0)
+                else -> String.format(Locale.US, "+%.2fs", split.deltaToBestMs / 1000.0)
+            }
+            val fitDelta = ellipsize(deltaText, deltaPaint, cellW - pad * 2f)
+            canvas.drawText(fitDelta, x + pad, pillsTop + 98f * scale, deltaPaint)
+        }
     }
 
     private fun drawAnalysisRatingPills(
@@ -655,7 +815,9 @@ object SocialCardBitmapRenderer {
         speedUnit: SpeedUnit,
         scale: Float,
         lightInk: Boolean,
-        addPhotoGlow: Boolean
+        addPhotoGlow: Boolean,
+        kartingF1: KartingF1SectorAnalysis? = null,
+        f1LapTiming: KartingLapSectorTiming? = null
     ) {
         val avgLat = points.map { it.latitude }.average()
         val lonScale = cos(Math.toRadians(avgLat)).coerceIn(0.2, 1.0)
@@ -719,35 +881,89 @@ object SocialCardBitmapRenderer {
             strokeCap = Paint.Cap.ROUND
         }
 
-        for (i in 0 until points.lastIndex) {
-            val ratio = (((metrics[i] + metrics[i + 1]) / 2.0 - minM) / spanM)
-                .toFloat()
-                .coerceIn(0f, 1f)
-            segPaint.color = if (mode == ActivityMode.KARTING) {
-                when {
-                    ratio < 0.33f -> lerpArgb(lowCol, midCol, ratio / 0.33f)
-                    ratio < 0.66f -> lerpArgb(midCol, highCol, (ratio - 0.33f) / 0.33f)
-                    else -> lerpArgb(highCol, peakCol, (ratio - 0.66f) / 0.34f)
-                }
-            } else {
-                if (ratio < 0.5f) lerpArgb(lowCol, midCol, ratio / 0.5f)
-                else lerpArgb(midCol, highCol, (ratio - 0.5f) / 0.5f)
+        val useF1Coloring = mode == ActivityMode.KARTING && kartingF1 != null && f1LapTiming != null
+        if (useF1Coloring && kartingF1 != null && f1LapTiming != null) {
+            // Draw ghost track base first, then crisp F1 Purple/Green/Yellow best-lap sectors on top
+            val ghostPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 10f * scale
+                strokeCap = Paint.Cap.ROUND
+                color = if (lightInk) 0x38FFFFFF else 0x2A1F2937
             }
-            canvas.drawLine(sx[i], sy[i], sx[i + 1], sy[i + 1], segPaint)
+            for (i in 0 until points.lastIndex) {
+                canvas.drawLine(sx[i], sy[i], sx[i + 1], sy[i + 1], ghostPaint)
+            }
+
+            segPaint.strokeWidth = 13f * scale
+            val startIdx = f1LapTiming.pointIndices.first.coerceIn(0, points.lastIndex)
+            val endIdx = f1LapTiming.pointIndices.last.coerceIn(startIdx, points.lastIndex)
+            for (i in startIdx until endIdx) {
+                val secIdx = (f1LapTiming.pointSectorMap[i] ?: kartingF1.allPointsSectorIndex[i]).coerceIn(0, 2)
+                val status = f1LapTiming.sectors.getOrNull(secIdx)?.status ?: F1SectorStatus.YELLOW
+                segPaint.color = f1StatusColorArgb(status, lightInk)
+                canvas.drawLine(sx[i], sy[i], sx[i + 1], sy[i + 1], segPaint)
+            }
+
+            // Draw S1 / S2 / S3 timing gate pill markers directly on the track
+            val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                color = if (lightInk) 0xEB111622.toInt() else 0xF2FFFFFF.toInt()
+            }
+            val badgeBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 2.5f * scale
+            }
+            val badgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                textSize = 20f * scale
+                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+                textAlign = Paint.Align.CENTER
+            }
+            kartingF1.gates.forEachIndexed { gIdx, gate ->
+                val pIdx = gate.referencePointIndex.coerceIn(0, points.lastIndex)
+                val gx = sx[pIdx]
+                val gy = sy[pIdx]
+                val status = f1LapTiming.sectors.getOrNull(gIdx)?.status ?: F1SectorStatus.PURPLE
+                val col = f1StatusColorArgb(status, lightInk)
+                val pillW = 48f * scale
+                val pillH = 30f * scale
+                val pillRect = RectF(gx - pillW / 2f, gy - pillH / 2f, gx + pillW / 2f, gy + pillH / 2f)
+                canvas.drawRoundRect(pillRect, 15f * scale, 15f * scale, badgeBgPaint)
+                badgeBorderPaint.color = col
+                canvas.drawRoundRect(pillRect, 15f * scale, 15f * scale, badgeBorderPaint)
+                badgeTextPaint.color = col
+                canvas.drawText(gate.label, gx, gy + 7f * scale, badgeTextPaint)
+            }
+        } else {
+            for (i in 0 until points.lastIndex) {
+                val ratio = (((metrics[i] + metrics[i + 1]) / 2.0 - minM) / spanM)
+                    .toFloat()
+                    .coerceIn(0f, 1f)
+                segPaint.color = if (mode == ActivityMode.KARTING) {
+                    when {
+                        ratio < 0.33f -> lerpArgb(lowCol, midCol, ratio / 0.33f)
+                        ratio < 0.66f -> lerpArgb(midCol, highCol, (ratio - 0.33f) / 0.33f)
+                        else -> lerpArgb(highCol, peakCol, (ratio - 0.66f) / 0.34f)
+                    }
+                } else {
+                    if (ratio < 0.5f) lerpArgb(lowCol, midCol, ratio / 0.5f)
+                    else lerpArgb(midCol, highCol, (ratio - 0.5f) / 0.5f)
+                }
+                canvas.drawLine(sx[i], sy[i], sx[i + 1], sy[i + 1], segPaint)
+            }
+
+            // Start & finish circles
+            val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+            markerPaint.color = Color.WHITE
+            canvas.drawCircle(sx[0], sy[0], 14f * scale, markerPaint)
+            markerPaint.color = midCol
+            canvas.drawCircle(sx[0], sy[0], 9.5f * scale, markerPaint)
+
+            val last = points.lastIndex
+            markerPaint.color = Color.WHITE
+            canvas.drawCircle(sx[last], sy[last], 13f * scale, markerPaint)
+            markerPaint.color = peakCol
+            canvas.drawCircle(sx[last], sy[last], 8.5f * scale, markerPaint)
         }
-
-        // Start & finish circles
-        val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-        markerPaint.color = Color.WHITE
-        canvas.drawCircle(sx[0], sy[0], 14f * scale, markerPaint)
-        markerPaint.color = midCol
-        canvas.drawCircle(sx[0], sy[0], 9.5f * scale, markerPaint)
-
-        val last = points.lastIndex
-        markerPaint.color = Color.WHITE
-        canvas.drawCircle(sx[last], sy[last], 13f * scale, markerPaint)
-        markerPaint.color = peakCol
-        canvas.drawCircle(sx[last], sy[last], 8.5f * scale, markerPaint)
     }
 
     private fun drawStatsGrid(

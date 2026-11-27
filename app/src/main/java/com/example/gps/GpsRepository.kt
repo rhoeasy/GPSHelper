@@ -17,6 +17,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.sensor.MotionSensorManager
+import com.example.ui.theme.AppThemePalette
 import com.example.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -82,6 +83,7 @@ object GpsRepository {
     private const val KEY_SPEED_UNIT = "speed_unit"
     private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
     private const val KEY_THEME_MODE = "theme_mode"
+    private const val KEY_THEME_PALETTE = "theme_palette"
     private const val KEY_AUTO_FOCUS_ON_LAUNCH = "auto_focus_on_launch"
     private const val KEY_OV_SHOW_SPEED = "overlay_show_speed"
     private const val KEY_OV_SHOW_GFORCE = "overlay_show_gforce"
@@ -131,6 +133,9 @@ object GpsRepository {
     private val _themeMode = MutableStateFlow(ThemeMode.AUTO)
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
+    private val _themePalette = MutableStateFlow(AppThemePalette.GOOGLE_BLUE)
+    val themePalette: StateFlow<AppThemePalette> = _themePalette.asStateFlow()
+
     private val _autoFocusOnLaunch = MutableStateFlow(false)
     val autoFocusOnLaunch: StateFlow<Boolean> = _autoFocusOnLaunch.asStateFlow()
 
@@ -169,6 +174,9 @@ object GpsRepository {
             val savedTheme = prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name)
             _themeMode.value = runCatching { ThemeMode.valueOf(savedTheme ?: ThemeMode.AUTO.name) }
                 .getOrDefault(ThemeMode.AUTO)
+            val savedPalette = prefs.getString(KEY_THEME_PALETTE, AppThemePalette.GOOGLE_BLUE.name)
+            _themePalette.value = runCatching { AppThemePalette.valueOf(savedPalette ?: AppThemePalette.GOOGLE_BLUE.name) }
+                .getOrDefault(AppThemePalette.GOOGLE_BLUE)
             _autoFocusOnLaunch.value = prefs.getBoolean(KEY_AUTO_FOCUS_ON_LAUNCH, false)
 
             val savedScale = prefs.getString(KEY_OV_SCALE, OverlayScale.MEDIUM.name)
@@ -235,6 +243,16 @@ object GpsRepository {
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_THEME_MODE, mode.name)
+            .apply()
+    }
+
+    fun setThemePalette(context: Context, palette: AppThemePalette) {
+        ensurePrefsLoaded(context)
+        _themePalette.value = palette
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_THEME_PALETTE, palette.name)
             .apply()
     }
 

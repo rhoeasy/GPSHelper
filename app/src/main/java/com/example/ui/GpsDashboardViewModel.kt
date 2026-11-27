@@ -46,6 +46,7 @@ import com.example.track.TrackRecorder
 import com.example.track.TrackRepository
 import com.example.track.TrackSessionDetail
 import com.example.track.TrackSessionEntity
+import com.example.ui.theme.AppThemePalette
 import com.example.ui.theme.ThemeMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +84,7 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     val speedUnit: StateFlow<SpeedUnit> = GpsRepository.speedUnit
     val keepScreenOn: StateFlow<Boolean> = GpsRepository.keepScreenOn
     val themeMode: StateFlow<ThemeMode> = GpsRepository.themeMode
+    val themePalette: StateFlow<AppThemePalette> = GpsRepository.themePalette
     val autoFocusOnLaunch: StateFlow<Boolean> = GpsRepository.autoFocusOnLaunch
     val overlayConfig: StateFlow<OverlayDisplayConfig> = GpsRepository.overlayConfig
     val safetyAlertConfig: StateFlow<SafetyAlertConfig> = GpsRepository.safetyAlertConfig
@@ -168,6 +170,10 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
 
     fun setThemeMode(mode: ThemeMode) {
         GpsRepository.setThemeMode(getApplication(), mode)
+    }
+
+    fun setThemePalette(palette: AppThemePalette) {
+        GpsRepository.setThemePalette(getApplication(), palette)
     }
 
     fun setAutoFocusOnLaunch(enabled: Boolean) {

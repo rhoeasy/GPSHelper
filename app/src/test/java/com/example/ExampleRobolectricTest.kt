@@ -754,12 +754,12 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `sample track seeder builds realistic karting 3-lap circuit and hiking mountain loop`() {
+    fun `sample track seeder builds realistic karting 4-lap circuit and hiking mountain loop`() {
         val now = 1_750_000_000_000L
         val karting = SampleTrackSeeder.buildSampleKartingTrack(now)
         assertEquals(ActivityMode.KARTING, karting.session.activityMode)
-        assertEquals(3, karting.session.lapCount)
-        assertEquals(3, karting.laps.size)
+        assertEquals(4, karting.session.lapCount)
+        assertEquals(4, karting.laps.size)
         assertTrue("Expected > 150 karting points", karting.points.size > 150)
         assertTrue("Expected karting distance > 2000m, got ${karting.session.distanceMeters}", karting.session.distanceMeters > 2_000.0)
         assertTrue("Expected realistic karting peakG > 0.8G, got ${karting.session.peakTotalG}", karting.session.peakTotalG > 0.8f)
@@ -779,7 +779,7 @@ class ExampleRobolectricTest {
         val gpx = GpxExporter.buildGpxXml(hiking.session, hiking.points)
         assertTrue(gpx.contains("<trkpt"))
         val json = JSONObject(TelemetryJsonExporter.buildStructuredJson(karting.session, karting.points, karting.laps))
-        assertEquals(3, json.getJSONArray("laps").length())
+        assertEquals(4, json.getJSONArray("laps").length())
     }
 
     @Test

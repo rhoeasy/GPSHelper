@@ -126,6 +126,7 @@ class FloatingGpsService : Service() {
                         overlayConfigFlow = GpsRepository.overlayConfig,
                         safetyAlertConfigFlow = GpsRepository.safetyAlertConfig,
                         themeModeFlow = GpsRepository.themeMode,
+                        themePaletteFlow = GpsRepository.themePalette,
                         onCloseRequested = {
                             detachOverlay()
                             if (!isRecordingKeepAlive) {
