@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GPS 悬浮仪表</string>
+
+    <!-- Navigation Tabs -->
+    <string name="tab_dashboard">仪表盘</string>
+    <string name="tab_tracks">轨迹记录</string>
+
+    <!-- Status Badges -->
+    <string name="status_gps_locked">GPS 已锁定</string>
+    <string name="status_fused_fallback">融合定位 (等待GPS)</string>
+    <string name="status_searching">正在搜索卫星…</string>
+    <string name="status_gps_disabled">GPS 未开启</string>
+    <string name="status_no_permission">未授予定位权限</string>
+
+    <!-- Header & Controls -->
+    <string name="keep_screen_on">屏幕常亮</string>
+    <string name="theme_mode_label">外观模式</string>
+    <string name="theme_mode_auto">自动</string>
+    <string name="theme_mode_light">日间</string>
+    <string name="theme_mode_dark">夜间</string>
+    <string name="theme_mode_auto_full">自动模式（跟随系统）</string>
+    <string name="theme_mode_light_full">日间模式</string>
+    <string name="theme_mode_dark_full">夜间模式</string>
+    <string name="speed_label">实时车速</string>
+    <string name="unit_kmh">km/h</string>
+    <string name="unit_mph">mph</string>
+    <string name="provider_gps_native">GNSS 原生卫星定位</string>
+    <string name="provider_fused_fallback">系统融合定位备用中</string>
+    <string name="provider_waiting">等待首次定位信号</string>
+
+    <!-- Permissions Banner -->
+    <string name="permission_banner_title">权限配置</string>
+    <string name="permission_location_title">精确定位权限</string>
+    <string name="permission_location_desc">用于读取实时车速、经纬度与卫星状态</string>
+    <string name="permission_overlay_title">悬浮窗权限</string>
+    <string name="permission_overlay_desc">用于在导航应用上方显示可拖动仪表盘</string>
+    <string name="permission_notification_title">通知权限（可选）</string>
+    <string name="permission_notification_desc">用于在通知栏显示悬浮窗运行状态及快捷关闭按钮</string>
+    <string name="action_grant">去授权</string>
+    <string name="action_open_settings">去开启</string>
+    <string name="action_open_location_settings">开启定位服务</string>
+
+    <!-- Coordinates Card -->
+    <string name="coordinates_label">经纬度坐标</string>
+    <string name="latitude_short">纬度</string>
+    <string name="longitude_short">经度</string>
+    <string name="action_copy_coordinates">复制坐标</string>
+    <string name="toast_coordinates_copied">坐标已复制到剪贴板</string>
+    <string name="toast_coordinates_unavailable">暂无有效坐标，等待卫星定位</string>
+    <string name="toast_need_location_for_overlay">请先授予精确定位权限后再开启悬浮窗</string>
+    <string name="toast_need_overlay_permission">请在系统设置中允许显示悬浮窗</string>
+    <string name="toast_need_location_for_record">请先授予精确定位权限后再开始录制轨迹</string>
+    <string name="toast_need_bluetooth_permission">请先授予蓝牙扫描与连接权限</string>
+    <string name="toast_bluetooth_disabled">请先在系统设置中打开蓝牙</string>
+
+    <!-- Telemetry Grid -->
+    <string name="telemetry_altitude">海拔</string>
+    <string name="telemetry_accuracy">定位精度</string>
+    <string name="telemetry_bearing">航向</string>
+    <string name="telemetry_satellites">卫星数</string>
+    <string name="telemetry_satellites_sub">已使用 / 可见</string>
+    <string name="unit_meters">m</string>
+    <string name="unit_satellites_suffix">颗</string>
+    <string name="placeholder_empty">--</string>
+
+    <!-- Compass Directions -->
+    <string name="dir_n">北</string>
+    <string name="dir_ne">东北</string>
+    <string name="dir_e">东</string>
+    <string name="dir_se">东南</string>
+    <string name="dir_s">南</string>
+    <string name="dir_sw">西南</string>
+    <string name="dir_w">西</string>
+    <string name="dir_nw">西北</string>
+
+    <!-- BLE Heart Rate -->
+    <string name="hr_card_title">蓝牙心率</string>
+    <string name="hr_unit_bpm">bpm</string>
+    <string name="hr_connect_btn">连接手环</string>
+    <string name="hr_disconnect_btn">断开</string>
+    <string name="hr_status_disconnected">未连接小米手环或心率带</string>
+    <string name="hr_status_connecting">正在连接…</string>
+    <string name="hr_dialog_title">连接蓝牙心率设备</string>
+    <string name="hr_mi_band_tip">小米手环使用提示：请先在「小米运动健康 / Zepp Life」App 中开启手环的「心率广播 / 蓝牙广播」功能，再点击下方扫描连接。</string>
+    <string name="hr_scanning">正在扫描附近蓝牙设备…</string>
+    <string name="hr_rescan">重新扫描</string>
+    <string name="hr_stop_scan">停止扫描</string>
+    <string name="hr_empty_scan">暂未发现设备，请确保手环靠近手机并已开启蓝牙心率广播</string>
+    <string name="hr_badge_service">心率服务</string>
+    <string name="hr_last_device">上次连接</string>
+    <string name="hr_close">关闭</string>
+
+    <!-- Track Recording -->
+    <string name="mode_karting">卡丁车</string>
+    <string name="mode_hiking">徒步</string>
+    <string name="filter_all">全部</string>
+    <string name="record_card_title">轨迹记录</string>
+    <string name="record_start">开始记录</string>
+    <string name="record_pause">暂停</string>
+    <string name="record_resume">继续</string>
+    <string name="record_finish">结束保存</string>
+    <string name="record_set_gate">重设起终点</string>
+    <string name="record_status_recording">录制中</string>
+    <string name="record_status_paused">已暂停</string>
+    <string name="record_hint_karting">自动识别绕圈起终点，实时记录圈速与最高时速</string>
+    <string name="record_hint_hiking">持续记录路线轨迹、累计爬升与海拔变化</string>
+    <string name="toast_gate_updated">已将当前位置设为新的起终点线</string>
+    <string name="toast_gate_waiting_gps">尚未获取到定位，请等待 GPS 锁定后再设定起终点</string>
+    <string name="toast_track_saved">轨迹已保存至本地记录</string>
+    <string name="toast_track_too_short">暂未采集到有效轨迹点，已取消保存</string>
+    <string name="toast_gpx_export_failed">导出 GPX 失败，请重试</string>
+
+    <!-- Track Metrics & History -->
+    <string name="metric_duration">用时</string>
+    <string name="metric_distance">总里程</string>
+    <string name="metric_max_speed">最高时速</string>
+    <string name="metric_avg_speed">平均时速</string>
+    <string name="metric_avg_pace">平均配速</string>
+    <string name="metric_elevation_gain">累计爬升</string>
+    <string name="metric_elevation_loss">累计下降</string>
+    <string name="metric_max_altitude">最高海拔</string>
+    <string name="metric_min_altitude">最低海拔</string>
+    <string name="metric_current_lap">当前圈</string>
+    <string name="metric_best_lap">最佳圈速</string>
+    <string name="metric_last_lap">上一圈</string>
+    <string name="metric_lap_count">完成圈数</string>
+    <string name="metric_avg_hr">平均心率</string>
+    <string name="metric_max_hr">最高心率</string>
+    <string name="tracks_empty_title">还没有轨迹记录</string>
+    <string name="tracks_empty_desc">在仪表盘选择「卡丁车」或「徒步」模式点击开始记录，结束后会自动保存在本机并支持导出 GPX。</string>
+    <string name="detail_back_cd">返回轨迹列表</string>
+    <string name="detail_export_gpx">导出 GPX</string>
+    <string name="detail_delete">删除</string>
+    <string name="detail_delete_title">删除轨迹记录</string>
+    <string name="detail_delete_confirm">确定要删除这条轨迹吗？删除后无法恢复。</string>
+    <string name="detail_cancel">取消</string>
+    <string name="detail_track_canvas_title">矢量轨迹路线</string>
+    <string name="detail_chart_title">行程剖面曲线</string>
+    <string name="detail_chart_elevation">海拔</string>
+    <string name="detail_chart_speed">速度</string>
+    <string name="detail_chart_hr">心率</string>
+    <string name="detail_laps_title">单圈圈速明细</string>
+    <string name="detail_lap_best_tag">最佳</string>
+    <string name="detail_legend_low">低</string>
+    <string name="detail_legend_high">高</string>
+    <string name="detail_no_laps">本次未触发完整绕圈（需离开起终点 25 米后返回）</string>
+    <string name="share_gpx_chooser">分享 GPX 轨迹文件</string>
+
+    <!-- Floating Window Control -->
+    <string name="action_start_overlay">开启悬浮窗</string>
+    <string name="action_stop_overlay">关闭悬浮窗</string>
+    <string name="overlay_running_hint">悬浮窗运行中 · 仅显示海拔与 G 力图，单击切换精简尺寸</string>
+    <string name="overlay_ready_hint">在导航或其他应用上方悬浮显示实时海拔与 G 力图</string>
+    <string name="overlay_close_cd">关闭悬浮窗</string>
+    <string name="overlay_searching">搜索卫星中…</string>
+
+    <!-- Notification -->
+    <string name="notification_channel_name">GPS 悬浮窗服务</string>
+    <string name="notification_channel_desc">悬浮仪表运行时在后台保持实时 GPS 定位更新</string>
+    <string name="notification_title">GPS 悬浮仪表运行中</string>
+    <string name="notification_waiting_fix">正在搜索卫星信号…</string>
+</resources>

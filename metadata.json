@@ -1,0 +1,6 @@
+{
+  "name": "GPS 悬浮仪表",
+  "description": "实时 GPS 仪表盘与可拖动悬浮窗 HUD，在导航应用上方清晰显示车速、经纬度、海拔、精度、航向与卫星状态。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
