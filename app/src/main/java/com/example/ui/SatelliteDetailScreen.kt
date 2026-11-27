@@ -7,9 +7,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.SatelliteAlt
@@ -54,6 +58,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
@@ -129,199 +134,266 @@ fun SatelliteDetailScreen(
             )
         }
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 640.dp)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        val summaryCard: @Composable () -> Unit = {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = cs.surfaceContainerLow
             ) {
-                // Summary Strip Card
-                item {
-                    Surface(
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        GpsStatusBadge(fixStatus = gpsData.fixStatus)
+                        Text(
+                            text = "${stringResource(R.string.telemetry_accuracy)} ${gpsData.formattedAccuracy()}",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontFamily = JetBrainsMonoFontFamily
+                            ),
+                            color = cs.onSurfaceVariant
+                        )
+                    }
+
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 6.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        color = cs.surfaceContainerLow
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(cs.surfaceContainer)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(18.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                GpsStatusBadge(fixStatus = gpsData.fixStatus)
-                                Text(
-                                    text = "${stringResource(R.string.telemetry_accuracy)} ${gpsData.formattedAccuracy()}",
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        fontFamily = JetBrainsMonoFontFamily
-                                    ),
-                                    color = cs.onSurfaceVariant
-                                )
-                            }
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(cs.surfaceContainer)
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                SatSummaryStat(
-                                    label = stringResource(R.string.sat_used_label),
-                                    value = "${gpsData.satellitesUsed}",
-                                    accent = cs.secondary
-                                )
-                                SatSummaryStat(
-                                    label = stringResource(R.string.sat_visible_label),
-                                    value = "${gpsData.satellitesVisible}",
-                                    accent = cs.primary
-                                )
-                                SatSummaryStat(
-                                    label = stringResource(R.string.sat_avg_snr_label),
-                                    value = avgSnr?.let { String.format(Locale.US, "%.1f dB", it) } ?: "--",
-                                    accent = cs.onSurface
-                                )
-                            }
-                        }
+                        SatSummaryStat(
+                            label = stringResource(R.string.sat_used_label),
+                            value = "${gpsData.satellitesUsed}",
+                            accent = cs.secondary
+                        )
+                        SatSummaryStat(
+                            label = stringResource(R.string.sat_visible_label),
+                            value = "${gpsData.satellitesVisible}",
+                            accent = cs.primary
+                        )
+                        SatSummaryStat(
+                            label = stringResource(R.string.sat_avg_snr_label),
+                            value = avgSnr?.let { String.format(Locale.US, "%.1f dB", it) } ?: "--",
+                            accent = cs.onSurface
+                        )
                     }
                 }
+            }
+        }
 
-                // Skyplot Radar Card
-                item {
-                    Surface(
+        val skyplotCard: @Composable (Dp) -> Unit = { skyplotSize ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = cs.surfaceContainerLow
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
-                        color = cs.surfaceContainerLow
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(18.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.sat_skyplot_title),
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = cs.onSurface
-                                )
-                                Text(
-                                    text = "${stringResource(R.string.sat_skyplot_legend_used)} · ${stringResource(R.string.sat_skyplot_legend_visible)}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = cs.onSurfaceVariant
-                                )
-                            }
-
-                            GnssSkyplotCanvas(
-                                satellites = filteredSatellites,
-                                modifier = Modifier.size(216.dp)
-                            )
-                        }
+                        Text(
+                            text = stringResource(R.string.sat_skyplot_title),
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = cs.onSurface
+                        )
+                        Text(
+                            text = "${stringResource(R.string.sat_skyplot_legend_used)} · ${stringResource(R.string.sat_skyplot_legend_visible)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = cs.onSurfaceVariant
+                        )
                     }
-                }
 
-                // Constellation filter chips
-                if (satellites.isNotEmpty()) {
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            ConstellationFilterPill(
-                                label = "${stringResource(R.string.filter_all)} (${satellites.size})",
-                                dotColor = cs.primary,
-                                selected = selectedConstellation == null,
-                                onClick = { selectedConstellationName = null }
-                            )
-                            GnssConstellation.entries.forEach { constellation ->
-                                val count = countsByConstellation[constellation] ?: 0
-                                if (count > 0) {
-                                    ConstellationFilterPill(
-                                        label = "${constellation.labelZh} ($count)",
-                                        dotColor = constellationAccentColor(constellation, cs),
-                                        selected = selectedConstellation == constellation,
-                                        onClick = { selectedConstellationName = constellation.name }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Section Title
-                item {
-                    Text(
-                        text = stringResource(R.string.sat_list_title),
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = cs.primary,
-                        modifier = Modifier.padding(horizontal = 4.dp)
+                    GnssSkyplotCanvas(
+                        satellites = filteredSatellites,
+                        modifier = Modifier.size(skyplotSize)
                     )
                 }
+            }
+        }
 
-                if (filteredSatellites.isEmpty()) {
-                    item {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(24.dp),
-                            color = cs.surfaceContainerLow
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp, vertical = 28.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.SatelliteAlt,
-                                    contentDescription = null,
-                                    tint = cs.primary,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                                Text(
-                                    text = stringResource(R.string.sat_empty_title),
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = cs.onSurface
-                                )
-                                Text(
-                                    text = stringResource(R.string.sat_empty_desc),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = cs.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    items(
-                        items = filteredSatellites,
-                        key = { "${it.constellation.name}_${it.svid}" }
-                    ) { sat ->
-                        SatelliteChannelRow(sat = sat)
+        val constellationFilterRow: @Composable () -> Unit = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ConstellationFilterPill(
+                    label = "${stringResource(R.string.filter_all)} (${satellites.size})",
+                    dotColor = cs.primary,
+                    selected = selectedConstellation == null,
+                    onClick = { selectedConstellationName = null }
+                )
+                GnssConstellation.entries.forEach { constellation ->
+                    val count = countsByConstellation[constellation] ?: 0
+                    if (count > 0) {
+                        ConstellationFilterPill(
+                            label = "${constellation.labelZh} ($count)",
+                            dotColor = constellationAccentColor(constellation, cs),
+                            selected = selectedConstellation == constellation,
+                            onClick = { selectedConstellationName = constellation.name }
+                        )
                     }
                 }
+            }
+        }
 
-                item { Spacer(modifier = Modifier.height(16.dp)) }
+        val emptySatellitesCard: @Composable () -> Unit = {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = cs.surfaceContainerLow
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.SatelliteAlt,
+                        contentDescription = null,
+                        tint = cs.primary,
+                        modifier = Modifier.size(30.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.sat_empty_title),
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = cs.onSurface
+                    )
+                    Text(
+                        text = stringResource(R.string.sat_empty_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .displayCutoutPadding(),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            val isLandscape = maxWidth > maxHeight && maxWidth >= 540.dp
+            if (isLandscape) {
+                val skyplotSize = (maxHeight - 178.dp).coerceIn(168.dp, 260.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .testTag("satellite_landscape_layout"),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    // Left Pane: Summary & Enlarged Skyplot pinned side-by-side with channel list
+                    Column(
+                        modifier = Modifier
+                            .weight(0.92f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        summaryCard()
+                        skyplotCard(skyplotSize)
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    // Right Pane: Independently scrollable Constellation Filters & Satellite Channel List
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1.08f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (satellites.isNotEmpty()) {
+                            item { constellationFilterRow() }
+                        }
+
+                        item {
+                            Text(
+                                text = stringResource(R.string.sat_list_title),
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = cs.primary,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+                        }
+
+                        if (filteredSatellites.isEmpty()) {
+                            item { emptySatellitesCard() }
+                        } else {
+                            items(
+                                items = filteredSatellites,
+                                key = { "${it.constellation.name}_${it.svid}" }
+                            ) { sat ->
+                                SatelliteChannelRow(sat = sat)
+                            }
+                        }
+
+                        item { Spacer(modifier = Modifier.height(12.dp)) }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 640.dp)
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item {
+                        Box(modifier = Modifier.padding(top = 6.dp)) {
+                            summaryCard()
+                        }
+                    }
+
+                    item { skyplotCard(216.dp) }
+
+                    if (satellites.isNotEmpty()) {
+                        item { constellationFilterRow() }
+                    }
+
+                    item {
+                        Text(
+                            text = stringResource(R.string.sat_list_title),
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = cs.primary,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
+
+                    if (filteredSatellites.isEmpty()) {
+                        item { emptySatellitesCard() }
+                    } else {
+                        items(
+                            items = filteredSatellites,
+                            key = { "${it.constellation.name}_${it.svid}" }
+                        ) { sat ->
+                            SatelliteChannelRow(sat = sat)
+                        }
+                    }
+
+                    item { Spacer(modifier = Modifier.height(16.dp)) }
+                }
             }
         }
     }

@@ -6,10 +6,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -63,6 +66,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
@@ -133,207 +137,203 @@ fun AltitudeDetailScreen(
             )
         }
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 640.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        val heroAltitudeCard: @Composable (Boolean) -> Unit = { isLandscape ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(28.dp),
+                color = cs.surfaceContainerLow
             ) {
-                // Hero Altitude Card (Google Pixel Weather inspired tonal card)
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(28.dp),
-                    color = cs.surfaceContainerLow
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = if (isLandscape) 20.dp else 22.dp,
+                            vertical = if (isLandscape) 16.dp else 20.dp
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(if (isLandscape) 12.dp else 14.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 22.dp, vertical = 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Terrain,
-                                    contentDescription = null,
-                                    tint = cs.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = stringResource(R.string.telemetry_altitude),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = cs.onSurfaceVariant
-                                )
-                            }
-
-                            // m / ft pill toggle
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(cs.surfaceContainer)
-                                    .padding(3.dp)
-                            ) {
-                                listOf(false to "m", true to "ft").forEach { (ft, label) ->
-                                    val selected = useFeet == ft
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(50))
-                                            .background(if (selected) cs.primaryContainer else Color.Transparent)
-                                            .clickable { useFeet = ft }
-                                            .padding(horizontal = 12.dp, vertical = 5.dp)
-                                            .testTag("alt_unit_$label"),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = label,
-                                            style = MaterialTheme.typography.labelMedium.copy(
-                                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-                                            ),
-                                            color = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = fmtAlt(currentAltM),
-                                style = MaterialTheme.typography.displayLarge.copy(
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontSize = 62.sp,
-                                    lineHeight = 66.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    letterSpacing = (-2).sp
-                                ),
-                                color = if (currentAltM != null) cs.onSurface else cs.outline
+                            Icon(
+                                imageVector = Icons.Rounded.Terrain,
+                                contentDescription = null,
+                                tint = cs.primary,
+                                modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = unitSuffix,
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontFamily = JetBrainsMonoFontFamily,
-                                    fontWeight = FontWeight.Medium
-                                ),
-                                color = cs.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 10.dp)
+                                text = stringResource(R.string.telemetry_altitude),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = cs.onSurfaceVariant
                             )
                         }
 
-                        // Sub-metrics row: vertical speed, grade, vertical accuracy
+                        // m / ft pill toggle
                         Row(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
+                                .clip(RoundedCornerShape(50))
                                 .background(cs.surfaceContainer)
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(3.dp)
                         ) {
-                            val vSpeed = altitudeTelemetry.verticalSpeedMps
-                            val vSpeedStr = if (currentAltM == null) {
-                                "--"
-                            } else {
-                                val sign = if (vSpeed > 0f) "+" else ""
-                                String.format(Locale.US, "%s%.1f m/s", sign, vSpeed)
-                            }
-                            AltInlineMetric(
-                                label = stringResource(R.string.alt_vertical_speed),
-                                value = vSpeedStr,
-                                valueColor = when {
-                                    vSpeed > 0.2f -> cs.secondary
-                                    vSpeed < -0.2f -> cs.tertiary
-                                    else -> cs.onSurface
+                            listOf(false to "m", true to "ft").forEach { (ft, label) ->
+                                val selected = useFeet == ft
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(if (selected) cs.primaryContainer else Color.Transparent)
+                                        .clickable { useFeet = ft }
+                                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                                        .testTag("alt_unit_$label"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                                        ),
+                                        color = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant
+                                    )
                                 }
-                            )
-
-                            val gradeStr = altitudeTelemetry.gradePercent?.let {
-                                String.format(Locale.US, "%+.1f%%", it)
-                            } ?: "--"
-                            AltInlineMetric(
-                                label = stringResource(R.string.alt_grade_label),
-                                value = gradeStr,
-                                valueColor = cs.onSurface
-                            )
-
-                            val vAccStr = altitudeTelemetry.verticalAccuracyM?.let {
-                                String.format(Locale.US, "±%.1f m", it)
-                            } ?: "--"
-                            AltInlineMetric(
-                                label = stringResource(R.string.alt_vertical_accuracy),
-                                value = vAccStr,
-                                valueColor = cs.onSurface
-                            )
+                            }
                         }
                     }
-                }
 
-                // Live Elevation Profile Curve Card
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    color = cs.surfaceContainerLow
-                ) {
-                    Column(
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = fmtAlt(currentAltM),
+                            style = MaterialTheme.typography.displayLarge.copy(
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = if (isLandscape) 66.sp else 62.sp,
+                                lineHeight = if (isLandscape) 70.sp else 66.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = (-2).sp
+                            ),
+                            color = if (currentAltM != null) cs.onSurface else cs.outline
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = unitSuffix,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = cs.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 10.dp)
+                        )
+                    }
+
+                    // Sub-metrics row: vertical speed, grade, vertical accuracy
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(cs.surfaceContainer)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = stringResource(R.string.alt_chart_title),
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = cs.onSurface
-                            )
-                            TextButton(
-                                onClick = onResetAltitudeSession,
-                                modifier = Modifier.testTag("btn_reset_altitude_session")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Refresh,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = stringResource(R.string.alt_reset_session),
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            }
+                        val vSpeed = altitudeTelemetry.verticalSpeedMps
+                        val vSpeedStr = if (currentAltM == null) {
+                            "--"
+                        } else {
+                            val sign = if (vSpeed > 0f) "+" else ""
+                            String.format(Locale.US, "%s%.1f m/s", sign, vSpeed)
                         }
+                        AltInlineMetric(
+                            label = stringResource(R.string.alt_vertical_speed),
+                            value = vSpeedStr,
+                            valueColor = when {
+                                vSpeed > 0.2f -> cs.secondary
+                                vSpeed < -0.2f -> cs.tertiary
+                                else -> cs.onSurface
+                            }
+                        )
 
-                        LiveAltitudeCurveChart(
-                            samples = altitudeTelemetry.samples,
-                            factor = factor,
-                            unitSuffix = unitSuffix
+                        val gradeStr = altitudeTelemetry.gradePercent?.let {
+                            String.format(Locale.US, "%+.1f%%", it)
+                        } ?: "--"
+                        AltInlineMetric(
+                            label = stringResource(R.string.alt_grade_label),
+                            value = gradeStr,
+                            valueColor = cs.onSurface
+                        )
+
+                        val vAccStr = altitudeTelemetry.verticalAccuracyM?.let {
+                            String.format(Locale.US, "±%.1f m", it)
+                        } ?: "--"
+                        AltInlineMetric(
+                            label = stringResource(R.string.alt_vertical_accuracy),
+                            value = vAccStr,
+                            valueColor = cs.onSurface
                         )
                     }
                 }
+            }
+        }
 
-                // 4-Metric Elevation Stats Grid (Gain / Loss / Max / Min)
+        val elevationCurveCard: @Composable (Dp) -> Unit = { chartHeight ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = cs.surfaceContainerLow
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = stringResource(R.string.alt_chart_title),
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = cs.onSurface
+                        )
+                        TextButton(
+                            onClick = onResetAltitudeSession,
+                            modifier = Modifier.testTag("btn_reset_altitude_session")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = stringResource(R.string.alt_reset_session),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+
+                    LiveAltitudeCurveChart(
+                        samples = altitudeTelemetry.samples,
+                        factor = factor,
+                        unitSuffix = unitSuffix,
+                        chartHeight = chartHeight
+                    )
+                }
+            }
+        }
+
+        val elevationStatsGrid: @Composable () -> Unit = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -377,129 +377,188 @@ fun AltitudeDetailScreen(
                         modifier = Modifier.weight(1f)
                     )
                 }
+            }
+        }
 
-                // Real Hardware Barometer Card (or graceful GNSS-only notice if device lacks barometer)
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    color = cs.surfaceContainerLow
+        val barometerCard: @Composable () -> Unit = {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = cs.surfaceContainerLow
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(cs.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Compress,
+                                contentDescription = null,
+                                tint = cs.onPrimaryContainer,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.alt_barometer_title),
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = cs.onSurface
+                        )
+                    }
+
+                    if (envTelemetry.hasBarometer) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            AltInlineMetric(
+                                label = stringResource(R.string.alt_barometer_pressure),
+                                value = envTelemetry.pressureHpa?.let {
+                                    String.format(Locale.US, "%.2f hPa", it)
+                                } ?: "--",
+                                valueColor = cs.primary
+                            )
+                            AltInlineMetric(
+                                label = stringResource(R.string.alt_barometer_altitude),
+                                value = envTelemetry.barometricAltitudeM?.let {
+                                    "${String.format(Locale.US, "%.1f", it * factor)} $unitSuffix"
+                                } ?: "--",
+                                valueColor = cs.onSurface
+                            )
+                        }
+
+                        Text(
+                            text = "${stringResource(R.string.alt_barometer_qnh)}: ${String.format(Locale.US, "%.2f hPa", envTelemetry.seaLevelPressureHpa)}",
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                            color = cs.onSurfaceVariant
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            FilledTonalButton(
+                                onClick = onCalibrateBarometer,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("btn_calibrate_barometer"),
+                                shape = RoundedCornerShape(50),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = cs.primaryContainer,
+                                    contentColor = cs.onPrimaryContainer
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Height,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = stringResource(R.string.alt_barometer_calibrate_gps),
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+
+                            FilledTonalButton(
+                                onClick = onResetBarometerQnh,
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("btn_reset_qnh"),
+                                shape = RoundedCornerShape(50),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = cs.surfaceContainerHigh,
+                                    contentColor = cs.onSurfaceVariant
+                                )
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.alt_barometer_reset_qnh),
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = stringResource(R.string.alt_barometer_unavailable),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = cs.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .displayCutoutPadding(),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            val isLandscape = maxWidth > maxHeight && maxWidth >= 540.dp
+            if (isLandscape) {
+                val expandedChartHeight = (maxHeight * 0.46f).coerceIn(160.dp, 224.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .testTag("altitude_landscape_layout"),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
                     Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(18.dp),
+                            .weight(0.95f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .background(cs.primaryContainer),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Compress,
-                                    contentDescription = null,
-                                    tint = cs.onPrimaryContainer,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                            Text(
-                                text = stringResource(R.string.alt_barometer_title),
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = cs.onSurface
-                            )
-                        }
+                        heroAltitudeCard(true)
+                        elevationStatsGrid()
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
 
-                        if (envTelemetry.hasBarometer) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                AltInlineMetric(
-                                    label = stringResource(R.string.alt_barometer_pressure),
-                                    value = envTelemetry.pressureHpa?.let {
-                                        String.format(Locale.US, "%.2f hPa", it)
-                                    } ?: "--",
-                                    valueColor = cs.primary
-                                )
-                                AltInlineMetric(
-                                    label = stringResource(R.string.alt_barometer_altitude),
-                                    value = envTelemetry.barometricAltitudeM?.let {
-                                        "${String.format(Locale.US, "%.1f", it * factor)} $unitSuffix"
-                                    } ?: "--",
-                                    valueColor = cs.onSurface
-                                )
-                            }
-
-                            Text(
-                                text = "${stringResource(R.string.alt_barometer_qnh)}: ${String.format(Locale.US, "%.2f hPa", envTelemetry.seaLevelPressureHpa)}",
-                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
-                                color = cs.onSurfaceVariant
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                FilledTonalButton(
-                                    onClick = onCalibrateBarometer,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .minimumInteractiveComponentSize()
-                                        .testTag("btn_calibrate_barometer"),
-                                    shape = RoundedCornerShape(50),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                                    colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = cs.primaryContainer,
-                                        contentColor = cs.onPrimaryContainer
-                                    )
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Height,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = stringResource(R.string.alt_barometer_calibrate_gps),
-                                        style = MaterialTheme.typography.labelLarge
-                                    )
-                                }
-
-                                FilledTonalButton(
-                                    onClick = onResetBarometerQnh,
-                                    modifier = Modifier
-                                        .minimumInteractiveComponentSize()
-                                        .testTag("btn_reset_qnh"),
-                                    shape = RoundedCornerShape(50),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                                    colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = cs.surfaceContainerHigh,
-                                        contentColor = cs.onSurfaceVariant
-                                    )
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.alt_barometer_reset_qnh),
-                                        style = MaterialTheme.typography.labelMedium
-                                    )
-                                }
-                            }
-                        } else {
-                            Text(
-                                text = stringResource(R.string.alt_barometer_unavailable),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = cs.onSurfaceVariant
-                            )
-                        }
+                    Column(
+                        modifier = Modifier
+                            .weight(1.15f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        elevationCurveCard(expandedChartHeight)
+                        barometerCard()
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 640.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    heroAltitudeCard(false)
+                    elevationCurveCard(148.dp)
+                    elevationStatsGrid()
+                    barometerCard()
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
             }
         }
     }
@@ -509,14 +568,15 @@ fun AltitudeDetailScreen(
 private fun LiveAltitudeCurveChart(
     samples: List<AltitudeSample>,
     factor: Double,
-    unitSuffix: String
+    unitSuffix: String,
+    chartHeight: Dp = 148.dp
 ) {
     val cs = MaterialTheme.colorScheme
     if (samples.size < 2) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(132.dp)
+                .height(chartHeight)
                 .clip(RoundedCornerShape(16.dp))
                 .background(cs.surfaceContainer),
             contentAlignment = Alignment.Center
@@ -542,7 +602,7 @@ private fun LiveAltitudeCurveChart(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(148.dp)
+                .height(chartHeight)
                 .clip(RoundedCornerShape(16.dp))
                 .background(cs.surfaceContainer)
                 .padding(horizontal = 12.dp, vertical = 12.dp)

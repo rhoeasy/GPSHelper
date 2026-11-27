@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -233,7 +234,9 @@ fun GpsHudAppShell(
             .fillMaxSize()
             .background(cs.background)
     ) {
-        val isLandscapeWide = maxWidth >= 600.dp && maxWidth > maxHeight
+        val isLandscapeWide = maxWidth > maxHeight && maxWidth >= 540.dp
+        val heroRadarSize = (maxHeight * 0.43f).coerceIn(132.dp, 172.dp)
+        val heroMinHeight = (maxHeight - 88.dp).coerceIn(216.dp, 292.dp)
 
         Row(modifier = Modifier.fillMaxSize()) {
             if (isLandscapeWide) {
@@ -417,12 +420,13 @@ fun GpsHudAppShell(
                     when (activeTab) {
                         MainTab.DASHBOARD -> {
                             if (isLandscapeWide) {
-                                // Motorcycle Landscape Cockpit: Speed (left) + Live G-Force Radar (right) side-by-side
+                                // Maximized Landscape Cockpit: Compact Header + Full-Viewport Speed & G-Force Hero Row
                                 Column(
                                     modifier = Modifier
                                         .fillMaxSize()
+                                        .displayCutoutPadding()
                                         .verticalScroll(rememberScrollState())
-                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
                                     verticalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     AnimatedVisibility(
@@ -438,6 +442,7 @@ fun GpsHudAppShell(
                                         themeMode = themeMode,
                                         keepScreenOn = keepScreenOn,
                                         isFocusLockActive = isFocusLockActive,
+                                        compactLandscape = true,
                                         onSelectThemeMode = onSelectThemeMode,
                                         onToggleKeepScreenOn = onToggleKeepScreenOn,
                                         onOpenFocusDialog = onOpenFocusDialog
@@ -456,24 +461,67 @@ fun GpsHudAppShell(
                                         )
                                     }
 
+                                    // Hero Instrument Cluster: Maximized Speedometer (left) + Enlarged G-Force Radar (right)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("landscape_hero_cockpit_row"),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        PrimarySpeedCard(
+                                            gpsData = gpsData,
+                                            speedUnit = speedUnit,
+                                            onSelectUnit = onSelectSpeedUnit,
+                                            onOpenLocationSettings = onOpenLocationSettings,
+                                            isAlertActive = alertState.isOverspeed,
+                                            isLandscape = true,
+                                            modifier = Modifier
+                                                .weight(1.02f)
+                                                .heightIn(min = heroMinHeight)
+                                        )
+
+                                        GForceTelemetryCard(
+                                            gForceData = gForceData,
+                                            showPeakOnDial = overlayConfig.showGForcePeakOnDial,
+                                            peakHoldSeconds = overlayConfig.gForcePeakHoldSeconds,
+                                            onCalibrateZero = onCalibrateGForceZero,
+                                            onResetPeak = onResetGForcePeak,
+                                            isLandscape = true,
+                                            radarSize = heroRadarSize,
+                                            modifier = Modifier
+                                                .weight(1.18f)
+                                                .heightIn(min = heroMinHeight)
+                                        )
+                                    }
+
+                                    // Secondary Telemetry & Controls Grid below the Hero Instrument Cluster
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         verticalAlignment = Alignment.Top
                                     ) {
-                                        // Left riding cockpit column: Speed, Heart Rate, Track Recorder
                                         Column(
                                             modifier = Modifier.weight(1f),
                                             verticalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
-                                            PrimarySpeedCard(
+                                            TelemetryGrid(
                                                 gpsData = gpsData,
-                                                speedUnit = speedUnit,
-                                                onSelectUnit = onSelectSpeedUnit,
-                                                onOpenLocationSettings = onOpenLocationSettings,
-                                                isAlertActive = alertState.isOverspeed
+                                                onOpenAltitudeDetail = { onOpenTelemetryDetail(TelemetryDetailPage.ALTITUDE) },
+                                                onOpenCompassDetail = { onOpenTelemetryDetail(TelemetryDetailPage.COMPASS) },
+                                                onOpenSatelliteDetail = { onOpenTelemetryDetail(TelemetryDetailPage.SATELLITES) }
                                             )
 
+                                            CoordinatesCard(
+                                                gpsData = gpsData,
+                                                onCopyCoordinates = onCopyCoordinates
+                                            )
+                                        }
+
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
                                             HeartRateStripCard(
                                                 hrState = heartRateState,
                                                 lastSavedDevice = lastSavedBleDevice,
@@ -494,32 +542,6 @@ fun GpsHudAppShell(
                                                 onFinishRecording = onFinishRecording,
                                                 onSetStartGate = onSetStartGate,
                                                 speedUnit = speedUnit
-                                            )
-                                        }
-
-                                        // Right riding cockpit column: Live Landscape G-Force Radar, Telemetry, Coordinates
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                            GForceTelemetryCard(
-                                                gForceData = gForceData,
-                                                showPeakOnDial = overlayConfig.showGForcePeakOnDial,
-                                                peakHoldSeconds = overlayConfig.gForcePeakHoldSeconds,
-                                                onCalibrateZero = onCalibrateGForceZero,
-                                                onResetPeak = onResetGForcePeak
-                                            )
-
-                                            TelemetryGrid(
-                                                gpsData = gpsData,
-                                                onOpenAltitudeDetail = { onOpenTelemetryDetail(TelemetryDetailPage.ALTITUDE) },
-                                                onOpenCompassDetail = { onOpenTelemetryDetail(TelemetryDetailPage.COMPASS) },
-                                                onOpenSatelliteDetail = { onOpenTelemetryDetail(TelemetryDetailPage.SATELLITES) }
-                                            )
-
-                                            CoordinatesCard(
-                                                gpsData = gpsData,
-                                                onCopyCoordinates = onCopyCoordinates
                                             )
                                         }
                                     }
@@ -690,7 +712,8 @@ private fun GoogleTopHeader(
     isFocusLockActive: Boolean,
     onSelectThemeMode: (ThemeMode) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
-    onOpenFocusDialog: () -> Unit
+    onOpenFocusDialog: () -> Unit,
+    compactLandscape: Boolean = false
 ) {
     val cs = MaterialTheme.colorScheme
     var themeMenuExpanded by remember { mutableStateOf(false) }
@@ -704,24 +727,43 @@ private fun GoogleTopHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = if (compactLandscape) 2.dp else 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(
-                text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 21.sp
-                ),
-                color = cs.onSurface,
-                maxLines = 1
-            )
-            GpsStatusBadge(fixStatus = gpsData.fixStatus)
+        if (compactLandscape) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 18.sp
+                    ),
+                    color = cs.onSurface,
+                    maxLines = 1
+                )
+                GpsStatusBadge(fixStatus = gpsData.fixStatus)
+            }
+        } else {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 21.sp
+                    ),
+                    color = cs.onSurface,
+                    maxLines = 1
+                )
+                GpsStatusBadge(fixStatus = gpsData.fixStatus)
+            }
         }
 
         Row(

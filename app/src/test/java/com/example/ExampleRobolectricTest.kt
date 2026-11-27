@@ -40,6 +40,7 @@ import com.example.track.TrackLapEntity
 import com.example.track.TrackPointEntity
 import com.example.track.TrackRecorder
 import com.example.track.TrackSessionEntity
+import com.example.track.TrackTelemetryAnalyzer
 import com.example.ui.GpsDashboardViewModel
 import com.example.ui.findNearestPointIndexByTimeFraction
 import org.json.JSONObject
@@ -1007,5 +1008,104 @@ class ExampleRobolectricTest {
         val offroadAnalysisJson = json.getJSONObject("session").getJSONObject("offroad_analysis")
         assertEquals(analysis.climb.score, offroadAnalysisJson.getJSONObject("climb_difficulty").getInt("score"))
         assertEquals(analysis.surface.score, offroadAnalysisJson.getJSONObject("surface_complexity").getInt("score"))
+    }
+
+    @Test
+    fun `hiking and karting telemetry analysis compute difficulty surface and body stats and integrate into social overlays and json`() {
+        val now = 1_750_000_000_000L
+        val hiking = SampleTrackSeeder.buildSampleHikingTrack(now)
+        val karting = SampleTrackSeeder.buildSampleKartingTrack(now)
+
+        // 1. Hiking analysis: route difficulty + surface complexity + body performance
+        val hikeAnalysis = TrackTelemetryAnalyzer.analyzeHiking(hiking.session, hiking.points)
+        assertTrue(hikeAnalysis.difficulty.score in 15..100)
+        assertEquals(
+            100,
+            hikeAnalysis.surface.smoothPct + hikeAnalysis.surface.twistyPct + hikeAnalysis.surface.technicalPct
+        )
+        assertTrue(hikeAnalysis.body.hasHeartRateData)
+        assertEquals(
+            100,
+            hikeAnalysis.body.easyZonePct + hikeAnalysis.body.aerobicZonePct + hikeAnalysis.body.highZonePct
+        )
+        assertTrue(hikeAnalysis.body.estimatedCaloriesKcal >= 100)
+
+        // Hiking social overlay emits 3 pills (难度评价, 路面复杂度, 身体表现)
+        val hikeTags = SocialCardBitmapRenderer.buildAnalysisOverlayTags(
+            detail = hiking,
+            config = SocialCardConfig(
+                showClimbDifficulty = true,
+                showSurfaceComplexity = true,
+                showBodyPerformance = true
+            )
+        )
+        assertEquals(3, hikeTags.size)
+        assertEquals("难度评价", hikeTags[0].category)
+        assertEquals("路面复杂度", hikeTags[1].category)
+        assertEquals("身体表现", hikeTags[2].category)
+
+        val hikeSticker = SocialCardBitmapRenderer.renderBitmap(
+            detail = hiking,
+            speedUnit = SpeedUnit.KMH,
+            config = SocialCardConfig(
+                bgPreset = SocialBgPreset.TRANSPARENT,
+                showRoute = true,
+                showClimbDifficulty = true,
+                showSurfaceComplexity = true,
+                showBodyPerformance = true
+            ),
+            targetWidth = 540
+        )
+        assertEquals(0, Color.alpha(hikeSticker.getPixel(2, 2)))
+        hikeSticker.recycle()
+
+        // 2. Karting analysis: track difficulty + body performance (no surface complexity)
+        val kartAnalysis = TrackTelemetryAnalyzer.analyzeKarting(karting.session, karting.points, karting.laps)
+        assertTrue("Expected kart difficulty >= 30, got ${kartAnalysis.difficulty.score}", kartAnalysis.difficulty.score >= 30)
+        assertTrue(kartAnalysis.difficulty.peakLateralG > 0.5f)
+        assertTrue(kartAnalysis.body.hasHeartRateData)
+        assertEquals("圈速稳定", kartAnalysis.body.stabilityLabelZh)
+        assertEquals(
+            100,
+            kartAnalysis.body.easyZonePct + kartAnalysis.body.aerobicZonePct + kartAnalysis.body.highZonePct
+        )
+
+        // Karting social overlay emits 2 pills (赛道难度, 身体表现)
+        val kartTags = SocialCardBitmapRenderer.buildAnalysisOverlayTags(
+            detail = karting,
+            config = SocialCardConfig(
+                showClimbDifficulty = true,
+                showSurfaceComplexity = true,
+                showBodyPerformance = true
+            )
+        )
+        assertEquals(2, kartTags.size)
+        assertEquals("赛道难度", kartTags[0].category)
+        assertEquals("身体表现", kartTags[1].category)
+
+        val kartPoster = SocialCardBitmapRenderer.renderBitmap(
+            detail = karting,
+            speedUnit = SpeedUnit.KMH,
+            config = SocialCardConfig(
+                bgPreset = SocialBgPreset.OBSIDIAN,
+                showClimbDifficulty = true,
+                showBodyPerformance = true
+            ),
+            targetWidth = 540
+        )
+        assertEquals(255, Color.alpha(kartPoster.getPixel(2, 2)))
+        kartPoster.recycle()
+
+        // 3. Structured JSON includes hiking_analysis & karting_analysis
+        val hikeJson = JSONObject(TelemetryJsonExporter.buildStructuredJson(hiking.session, hiking.points, hiking.laps))
+        val hikeAnalysisObj = hikeJson.getJSONObject("session").getJSONObject("hiking_analysis")
+        assertEquals(hikeAnalysis.difficulty.score, hikeAnalysisObj.getJSONObject("route_difficulty").getInt("score"))
+        assertEquals(hikeAnalysis.surface.score, hikeAnalysisObj.getJSONObject("surface_complexity").getInt("score"))
+        assertEquals(hikeAnalysis.body.score, hikeAnalysisObj.getJSONObject("body_performance").getInt("score"))
+
+        val kartJson = JSONObject(TelemetryJsonExporter.buildStructuredJson(karting.session, karting.points, karting.laps))
+        val kartAnalysisObj = kartJson.getJSONObject("session").getJSONObject("karting_analysis")
+        assertEquals(kartAnalysis.difficulty.score, kartAnalysisObj.getJSONObject("track_difficulty").getInt("score"))
+        assertEquals(kartAnalysis.body.score, kartAnalysisObj.getJSONObject("body_performance").getInt("score"))
     }
 }

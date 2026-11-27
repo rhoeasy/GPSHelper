@@ -68,6 +68,7 @@ data class SocialCardConfig(
     val showPeakG: Boolean = true,
     val showClimbDifficulty: Boolean = false,
     val showSurfaceComplexity: Boolean = false,
+    val showBodyPerformance: Boolean = false,
     val showMiniProfile: Boolean = true
 )
 
@@ -95,58 +96,196 @@ object SocialCardBitmapRenderer {
         config: SocialCardConfig
     ): List<OffroadOverlayTag> {
         if (detail.session.activityMode != ActivityMode.OFFROAD_CROSSING) return emptyList()
-        if (!config.showClimbDifficulty && !config.showSurfaceComplexity) return emptyList()
+        return buildAnalysisOverlayTags(detail, config)
+    }
 
-        val analysis = OffroadAnalysisEngine.analyze(detail.session, detail.points)
+    fun buildAnalysisOverlayTags(
+        detail: TrackSessionDetail,
+        config: SocialCardConfig
+    ): List<OffroadOverlayTag> {
+        if (!config.showClimbDifficulty && !config.showSurfaceComplexity && !config.showBodyPerformance) {
+            return emptyList()
+        }
+
+        val green = if (config.useLightInk) 0xFF81C995.toInt() else 0xFF137333.toInt()
+        val blue = if (config.useLightInk) 0xFF8AB4F8.toInt() else 0xFF1A73E8.toInt()
+        val amber = if (config.useLightInk) 0xFFFDD663.toInt() else 0xFFC56000.toInt()
+        val red = if (config.useLightInk) 0xFFF28B82.toInt() else 0xFFD93025.toInt()
+
         val tags = mutableListOf<OffroadOverlayTag>()
 
-        val climbAccent = when (analysis.climb.level) {
-            ClimbDifficultyLevel.EASY -> if (config.useLightInk) 0xFF81C995.toInt() else 0xFF137333.toInt()
-            ClimbDifficultyLevel.MODERATE -> if (config.useLightInk) 0xFF8AB4F8.toInt() else 0xFF1A73E8.toInt()
-            ClimbDifficultyLevel.CHALLENGING -> if (config.useLightInk) 0xFFFDD663.toInt() else 0xFFC56000.toInt()
-            ClimbDifficultyLevel.EXTREME -> if (config.useLightInk) 0xFFF28B82.toInt() else 0xFFD93025.toInt()
-        }
-        val surfaceAccent = when (analysis.surface.level) {
-            SurfaceComplexityLevel.SMOOTH -> if (config.useLightInk) 0xFF81C995.toInt() else 0xFF137333.toInt()
-            SurfaceComplexityLevel.TWISTY -> if (config.useLightInk) 0xFF8AB4F8.toInt() else 0xFF1A73E8.toInt()
-            SurfaceComplexityLevel.ROUGH -> if (config.useLightInk) 0xFFFDD663.toInt() else 0xFFC56000.toInt()
-            SurfaceComplexityLevel.EXTREME -> if (config.useLightInk) 0xFFF28B82.toInt() else 0xFFD93025.toInt()
-        }
+        when (detail.session.activityMode) {
+            ActivityMode.OFFROAD_CROSSING -> {
+                val analysis = OffroadAnalysisEngine.analyze(detail.session, detail.points)
+                if (config.showClimbDifficulty) {
+                    val c = analysis.climb
+                    val accent = when (c.level) {
+                        ClimbDifficultyLevel.EASY -> green
+                        ClimbDifficultyLevel.MODERATE -> blue
+                        ClimbDifficultyLevel.CHALLENGING -> amber
+                        ClimbDifficultyLevel.EXTREME -> red
+                    }
+                    tags.add(
+                        OffroadOverlayTag(
+                            category = "爬升难度",
+                            headline = c.level.fullLabel,
+                            detailLine = String.format(
+                                Locale.US,
+                                "指数 %d · 最大坡度 %.1f%% · %.0fm/km",
+                                c.score,
+                                c.maxGradePct,
+                                c.gainPerKmMeters
+                            ),
+                            accentArgb = accent
+                        )
+                    )
+                }
+                if (config.showSurfaceComplexity) {
+                    val sf = analysis.surface
+                    val accent = when (sf.level) {
+                        SurfaceComplexityLevel.SMOOTH -> green
+                        SurfaceComplexityLevel.TWISTY -> blue
+                        SurfaceComplexityLevel.ROUGH -> amber
+                        SurfaceComplexityLevel.EXTREME -> red
+                    }
+                    tags.add(
+                        OffroadOverlayTag(
+                            category = "路面复杂度",
+                            headline = sf.level.fullLabel,
+                            detailLine = String.format(
+                                Locale.US,
+                                "指数 %d · 非铺装 %d%% · %.1f弯/km",
+                                sf.score,
+                                sf.technicalPct,
+                                sf.turnsPerKm
+                            ),
+                            accentArgb = accent
+                        )
+                    )
+                }
+            }
 
-        if (config.showClimbDifficulty) {
-            val c = analysis.climb
-            tags.add(
-                OffroadOverlayTag(
-                    category = "爬升难度",
-                    headline = c.level.fullLabel,
-                    detailLine = String.format(
-                        Locale.US,
-                        "指数 %d · 最大坡度 %.1f%% · %.0fm/km",
-                        c.score,
-                        c.maxGradePct,
-                        c.gainPerKmMeters
-                    ),
-                    accentArgb = climbAccent
-                )
-            )
-        }
+            ActivityMode.HIKING -> {
+                val analysis = TrackTelemetryAnalyzer.analyzeHiking(detail.session, detail.points)
+                val compact = config.showClimbDifficulty && config.showSurfaceComplexity && config.showBodyPerformance
+                if (config.showClimbDifficulty) {
+                    val d = analysis.difficulty
+                    val accent = when (d.level) {
+                        HikeDifficultyLevel.EASY -> green
+                        HikeDifficultyLevel.MODERATE -> blue
+                        HikeDifficultyLevel.CHALLENGING -> amber
+                        HikeDifficultyLevel.EXTREME -> red
+                    }
+                    tags.add(
+                        OffroadOverlayTag(
+                            category = "难度评价",
+                            headline = d.level.fullLabel,
+                            detailLine = if (compact) {
+                                String.format(Locale.US, "指数 %d · 坡度 %.1f%%", d.score, d.maxGradePct)
+                            } else {
+                                String.format(Locale.US, "指数 %d · 最大坡度 %.1f%% · %.0fm/km", d.score, d.maxGradePct, d.gainPerKmMeters)
+                            },
+                            accentArgb = accent
+                        )
+                    )
+                }
+                if (config.showSurfaceComplexity) {
+                    val sf = analysis.surface
+                    val accent = when (sf.level) {
+                        SurfaceComplexityLevel.SMOOTH -> green
+                        SurfaceComplexityLevel.TWISTY -> blue
+                        SurfaceComplexityLevel.ROUGH -> amber
+                        SurfaceComplexityLevel.EXTREME -> red
+                    }
+                    tags.add(
+                        OffroadOverlayTag(
+                            category = "路面复杂度",
+                            headline = sf.level.fullLabel,
+                            detailLine = if (compact) {
+                                String.format(Locale.US, "指数 %d · 复杂 %d%%", sf.score, sf.technicalPct)
+                            } else {
+                                String.format(Locale.US, "指数 %d · 复杂路 %d%% · %.1f弯/km", sf.score, sf.technicalPct, sf.turnsPerKm)
+                            },
+                            accentArgb = accent
+                        )
+                    )
+                }
+                if (config.showBodyPerformance) {
+                    val bp = analysis.body
+                    val accent = when (bp.level) {
+                        BodyPerformanceLevel.RECOVERY -> green
+                        BodyPerformanceLevel.AEROBIC -> blue
+                        BodyPerformanceLevel.INTENSE -> amber
+                        BodyPerformanceLevel.PEAK -> red
+                    }
+                    val detailText = if (bp.avgHeartRate != null) {
+                        if (compact) {
+                            "均心率 ${bp.avgHeartRate} · ${bp.estimatedCaloriesKcal}kcal"
+                        } else {
+                            "均心率 ${bp.avgHeartRate} bpm · ${bp.estimatedCaloriesKcal} kcal"
+                        }
+                    } else {
+                        "指数 ${bp.score} · ${bp.estimatedCaloriesKcal} kcal"
+                    }
+                    tags.add(
+                        OffroadOverlayTag(
+                            category = "身体表现",
+                            headline = bp.level.fullLabel,
+                            detailLine = detailText,
+                            accentArgb = accent
+                        )
+                    )
+                }
+            }
 
-        if (config.showSurfaceComplexity) {
-            val sf = analysis.surface
-            tags.add(
-                OffroadOverlayTag(
-                    category = "路面复杂度",
-                    headline = sf.level.fullLabel,
-                    detailLine = String.format(
-                        Locale.US,
-                        "指数 %d · 非铺装 %d%% · %.1f弯/km",
-                        sf.score,
-                        sf.technicalPct,
-                        sf.turnsPerKm
-                    ),
-                    accentArgb = surfaceAccent
-                )
-            )
+            ActivityMode.KARTING -> {
+                val analysis = TrackTelemetryAnalyzer.analyzeKarting(detail.session, detail.points, detail.laps)
+                if (config.showClimbDifficulty) {
+                    val d = analysis.difficulty
+                    val accent = when (d.level) {
+                        KartDifficultyLevel.EASY -> green
+                        KartDifficultyLevel.MODERATE -> blue
+                        KartDifficultyLevel.CHALLENGING -> amber
+                        KartDifficultyLevel.EXTREME -> red
+                    }
+                    tags.add(
+                        OffroadOverlayTag(
+                            category = "赛道难度",
+                            headline = d.level.fullLabel,
+                            detailLine = String.format(
+                                Locale.US,
+                                "指数 %d · 横向 %.2fG · 急弯 %d处",
+                                d.score,
+                                d.peakLateralG,
+                                d.hairpinCount
+                            ),
+                            accentArgb = accent
+                        )
+                    )
+                }
+                if (config.showBodyPerformance) {
+                    val bp = analysis.body
+                    val accent = when (bp.level) {
+                        BodyPerformanceLevel.RECOVERY -> green
+                        BodyPerformanceLevel.AEROBIC -> blue
+                        BodyPerformanceLevel.INTENSE -> amber
+                        BodyPerformanceLevel.PEAK -> red
+                    }
+                    val detailText = if (bp.avgHeartRate != null) {
+                        "均心率 ${bp.avgHeartRate} bpm · ${bp.stabilityLabelZh} ${bp.stabilityPct}%"
+                    } else {
+                        "${bp.stabilityLabelZh} ${bp.stabilityPct}% · ${bp.estimatedCaloriesKcal} kcal"
+                    }
+                    tags.add(
+                        OffroadOverlayTag(
+                            category = "身体表现",
+                            headline = bp.level.fullLabel,
+                            detailLine = detailText,
+                            accentArgb = accent
+                        )
+                    )
+                }
+            }
         }
         return tags
     }
@@ -329,17 +468,17 @@ object SocialCardBitmapRenderer {
             topCursorY += 66f * s
         }
 
-        // Compute bottom block height for offroad rating pills + stats + optional mini profile curve
-        val offroadTags = buildOffroadOverlayTags(detail, config)
+        // Compute bottom block height for analysis rating pills + stats + optional mini profile curve
+        val analysisTags = buildAnalysisOverlayTags(detail, config)
         val stats = buildSelectedStats(detail, speedUnit, config)
         val hasMiniProfile = config.showMiniProfile && detail.points.size >= 2
-        val offroadBlockHeight = if (offroadTags.isNotEmpty()) 114f * s else 0f
+        val analysisBlockHeight = if (analysisTags.isNotEmpty()) 114f * s else 0f
         val statRows = if (stats.isEmpty()) 0 else ((stats.size + 2) / 3)
         val statsBlockHeight = if (statRows > 0) statRows * (112f * s) + 28f * s else 0f
         val profileBlockHeight = if (hasMiniProfile) 128f * s else 0f
         val bottomPad = 56f * s
-        var bottomPanelHeight = offroadBlockHeight + statsBlockHeight + profileBlockHeight
-        if (offroadBlockHeight > 0f && (statsBlockHeight > 0f || profileBlockHeight > 0f)) {
+        var bottomPanelHeight = analysisBlockHeight + statsBlockHeight + profileBlockHeight
+        if (analysisBlockHeight > 0f && (statsBlockHeight > 0f || profileBlockHeight > 0f)) {
             bottomPanelHeight += 20f * s
         }
         if (statsBlockHeight > 0f && profileBlockHeight > 0f) {
@@ -364,7 +503,7 @@ object SocialCardBitmapRenderer {
             )
         }
 
-        // 4. Bottom Off-road Ratings, Stats & Mini Profile Panel
+        // 4. Bottom Analysis Ratings, Stats & Mini Profile Panel
         if (bottomPanelHeight > 0f) {
             val panelRect = RectF(
                 padX - 16f * s,
@@ -381,20 +520,20 @@ object SocialCardBitmapRenderer {
             }
 
             var cursorY = bottomPanelTop
-            if (offroadTags.isNotEmpty()) {
-                drawOffroadRatingPills(
+            if (analysisTags.isNotEmpty()) {
+                drawAnalysisRatingPills(
                     canvas = canvas,
-                    tags = offroadTags,
+                    tags = analysisTags,
                     left = padX,
                     top = cursorY,
                     width = width - padX * 2f,
-                    height = offroadBlockHeight,
+                    height = analysisBlockHeight,
                     scale = s,
                     lightInk = config.useLightInk,
                     inkSecondary = inkSecondary,
                     isFrosted = config.overlayBackdrop == SocialOverlayBackdrop.FROSTED
                 )
-                cursorY += offroadBlockHeight + if (stats.isNotEmpty() || hasMiniProfile) 20f * s else 0f
+                cursorY += analysisBlockHeight + if (stats.isNotEmpty() || hasMiniProfile) 20f * s else 0f
             }
 
             if (stats.isNotEmpty()) {
@@ -430,7 +569,7 @@ object SocialCardBitmapRenderer {
         return out
     }
 
-    private fun drawOffroadRatingPills(
+    private fun drawAnalysisRatingPills(
         canvas: Canvas,
         tags: List<OffroadOverlayTag>,
         left: Float,
@@ -442,8 +581,9 @@ object SocialCardBitmapRenderer {
         inkSecondary: Int,
         isFrosted: Boolean
     ) {
-        val gap = 16f * scale
         val count = tags.size.coerceAtLeast(1)
+        val isCompactThree = count >= 3
+        val gap = (if (isCompactThree) 12f else 16f) * scale
         val cellW = (width - gap * (count - 1)) / count.toFloat()
 
         val cardBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -460,15 +600,15 @@ object SocialCardBitmapRenderer {
         }
         val catPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = inkSecondary
-            textSize = 21f * scale
+            textSize = (if (isCompactThree) 19f else 21f) * scale
         }
         val headPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 31f * scale
+            textSize = (if (isCompactThree) 26f else 31f) * scale
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = inkSecondary
-            textSize = 20f * scale
+            textSize = (if (isCompactThree) 18f else 20f) * scale
             typeface = Typeface.MONOSPACE
         }
 
@@ -480,16 +620,16 @@ object SocialCardBitmapRenderer {
             borderPaint.color = (tag.accentArgb and 0x00FFFFFF) or 0x66000000
             canvas.drawRoundRect(rect, 22f * scale, 22f * scale, borderPaint)
 
-            val innerPad = 18f * scale
+            val innerPad = (if (isCompactThree) 14f else 18f) * scale
             val maxTextW = (cellW - innerPad * 2f).coerceAtLeast(20f)
             canvas.drawText(tag.category, x + innerPad, top + 28f * scale, catPaint)
 
             headPaint.color = tag.accentArgb
             val fitHead = ellipsize(tag.headline, headPaint, maxTextW)
-            canvas.drawText(fitHead, x + innerPad, top + 66f * scale, headPaint)
+            canvas.drawText(fitHead, x + innerPad, top + 65f * scale, headPaint)
 
             val fitSub = ellipsize(tag.detailLine, subPaint, maxTextW)
-            canvas.drawText(fitSub, x + innerPad, top + 96f * scale, subPaint)
+            canvas.drawText(fitSub, x + innerPad, top + 95f * scale, subPaint)
         }
     }
 

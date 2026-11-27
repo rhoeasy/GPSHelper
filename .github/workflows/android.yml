@@ -148,6 +148,16 @@ jobs:
           fi
 
           echo "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 -d > my-upload-key.jks
+
+          # 若用户自备证书的 alias 不是 upload（例如 release），在临时副本中自动映射为 upload 以匹配 build.gradle.kts
+          if ! keytool -list -keystore my-upload-key.jks -storepass "$STORE_PASSWORD" -alias upload >/dev/null 2>&1; then
+            DETECTED_ALIAS=$(keytool -list -keystore my-upload-key.jks -storepass "$STORE_PASSWORD" | awk -F',' '/PrivateKeyEntry/{print $1; exit}')
+            if [ -n "$DETECTED_ALIAS" ]; then
+              echo "检测到证书别名为 '$DETECTED_ALIAS'，正在临时映射为 'upload' 以匹配 Gradle 配置..."
+              keytool -changealias -keystore my-upload-key.jks -storepass "$STORE_PASSWORD" -alias "$DETECTED_ALIAS" -destalias upload -keypass "$KEY_PASSWORD"
+            fi
+          fi
+
           export KEYSTORE_PATH="$(pwd)/my-upload-key.jks"
 
           if [ -f "./gradlew" ]; then

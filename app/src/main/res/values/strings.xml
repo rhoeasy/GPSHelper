@@ -229,7 +229,10 @@
     <string name="social_chip_hr">心率</string>
     <string name="social_chip_peak_g">峰值 G 力</string>
     <string name="social_chip_climb_difficulty">爬升难度</string>
+    <string name="social_chip_hike_difficulty">难度评价</string>
+    <string name="social_chip_kart_difficulty">赛道难度</string>
     <string name="social_chip_surface_complexity">路面复杂度</string>
+    <string name="social_chip_body_performance">身体表现</string>
     <string name="social_chip_profile">剖面曲线</string>
     <string name="social_save_gallery">保存到相册</string>
     <string name="social_share_png">分享图片</string>
@@ -237,9 +240,12 @@
     <string name="toast_social_save_failed">保存图片失败，请重试</string>
     <string name="toast_social_photo_failed">无法读取所选照片，请换一张重试</string>
 
-    <!-- Off-road Crossing Analysis -->
+    <!-- Off-road, Hiking & Karting Telemetry Analysis -->
     <string name="offroad_climb_title">爬升难度评价</string>
+    <string name="hike_difficulty_title">徒步难度评价</string>
+    <string name="kart_difficulty_title">赛道难度评价</string>
     <string name="offroad_surface_title">路面复杂程度统计</string>
+    <string name="body_perf_title">身体表现统计分析</string>
     <string name="offroad_score_format">综合指数 %d / 100</string>
     <string name="offroad_metric_max_grade">最大坡度</string>
     <string name="offroad_metric_avg_climb_grade">平均上坡</string>
@@ -247,11 +253,21 @@
     <string name="offroad_metric_steep_ratio">陡坡占比</string>
     <string name="offroad_metric_turns_per_km">弯道密度</string>
     <string name="offroad_metric_hairpins">急弯/发卡</string>
+    <string name="hike_metric_switchbacks">折返陡弯</string>
     <string name="offroad_metric_vibration">颠簸指数</string>
     <string name="offroad_metric_speed_cv">车速波动</string>
+    <string name="hike_metric_pace_cv">配速波动</string>
+    <string name="kart_metric_peak_brake_g">最大制动 G</string>
     <string name="offroad_terrain_smooth">平顺</string>
     <string name="offroad_terrain_twisty">盘山弯道</string>
     <string name="offroad_terrain_technical">复杂非铺装</string>
+    <string name="hike_terrain_smooth">平缓步道</string>
+    <string name="hike_terrain_trail">山林起伏</string>
+    <string name="hike_terrain_technical">陡坡复杂路</string>
+    <string name="body_zone_easy">轻松热身</string>
+    <string name="body_zone_aerobic">有氧耐力</string>
+    <string name="body_zone_high">高强度区</string>
+    <string name="body_metric_calories">估算消耗</string>
 
     <!-- Focus / Anti-Interruption Mode -->
     <string name="focus_pill_label">防打扰</string>

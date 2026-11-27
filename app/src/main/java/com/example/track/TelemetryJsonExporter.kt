@@ -86,31 +86,76 @@ object TelemetryJsonExporter {
                 })
             }
 
-            if (session.activityMode == ActivityMode.OFFROAD_CROSSING) {
-                val analysis = OffroadAnalysisEngine.analyze(session, points)
-                put("offroad_analysis", JSONObject().apply {
-                    put("climb_difficulty", JSONObject().apply {
-                        put("level_code", analysis.climb.level.code)
-                        put("level_label", analysis.climb.level.labelZh)
-                        put("score", analysis.climb.score)
-                        put("gain_per_km_m", round1(analysis.climb.gainPerKmMeters))
-                        put("max_grade_pct", round1(analysis.climb.maxGradePct))
-                        put("avg_climb_grade_pct", round1(analysis.climb.avgClimbGradePct))
-                        put("steep_distance_ratio_pct", analysis.climb.steepDistanceRatioPct)
+            when (session.activityMode) {
+                ActivityMode.OFFROAD_CROSSING -> {
+                    val analysis = OffroadAnalysisEngine.analyze(session, points)
+                    put("offroad_analysis", JSONObject().apply {
+                        put("climb_difficulty", JSONObject().apply {
+                            put("level_code", analysis.climb.level.code)
+                            put("level_label", analysis.climb.level.labelZh)
+                            put("score", analysis.climb.score)
+                            put("gain_per_km_m", round1(analysis.climb.gainPerKmMeters))
+                            put("max_grade_pct", round1(analysis.climb.maxGradePct))
+                            put("avg_climb_grade_pct", round1(analysis.climb.avgClimbGradePct))
+                            put("steep_distance_ratio_pct", analysis.climb.steepDistanceRatioPct)
+                        })
+                        put("surface_complexity", JSONObject().apply {
+                            put("level_code", analysis.surface.level.code)
+                            put("level_label", analysis.surface.level.labelZh)
+                            put("score", analysis.surface.score)
+                            put("turns_per_km", round2(analysis.surface.turnsPerKm))
+                            put("hairpin_count", analysis.surface.hairpinCount)
+                            put("vibration_index_g", round2(analysis.surface.vibrationIndexG.toDouble()))
+                            put("speed_variability_pct", analysis.surface.speedVariabilityPct)
+                            put("smooth_pct", analysis.surface.smoothPct)
+                            put("twisty_pct", analysis.surface.twistyPct)
+                            put("technical_offroad_pct", analysis.surface.technicalPct)
+                        })
                     })
-                    put("surface_complexity", JSONObject().apply {
-                        put("level_code", analysis.surface.level.code)
-                        put("level_label", analysis.surface.level.labelZh)
-                        put("score", analysis.surface.score)
-                        put("turns_per_km", round2(analysis.surface.turnsPerKm))
-                        put("hairpin_count", analysis.surface.hairpinCount)
-                        put("vibration_index_g", round2(analysis.surface.vibrationIndexG.toDouble()))
-                        put("speed_variability_pct", analysis.surface.speedVariabilityPct)
-                        put("smooth_pct", analysis.surface.smoothPct)
-                        put("twisty_pct", analysis.surface.twistyPct)
-                        put("technical_offroad_pct", analysis.surface.technicalPct)
+                }
+                ActivityMode.HIKING -> {
+                    val analysis = TrackTelemetryAnalyzer.analyzeHiking(session, points)
+                    put("hiking_analysis", JSONObject().apply {
+                        put("route_difficulty", JSONObject().apply {
+                            put("level_code", analysis.difficulty.level.code)
+                            put("level_label", analysis.difficulty.level.labelZh)
+                            put("score", analysis.difficulty.score)
+                            put("gain_per_km_m", round1(analysis.difficulty.gainPerKmMeters))
+                            put("max_grade_pct", round1(analysis.difficulty.maxGradePct))
+                            put("avg_climb_grade_pct", round1(analysis.difficulty.avgClimbGradePct))
+                            put("steep_distance_ratio_pct", analysis.difficulty.steepDistanceRatioPct)
+                        })
+                        put("surface_complexity", JSONObject().apply {
+                            put("level_code", analysis.surface.level.code)
+                            put("level_label", analysis.surface.level.labelZh)
+                            put("score", analysis.surface.score)
+                            put("turns_per_km", round2(analysis.surface.turnsPerKm))
+                            put("hairpin_count", analysis.surface.hairpinCount)
+                            put("vibration_index_g", round2(analysis.surface.vibrationIndexG.toDouble()))
+                            put("speed_variability_pct", analysis.surface.speedVariabilityPct)
+                            put("smooth_pct", analysis.surface.smoothPct)
+                            put("twisty_pct", analysis.surface.twistyPct)
+                            put("technical_trail_pct", analysis.surface.technicalPct)
+                        })
+                        put("body_performance", buildBodyPerformanceJson(analysis.body))
                     })
-                })
+                }
+                ActivityMode.KARTING -> {
+                    val analysis = TrackTelemetryAnalyzer.analyzeKarting(session, points, laps)
+                    put("karting_analysis", JSONObject().apply {
+                        put("track_difficulty", JSONObject().apply {
+                            put("level_code", analysis.difficulty.level.code)
+                            put("level_label", analysis.difficulty.level.labelZh)
+                            put("score", analysis.difficulty.score)
+                            put("turns_per_km", round2(analysis.difficulty.turnsPerKm))
+                            put("hairpin_count", analysis.difficulty.hairpinCount)
+                            put("peak_lateral_g", round2(analysis.difficulty.peakLateralG.toDouble()))
+                            put("peak_braking_g", round2(analysis.difficulty.peakBrakingG.toDouble()))
+                            put("speed_span_kmh", round1(analysis.difficulty.speedSpanKmh))
+                        })
+                        put("body_performance", buildBodyPerformanceJson(analysis.body))
+                    })
+                }
             }
         }
         root.put("session", sessionObj)
@@ -302,6 +347,23 @@ object TelemetryJsonExporter {
             put("z3_135_154", round1(z3))
             put("z4_155_174", round1(z4))
             put("z5_ge175", round1(z5))
+        }
+    }
+
+    private fun buildBodyPerformanceJson(body: BodyPerformanceAnalysis): JSONObject {
+        return JSONObject().apply {
+            put("level_code", body.level.code)
+            put("level_label", body.level.labelZh)
+            put("score", body.score)
+            put("has_heart_rate_data", body.hasHeartRateData)
+            put("avg_heart_rate_bpm", body.avgHeartRate ?: JSONObject.NULL)
+            put("max_heart_rate_bpm", body.maxHeartRate ?: JSONObject.NULL)
+            put("easy_zone_pct", body.easyZonePct)
+            put("aerobic_zone_pct", body.aerobicZonePct)
+            put("high_zone_pct", body.highZonePct)
+            put("stability_label", body.stabilityLabelZh)
+            put("stability_pct", body.stabilityPct)
+            put("estimated_calories_kcal", body.estimatedCaloriesKcal)
         }
     }
 

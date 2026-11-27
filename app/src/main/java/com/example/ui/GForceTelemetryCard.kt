@@ -23,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,9 +32,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
@@ -49,6 +55,8 @@ fun GForceTelemetryCard(
     peakHoldSeconds: Int,
     onCalibrateZero: () -> Unit,
     onResetPeak: () -> Unit,
+    isLandscape: Boolean = false,
+    radarSize: Dp = if (isLandscape) 148.dp else 92.dp,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -65,18 +73,31 @@ fun GForceTelemetryCard(
         else -> stringResource(R.string.gforce_badge_accel_only)
     }
 
+    val holdLabel = when {
+        peakHoldSeconds <= 0 -> stringResource(R.string.peak_hold_forever)
+        peakHoldSeconds < 60 -> "${peakHoldSeconds}s"
+        else -> "${peakHoldSeconds / 60}m"
+    }
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .testTag("gforce_telemetry_card"),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(if (isLandscape) 28.dp else 24.dp),
         color = cs.surfaceContainerLow
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(
+                    horizontal = if (isLandscape) 18.dp else 18.dp,
+                    vertical = if (isLandscape) 16.dp else 18.dp
+                ),
+            verticalArrangement = if (isLandscape) {
+                Arrangement.SpaceBetween
+            } else {
+                Arrangement.spacedBy(14.dp)
+            }
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -95,8 +116,11 @@ fun GForceTelemetryCard(
                     )
                     Text(
                         text = stringResource(R.string.gforce_card_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = cs.onSurface
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = if (isLandscape) FontWeight.SemiBold else FontWeight.Medium
+                        ),
+                        color = cs.onSurface,
+                        maxLines = 1
                     )
                 }
 
@@ -104,7 +128,7 @@ fun GForceTelemetryCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (gForceData.isLandscape) {
+                    if (gForceData.isLandscape || isLandscape) {
                         Surface(
                             shape = RoundedCornerShape(50),
                             color = cs.secondaryContainer,
@@ -122,142 +146,271 @@ fun GForceTelemetryCard(
                         }
                     }
 
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = if (gForceData.hasGyroscope && gForceData.isAvailable) {
-                            cs.primaryContainer
-                        } else {
-                            cs.surfaceContainer
-                        }
-                    ) {
-                        Text(
-                            text = sensorBadgeText,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 11.sp
-                            ),
+                    if (!isLandscape) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
                             color = if (gForceData.hasGyroscope && gForceData.isAvailable) {
-                                cs.onPrimaryContainer
+                                cs.primaryContainer
                             } else {
-                                cs.onSurfaceVariant
-                            },
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
+                                cs.surfaceContainer
+                            }
+                        ) {
+                            Text(
+                                text = sensorBadgeText,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 11.sp
+                                ),
+                                color = if (gForceData.hasGyroscope && gForceData.isAvailable) {
+                                    cs.onPrimaryContainer
+                                } else {
+                                    cs.onSurfaceVariant
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Live G-Force circular radar powered by Accelerometer + Gyroscope fusion
-                ComposeGForceRadar(
-                    gForceData = gForceData,
-                    dotColor = gAccent,
-                    showPeakOnDial = showPeakOnDial,
-                    modifier = Modifier.size(92.dp)
-                )
-
-                // Instantaneous numerical readouts
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            if (isLandscape) {
+                // Maximized Landscape Cockpit Layout: Enlarged G-Force Radar + High-Contrast Metrics & Actions
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    val holdLabel = when {
-                        peakHoldSeconds <= 0 -> stringResource(R.string.peak_hold_forever)
-                        peakHoldSeconds < 60 -> "${peakHoldSeconds}s"
-                        else -> "${peakHoldSeconds / 60}m"
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        GForceMetricItem(
-                            label = stringResource(R.string.gforce_label_total),
-                            value = String.format(Locale.US, "%.2f G", gForceData.totalG),
-                            accent = gAccent,
-                            modifier = Modifier.weight(1f)
-                        )
-                        GForceMetricItem(
-                            label = "${stringResource(R.string.gforce_label_peak)} ($holdLabel)",
-                            value = String.format(Locale.US, "%.2f G", gForceData.peakG),
-                            accent = cs.tertiary,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Row(
+                    ComposeGForceRadar(
+                        gForceData = gForceData,
+                        dotColor = gAccent,
+                        showPeakOnDial = showPeakOnDial,
+                        showScaleLabels = true,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(cs.surfaceContainer)
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .size(radarSize)
+                            .testTag("gforce_radar_canvas")
+                    )
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        GForceAxisReadout(
-                            label = stringResource(R.string.gforce_label_lateral),
-                            value = String.format(Locale.US, "%+.2f", gForceData.lateralG)
-                        )
-                        GForceAxisReadout(
-                            label = stringResource(R.string.gforce_label_longitudinal),
-                            value = String.format(Locale.US, "%+.2f", gForceData.longitudinalG)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            GForceMetricItem(
+                                label = stringResource(R.string.gforce_label_total),
+                                value = String.format(Locale.US, "%.2f G", gForceData.totalG),
+                                accent = gAccent,
+                                valueFontSize = 24.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            GForceMetricItem(
+                                label = "${stringResource(R.string.gforce_label_peak)} ($holdLabel)",
+                                value = String.format(Locale.US, "%.2f G", gForceData.peakG),
+                                accent = cs.tertiary,
+                                valueFontSize = 22.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(cs.surfaceContainer)
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            GForceAxisReadout(
+                                label = stringResource(R.string.gforce_label_lateral),
+                                value = String.format(Locale.US, "%+.2f G", gForceData.lateralG),
+                                valueFontSize = 14.sp
+                            )
+                            GForceAxisReadout(
+                                label = stringResource(R.string.gforce_label_longitudinal),
+                                value = String.format(Locale.US, "%+.2f G", gForceData.longitudinalG),
+                                valueFontSize = 14.sp
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilledTonalButton(
+                                onClick = onCalibrateZero,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("btn_gforce_calibrate"),
+                                shape = RoundedCornerShape(50),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = cs.surfaceContainerHigh,
+                                    contentColor = cs.onSurface
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CenterFocusStrong,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = stringResource(R.string.gforce_action_calibrate),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            FilledTonalButton(
+                                onClick = onResetPeak,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("btn_gforce_reset_peak"),
+                                shape = RoundedCornerShape(50),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = cs.surfaceContainerHigh,
+                                    contentColor = cs.onSurface
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = stringResource(R.string.gforce_action_reset_peak),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                FilledTonalButton(
-                    onClick = onCalibrateZero,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("btn_gforce_calibrate"),
-                    shape = RoundedCornerShape(50),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = cs.surfaceContainerHigh,
-                        contentColor = cs.onSurface
-                    )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.CenterFocusStrong,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
+                    // Live G-Force circular radar powered by Accelerometer + Gyroscope fusion
+                    ComposeGForceRadar(
+                        gForceData = gForceData,
+                        dotColor = gAccent,
+                        showPeakOnDial = showPeakOnDial,
+                        showScaleLabels = false,
+                        modifier = Modifier
+                            .size(radarSize)
+                            .testTag("gforce_radar_canvas")
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.gforce_action_calibrate),
-                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.5.sp)
-                    )
+
+                    // Instantaneous numerical readouts
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            GForceMetricItem(
+                                label = stringResource(R.string.gforce_label_total),
+                                value = String.format(Locale.US, "%.2f G", gForceData.totalG),
+                                accent = gAccent,
+                                modifier = Modifier.weight(1f)
+                            )
+                            GForceMetricItem(
+                                label = "${stringResource(R.string.gforce_label_peak)} ($holdLabel)",
+                                value = String.format(Locale.US, "%.2f G", gForceData.peakG),
+                                accent = cs.tertiary,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(cs.surfaceContainer)
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            GForceAxisReadout(
+                                label = stringResource(R.string.gforce_label_lateral),
+                                value = String.format(Locale.US, "%+.2f", gForceData.lateralG)
+                            )
+                            GForceAxisReadout(
+                                label = stringResource(R.string.gforce_label_longitudinal),
+                                value = String.format(Locale.US, "%+.2f", gForceData.longitudinalG)
+                            )
+                        }
+                    }
                 }
 
-                FilledTonalButton(
-                    onClick = onResetPeak,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("btn_gforce_reset_peak"),
-                    shape = RoundedCornerShape(50),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = cs.surfaceContainerHigh,
-                        contentColor = cs.onSurface
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Refresh,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.gforce_action_reset_peak),
-                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.5.sp)
-                    )
+                    FilledTonalButton(
+                        onClick = onCalibrateZero,
+                        modifier = Modifier
+                            .weight(1f)
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_gforce_calibrate"),
+                        shape = RoundedCornerShape(50),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = cs.surfaceContainerHigh,
+                            contentColor = cs.onSurface
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.CenterFocusStrong,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.gforce_action_calibrate),
+                            style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.5.sp)
+                        )
+                    }
+
+                    FilledTonalButton(
+                        onClick = onResetPeak,
+                        modifier = Modifier
+                            .weight(1f)
+                            .minimumInteractiveComponentSize()
+                            .testTag("btn_gforce_reset_peak"),
+                        shape = RoundedCornerShape(50),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = cs.surfaceContainerHigh,
+                            contentColor = cs.onSurface
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.gforce_action_reset_peak),
+                            style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.5.sp)
+                        )
+                    }
                 }
             }
         }
@@ -269,20 +422,23 @@ private fun ComposeGForceRadar(
     gForceData: GForceData,
     dotColor: Color,
     showPeakOnDial: Boolean,
+    showScaleLabels: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
     val dialBg = cs.surfaceContainer
-    val ringOuter = cs.outline.copy(alpha = 0.45f)
-    val ringInner = cs.outline.copy(alpha = 0.28f)
-    val crosshair = cs.outlineVariant.copy(alpha = 0.5f)
+    val ringOuter = cs.outline.copy(alpha = 0.48f)
+    val ringInner = cs.outline.copy(alpha = 0.30f)
+    val crosshair = cs.outlineVariant.copy(alpha = 0.55f)
+    val labelColor = cs.onSurfaceVariant.copy(alpha = 0.78f)
     val peakColor = cs.tertiary
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.matchParentSize()) {
             val cx = size.width / 2f
             val cy = size.height / 2f
-            val radius = (size.minDimension / 2f) - 3.dp.toPx()
+            val edgeInset = if (showScaleLabels) 4.dp.toPx() else 3.dp.toPx()
+            val radius = (size.minDimension / 2f) - edgeInset
             if (radius <= 0f) return@Canvas
 
             drawCircle(color = dialBg, radius = radius, center = Offset(cx, cy))
@@ -290,17 +446,32 @@ private fun ComposeGForceRadar(
                 color = ringOuter,
                 radius = radius,
                 center = Offset(cx, cy),
-                style = Stroke(width = 1.4.dp.toPx())
+                style = Stroke(width = (if (showScaleLabels) 1.6f else 1.4f).dp.toPx())
             )
-            drawCircle(
-                color = ringInner,
-                radius = radius * 0.5f,
-                center = Offset(cx, cy),
-                style = Stroke(
-                    width = 1.dp.toPx(),
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+            if (showScaleLabels) {
+                // 0.5G & 1.0G dashed concentric rings for 1.5G full-scale precision
+                listOf(1f / 3f, 2f / 3f).forEach { frac ->
+                    drawCircle(
+                        color = ringInner,
+                        radius = radius * frac,
+                        center = Offset(cx, cy),
+                        style = Stroke(
+                            width = 1.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
+                        )
+                    )
+                }
+            } else {
+                drawCircle(
+                    color = ringInner,
+                    radius = radius * 0.5f,
+                    center = Offset(cx, cy),
+                    style = Stroke(
+                        width = 1.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+                    )
                 )
-            )
+            }
             drawLine(
                 color = crosshair,
                 start = Offset(cx - radius, cy),
@@ -313,6 +484,27 @@ private fun ComposeGForceRadar(
                 end = Offset(cx, cy + radius),
                 strokeWidth = 0.9.dp.toPx()
             )
+
+            if (showScaleLabels) {
+                val scalePaint = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    textAlign = android.graphics.Paint.Align.CENTER
+                    textSize = 9.5.sp.toPx()
+                    color = labelColor.toArgb()
+                    isFakeBoldText = true
+                }
+                // Subtle ring scale & directional cues inside the expanded dial
+                drawContext.canvas.nativeCanvas.drawText(
+                    "1.0G",
+                    cx + radius * (2f / 3f) - 10.dp.toPx(),
+                    cy - 3.dp.toPx(),
+                    scalePaint
+                )
+                drawContext.canvas.nativeCanvas.drawText("加", cx, cy - radius + 11.dp.toPx(), scalePaint)
+                drawContext.canvas.nativeCanvas.drawText("刹", cx, cy + radius - 4.dp.toPx(), scalePaint)
+                drawContext.canvas.nativeCanvas.drawText("左", cx - radius + 9.dp.toPx(), cy + 3.5.dp.toPx(), scalePaint)
+                drawContext.canvas.nativeCanvas.drawText("右", cx + radius - 9.dp.toPx(), cy + 3.5.dp.toPx(), scalePaint)
+            }
 
             val maxScaleG = 1.5f
             val maxTravel = radius - 4.dp.toPx()
@@ -333,8 +525,8 @@ private fun ComposeGForceRadar(
                     maxTravel = maxTravel,
                     maxScaleG = maxScaleG,
                     peakColor = peakColor,
-                    strokeWidthPx = 1.6.dp.toPx(),
-                    peakDotRadiusPx = 3.8.dp.toPx()
+                    strokeWidthPx = (if (showScaleLabels) 2.0f else 1.6f).dp.toPx(),
+                    peakDotRadiusPx = (if (showScaleLabels) 4.4f else 3.8f).dp.toPx()
                 )
             }
 
@@ -343,8 +535,8 @@ private fun ComposeGForceRadar(
                 trail.forEachIndexed { idx, sample ->
                     val frac = (idx + 1f) / trail.size.toFloat()
                     drawCircle(
-                        color = dotColor.copy(alpha = frac * 0.38f),
-                        radius = (1.5f + 1.5f * frac).dp.toPx(),
+                        color = dotColor.copy(alpha = frac * 0.42f),
+                        radius = (if (showScaleLabels) (1.8f + 1.8f * frac) else (1.5f + 1.5f * frac)).dp.toPx(),
                         center = mapPoint(sample.lateralG, sample.longitudinalG)
                     )
                 }
@@ -352,13 +544,13 @@ private fun ComposeGForceRadar(
 
             val dotCenter = mapPoint(gForceData.lateralG, gForceData.longitudinalG)
             drawCircle(
-                color = dotColor.copy(alpha = 0.25f),
-                radius = 8.dp.toPx(),
+                color = dotColor.copy(alpha = 0.28f),
+                radius = (if (showScaleLabels) 10.dp else 8.dp).toPx(),
                 center = dotCenter
             )
             drawCircle(
                 color = dotColor,
-                radius = 4.6.dp.toPx(),
+                radius = (if (showScaleLabels) 5.6.dp else 4.6.dp).toPx(),
                 center = dotCenter
             )
         }
@@ -370,6 +562,7 @@ private fun GForceMetricItem(
     label: String,
     value: String,
     accent: Color,
+    valueFontSize: TextUnit = 18.sp,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -380,16 +573,19 @@ private fun GForceMetricItem(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = cs.onSurfaceVariant
+            color = cs.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
         Text(
             text = value,
             style = MaterialTheme.typography.titleMedium.copy(
                 fontFamily = JetBrainsMonoFontFamily,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 18.sp
+                fontWeight = FontWeight.Bold,
+                fontSize = valueFontSize
             ),
-            color = accent
+            color = accent,
+            maxLines = 1
         )
     }
 }
@@ -397,7 +593,8 @@ private fun GForceMetricItem(
 @Composable
 private fun GForceAxisReadout(
     label: String,
-    value: String
+    value: String,
+    valueFontSize: TextUnit = 12.sp
 ) {
     val cs = MaterialTheme.colorScheme
     Row(
@@ -413,9 +610,11 @@ private fun GForceAxisReadout(
             text = value,
             style = MaterialTheme.typography.labelMedium.copy(
                 fontFamily = JetBrainsMonoFontFamily,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                fontSize = valueFontSize
             ),
-            color = cs.onSurface
+            color = cs.onSurface,
+            maxLines = 1
         )
     }
 }

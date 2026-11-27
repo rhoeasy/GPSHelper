@@ -128,8 +128,9 @@ fun SocialShareCardScreen(
                 showSpeed = true,
                 showHeartRate = detail.session.avgHeartRate != null,
                 showPeakG = (isKart || isOffroad) && detail.session.peakTotalG > 0.05f,
-                showClimbDifficulty = isOffroad,
-                showSurfaceComplexity = isOffroad,
+                showClimbDifficulty = true,
+                showSurfaceComplexity = mode.isElevationTrail,
+                showBodyPerformance = mode == ActivityMode.HIKING || mode == ActivityMode.KARTING,
                 showMiniProfile = true
             )
         )
@@ -556,18 +557,32 @@ fun SocialShareCardScreen(
                                     tag = "chip_overlay_peak_g"
                                 )
                             }
-                            if (isOffroad) {
-                                OverlayDataChip(
-                                    label = stringResource(R.string.social_chip_climb_difficulty),
-                                    selected = config.showClimbDifficulty,
-                                    onToggle = { config = config.copy(showClimbDifficulty = !config.showClimbDifficulty) },
-                                    tag = "chip_overlay_climb_difficulty"
-                                )
+                            OverlayDataChip(
+                                label = stringResource(
+                                    when (mode) {
+                                        ActivityMode.OFFROAD_CROSSING -> R.string.social_chip_climb_difficulty
+                                        ActivityMode.HIKING -> R.string.social_chip_hike_difficulty
+                                        ActivityMode.KARTING -> R.string.social_chip_kart_difficulty
+                                    }
+                                ),
+                                selected = config.showClimbDifficulty,
+                                onToggle = { config = config.copy(showClimbDifficulty = !config.showClimbDifficulty) },
+                                tag = "chip_overlay_climb_difficulty"
+                            )
+                            if (mode.isElevationTrail) {
                                 OverlayDataChip(
                                     label = stringResource(R.string.social_chip_surface_complexity),
                                     selected = config.showSurfaceComplexity,
                                     onToggle = { config = config.copy(showSurfaceComplexity = !config.showSurfaceComplexity) },
                                     tag = "chip_overlay_surface_complexity"
+                                )
+                            }
+                            if (mode == ActivityMode.HIKING || mode == ActivityMode.KARTING) {
+                                OverlayDataChip(
+                                    label = stringResource(R.string.social_chip_body_performance),
+                                    selected = config.showBodyPerformance,
+                                    onToggle = { config = config.copy(showBodyPerformance = !config.showBodyPerformance) },
+                                    tag = "chip_overlay_body_performance"
                                 )
                             }
                             OverlayDataChip(

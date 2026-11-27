@@ -287,6 +287,7 @@ fun PrimarySpeedCard(
     onSelectUnit: (SpeedUnit) -> Unit,
     onOpenLocationSettings: () -> Unit,
     isAlertActive: Boolean = false,
+    isLandscape: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -327,8 +328,15 @@ fun PrimarySpeedCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 22.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(
+                    horizontal = if (isLandscape) 20.dp else 22.dp,
+                    vertical = if (isLandscape) 16.dp else 20.dp
+                ),
+            verticalArrangement = if (isLandscape) {
+                Arrangement.SpaceBetween
+            } else {
+                Arrangement.spacedBy(16.dp)
+            }
         ) {
             // Top bar inside Hero Card
             Row(
@@ -348,11 +356,15 @@ fun PrimarySpeedCard(
                             gpsData.fixStatus == GpsFixStatus.LOCKED -> cs.secondary
                             else -> cs.primary
                         },
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(if (isLandscape) 18.dp else 16.dp)
                     )
                     Text(
                         text = stringResource(R.string.speed_label),
-                        style = MaterialTheme.typography.titleSmall,
+                        style = if (isLandscape) {
+                            MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                        } else {
+                            MaterialTheme.typography.titleSmall
+                        },
                         color = if (isAlertActive) cs.onErrorContainer else cs.onSurfaceVariant
                     )
                     if (isAlertActive) {
@@ -380,21 +392,21 @@ fun PrimarySpeedCard(
                 )
             }
 
-            // Giant clean tabular speed figure (Google Pixel Weather / Clock aesthetic)
+            // Giant clean tabular speed figure (maximized for wide landscape cockpit legibility)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = if (isLandscape) 8.dp else 4.dp),
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.Center
             ) {
                 Text(
                     text = gpsData.formattedSpeedValue(speedUnit),
                     style = MaterialTheme.typography.displayLarge.copy(
-                        fontSize = 76.sp,
-                        lineHeight = 78.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = (-2.5).sp
+                        fontSize = if (isLandscape) 92.sp else 76.sp,
+                        lineHeight = if (isLandscape) 94.sp else 78.sp,
+                        fontWeight = if (isLandscape) FontWeight.Bold else FontWeight.SemiBold,
+                        letterSpacing = if (isLandscape) (-3.0).sp else (-2.5).sp
                     ),
                     color = when {
                         isAlertActive -> cs.error
@@ -402,65 +414,112 @@ fun PrimarySpeedCard(
                         else -> cs.outline
                     },
                     maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
                     modifier = Modifier.testTag("speed_readout_text")
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = speedUnit.label,
-                    style = MaterialTheme.typography.titleMedium.copy(
+                    style = (if (isLandscape) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium).copy(
                         fontFamily = JetBrainsMonoFontFamily,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.SemiBold
                     ),
                     color = if (isAlertActive) cs.onErrorContainer else cs.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 12.dp)
+                    modifier = Modifier.padding(bottom = if (isLandscape) 15.dp else 12.dp)
                 )
             }
 
-            // Minimalist rounded M3 speed bar
-            val trackColor = if (isAlertActive) cs.error.copy(alpha = 0.22f) else cs.surfaceContainerHighest
-            val fillColor = if (isAlertActive) cs.error else cs.primary
-            Canvas(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else 12.dp)
             ) {
-                val radius = CornerRadius(size.height / 2f, size.height / 2f)
-                drawRoundRect(
-                    color = trackColor,
-                    size = size,
-                    cornerRadius = radius
-                )
-                if (animatedFraction > 0.005f) {
+                // Rounded M3 speed bar (thicker & graduated with quarter markers in landscape)
+                val trackColor = if (isAlertActive) cs.error.copy(alpha = 0.22f) else cs.surfaceContainerHighest
+                val fillColor = if (isAlertActive) cs.error else cs.primary
+                val tickColor = cs.surfaceContainerLow.copy(alpha = 0.72f)
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(if (isLandscape) 10.dp else 6.dp)
+                ) {
+                    val radius = CornerRadius(size.height / 2f, size.height / 2f)
                     drawRoundRect(
-                        color = fillColor,
-                        size = Size(size.width * animatedFraction, size.height),
+                        color = trackColor,
+                        size = size,
                         cornerRadius = radius
                     )
+                    if (animatedFraction > 0.005f) {
+                        drawRoundRect(
+                            color = fillColor,
+                            size = Size(size.width * animatedFraction, size.height),
+                            cornerRadius = radius
+                        )
+                    }
+                    if (isLandscape) {
+                        val tickWidth = 2.dp.toPx()
+                        listOf(0.25f, 0.5f, 0.75f).forEach { frac ->
+                            val x = size.width * frac
+                            drawLine(
+                                color = tickColor,
+                                start = androidx.compose.ui.geometry.Offset(x, 0f),
+                                end = androidx.compose.ui.geometry.Offset(x, size.height),
+                                strokeWidth = tickWidth
+                            )
+                        }
+                    }
                 }
-            }
 
-            // Subtle provider caption
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = providerText,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
-                    color = cs.onSurfaceVariant
-                )
-                if (gpsData.fixStatus == GpsFixStatus.DISABLED) {
+                // Bottom caption / landscape quick cockpit telemetry strip
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Text(
-                        text = stringResource(R.string.action_open_location_settings),
-                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.sp),
-                        color = cs.primary,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClick = onOpenLocationSettings)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                            .testTag("btn_open_location_settings")
+                        text = providerText,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
+                        color = if (isAlertActive) cs.onErrorContainer else cs.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
+                    if (gpsData.fixStatus == GpsFixStatus.DISABLED) {
+                        Text(
+                            text = stringResource(R.string.action_open_location_settings),
+                            style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.sp),
+                            color = cs.primary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(onClick = onOpenLocationSettings)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .testTag("btn_open_location_settings")
+                        )
+                    } else if (isLandscape) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = gpsData.formattedBearing(),
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = if (isAlertActive) cs.onErrorContainer else cs.onSurfaceVariant,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = gpsData.formattedAccuracy(),
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                color = if (isAlertActive) cs.onErrorContainer else cs.primary,
+                                maxLines = 1
+                            )
+                        }
+                    }
                 }
             }
         }

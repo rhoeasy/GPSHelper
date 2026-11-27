@@ -7,10 +7,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -71,6 +74,7 @@ import com.example.track.TrackFormatters
 import com.example.track.TrackLapEntity
 import com.example.track.TrackSessionDetail
 import com.example.track.TrackSessionEntity
+import com.example.track.TrackTelemetryAnalyzer
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalTelemetryColors
 import java.util.Locale
@@ -548,19 +552,10 @@ fun TrackDetailScreen(
         )
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(cs.background),
-        contentAlignment = Alignment.TopCenter
-    ) {
+    val headerBar: @Composable () -> Unit = {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .widthIn(max = 600.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (isFocusLockActive) {
                 FocusActiveBanner(onExitFocusLock = onExitFocusLock)
@@ -610,8 +605,14 @@ fun TrackDetailScreen(
                     )
                 }
             }
+        }
+    }
 
-            // Primary Social Poster Studio button + JSON (AI Prompt) / GPX export row
+    val actionButtonsSection: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             Button(
                 onClick = { showSocialStudio = true },
                 modifier = Modifier
@@ -688,68 +689,139 @@ fun TrackDetailScreen(
                     )
                 }
             }
+        }
+    }
 
-            VectorTrackCanvasCard(
-                points = detail.points,
-                mode = session.activityMode,
-                speedUnit = speedUnit,
-                highlightedIndex = selectedPointIndex
-            )
-
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                color = cs.surfaceContainerLow
+    val summaryMetricsCard: @Composable () -> Unit = {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            color = cs.surfaceContainerLow
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    DetailMetricCell(
+                        label = stringResource(R.string.metric_distance),
+                        value = TrackFormatters.formatDistance(session.distanceMeters),
+                        accent = cs.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    DetailMetricCell(
+                        label = stringResource(R.string.metric_duration),
+                        value = TrackFormatters.formatDuration(session.durationMs),
+                        accent = cs.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    DetailMetricCell(
+                        label = stringResource(R.string.metric_max_speed),
+                        value = TrackFormatters.formatSpeed(session.maxSpeedMps, speedUnit),
+                        accent = cs.tertiary,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.6f))
+
+                if (isKart) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         DetailMetricCell(
-                            label = stringResource(R.string.metric_distance),
-                            value = TrackFormatters.formatDistance(session.distanceMeters),
-                            accent = cs.primary,
-                            modifier = Modifier.weight(1f)
-                        )
-                        DetailMetricCell(
-                            label = stringResource(R.string.metric_duration),
-                            value = TrackFormatters.formatDuration(session.durationMs),
-                            accent = cs.onSurface,
-                            modifier = Modifier.weight(1f)
-                        )
-                        DetailMetricCell(
-                            label = stringResource(R.string.metric_max_speed),
-                            value = TrackFormatters.formatSpeed(session.maxSpeedMps, speedUnit),
+                            label = stringResource(R.string.metric_lap_count),
+                            value = "${session.lapCount} 圈",
                             accent = cs.tertiary,
                             modifier = Modifier.weight(1f)
                         )
+                        DetailMetricCell(
+                            label = stringResource(R.string.metric_best_lap),
+                            value = TrackFormatters.formatLapTime(session.bestLapMs),
+                            accent = cs.secondary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        DetailMetricCell(
+                            label = stringResource(R.string.metric_avg_speed),
+                            value = TrackFormatters.formatSpeed(session.avgSpeedMps, speedUnit),
+                            accent = cs.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                } else {
+                    val isOffroad = session.activityMode == ActivityMode.OFFROAD_CROSSING
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        DetailMetricCell(
+                            label = stringResource(R.string.metric_elevation_gain),
+                            value = TrackFormatters.formatElevationGain(session.elevationGainMeters),
+                            accent = cs.secondary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        DetailMetricCell(
+                            label = stringResource(R.string.metric_elevation_loss),
+                            value = TrackFormatters.formatElevationLoss(session.elevationLossMeters),
+                            accent = cs.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (isOffroad) {
+                            DetailMetricCell(
+                                label = stringResource(R.string.metric_avg_speed),
+                                value = TrackFormatters.formatSpeed(session.avgSpeedMps, speedUnit),
+                                accent = cs.tertiary,
+                                modifier = Modifier.weight(1f)
+                            )
+                        } else {
+                            DetailMetricCell(
+                                label = stringResource(R.string.metric_avg_pace),
+                                value = TrackFormatters.formatPaceMinPerKm(
+                                    session.distanceMeters,
+                                    session.durationMs
+                                ),
+                                accent = cs.tertiary,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
 
                     HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.6f))
 
-                    if (isKart) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        DetailMetricCell(
+                            label = stringResource(R.string.metric_max_altitude),
+                            value = TrackFormatters.formatAltitude(session.maxAltitudeMeters),
+                            accent = cs.primary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        DetailMetricCell(
+                            label = stringResource(R.string.metric_min_altitude),
+                            value = TrackFormatters.formatAltitude(session.minAltitudeMeters),
+                            accent = cs.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (isOffroad) {
                             DetailMetricCell(
-                                label = stringResource(R.string.metric_lap_count),
-                                value = "${session.lapCount} 圈",
-                                accent = cs.tertiary,
+                                label = stringResource(R.string.metric_peak_lat_g),
+                                value = if (session.peakLateralG > 0.05f) {
+                                    String.format(Locale.US, "%.2f G", session.peakLateralG)
+                                } else {
+                                    "--"
+                                },
+                                accent = cs.primary,
                                 modifier = Modifier.weight(1f)
                             )
-                            DetailMetricCell(
-                                label = stringResource(R.string.metric_best_lap),
-                                value = TrackFormatters.formatLapTime(session.bestLapMs),
-                                accent = cs.secondary,
-                                modifier = Modifier.weight(1f)
-                            )
+                        } else {
                             DetailMetricCell(
                                 label = stringResource(R.string.metric_avg_speed),
                                 value = TrackFormatters.formatSpeed(session.avgSpeedMps, speedUnit),
@@ -757,122 +829,67 @@ fun TrackDetailScreen(
                                 modifier = Modifier.weight(1f)
                             )
                         }
-                    } else {
-                        val isOffroad = session.activityMode == ActivityMode.OFFROAD_CROSSING
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            DetailMetricCell(
-                                label = stringResource(R.string.metric_elevation_gain),
-                                value = TrackFormatters.formatElevationGain(session.elevationGainMeters),
-                                accent = cs.secondary,
-                                modifier = Modifier.weight(1f)
-                            )
-                            DetailMetricCell(
-                                label = stringResource(R.string.metric_elevation_loss),
-                                value = TrackFormatters.formatElevationLoss(session.elevationLossMeters),
-                                accent = cs.onSurface,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (isOffroad) {
-                                DetailMetricCell(
-                                    label = stringResource(R.string.metric_avg_speed),
-                                    value = TrackFormatters.formatSpeed(session.avgSpeedMps, speedUnit),
-                                    accent = cs.tertiary,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            } else {
-                                DetailMetricCell(
-                                    label = stringResource(R.string.metric_avg_pace),
-                                    value = TrackFormatters.formatPaceMinPerKm(
-                                        session.distanceMeters,
-                                        session.durationMs
-                                    ),
-                                    accent = cs.tertiary,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.6f))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            DetailMetricCell(
-                                label = stringResource(R.string.metric_max_altitude),
-                                value = TrackFormatters.formatAltitude(session.maxAltitudeMeters),
-                                accent = cs.primary,
-                                modifier = Modifier.weight(1f)
-                            )
-                            DetailMetricCell(
-                                label = stringResource(R.string.metric_min_altitude),
-                                value = TrackFormatters.formatAltitude(session.minAltitudeMeters),
-                                accent = cs.onSurfaceVariant,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (isOffroad) {
-                                DetailMetricCell(
-                                    label = stringResource(R.string.metric_peak_lat_g),
-                                    value = if (session.peakLateralG > 0.05f) {
-                                        String.format(Locale.US, "%.2f G", session.peakLateralG)
-                                    } else {
-                                        "--"
-                                    },
-                                    accent = cs.primary,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            } else {
-                                DetailMetricCell(
-                                    label = stringResource(R.string.metric_avg_speed),
-                                    value = TrackFormatters.formatSpeed(session.avgSpeedMps, speedUnit),
-                                    accent = cs.onSurface,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
                     }
+                }
 
-                    if (session.avgHeartRate != null || session.maxHeartRate != null || session.peakTotalG > 0.05f) {
-                        HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.6f))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            DetailMetricCell(
-                                label = stringResource(R.string.metric_avg_hr),
-                                value = session.avgHeartRate?.let { "$it bpm" } ?: "--",
-                                accent = tc.heart,
-                                modifier = Modifier.weight(1f)
-                            )
-                            DetailMetricCell(
-                                label = stringResource(R.string.metric_max_hr),
-                                value = session.maxHeartRate?.let { "$it bpm" } ?: "--",
-                                accent = tc.heart,
-                                modifier = Modifier.weight(1f)
-                            )
-                            DetailMetricCell(
-                                label = stringResource(R.string.metric_peak_g),
-                                value = if (session.peakTotalG > 0.05f) {
-                                    String.format(Locale.US, "%.2f G", session.peakTotalG)
-                                } else {
-                                    "--"
-                                },
-                                accent = cs.primary,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                if (session.avgHeartRate != null || session.maxHeartRate != null || session.peakTotalG > 0.05f) {
+                    HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.6f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        DetailMetricCell(
+                            label = stringResource(R.string.metric_avg_hr),
+                            value = session.avgHeartRate?.let { "$it bpm" } ?: "--",
+                            accent = tc.heart,
+                            modifier = Modifier.weight(1f)
+                        )
+                        DetailMetricCell(
+                            label = stringResource(R.string.metric_max_hr),
+                            value = session.maxHeartRate?.let { "$it bpm" } ?: "--",
+                            accent = tc.heart,
+                            modifier = Modifier.weight(1f)
+                        )
+                        DetailMetricCell(
+                            label = stringResource(R.string.metric_peak_g),
+                            value = if (session.peakTotalG > 0.05f) {
+                                String.format(Locale.US, "%.2f G", session.peakTotalG)
+                            } else {
+                                "--"
+                            },
+                            accent = cs.primary,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
+        }
+    }
 
-            if (session.activityMode == ActivityMode.OFFROAD_CROSSING) {
-                val offroadAnalysis = remember(detail.session.id, detail.points) {
-                    OffroadAnalysisEngine.analyze(session, detail.points)
+    val analysisAndChartsSection: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            when (session.activityMode) {
+                ActivityMode.OFFROAD_CROSSING -> {
+                    val offroadAnalysis = remember(detail.session.id, detail.points) {
+                        OffroadAnalysisEngine.analyze(session, detail.points)
+                    }
+                    OffroadAnalysisCard(analysis = offroadAnalysis)
                 }
-                OffroadAnalysisCard(analysis = offroadAnalysis)
+                ActivityMode.HIKING -> {
+                    val hikingAnalysis = remember(detail.session.id, detail.points) {
+                        TrackTelemetryAnalyzer.analyzeHiking(session, detail.points)
+                    }
+                    HikingAnalysisCard(analysis = hikingAnalysis)
+                }
+                ActivityMode.KARTING -> {
+                    val kartingAnalysis = remember(detail.session.id, detail.points, detail.laps) {
+                        TrackTelemetryAnalyzer.analyzeKarting(session, detail.points, detail.laps)
+                    }
+                    KartingAnalysisCard(analysis = kartingAnalysis)
+                }
             }
 
             TelemetryProfileChartCard(
@@ -890,8 +907,87 @@ fun TrackDetailScreen(
                     speedUnit = speedUnit
                 )
             }
+        }
+    }
 
-            Spacer(modifier = Modifier.height(12.dp))
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .background(cs.background)
+            .displayCutoutPadding(),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        val isLandscape = maxWidth > maxHeight && maxWidth >= 540.dp
+        if (isLandscape) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .testTag("track_detail_landscape_layout"),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                headerBar()
+
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    // Left Pane: Vector Route Map + Metrics + Share/Export Actions
+                    Column(
+                        modifier = Modifier
+                            .weight(0.95f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        VectorTrackCanvasCard(
+                            points = detail.points,
+                            mode = session.activityMode,
+                            speedUnit = speedUnit,
+                            highlightedIndex = selectedPointIndex
+                        )
+                        summaryMetricsCard()
+                        actionButtonsSection()
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    // Right Pane: Telemetry Analysis + Synchronized Profile Charts + Laps
+                    Column(
+                        modifier = Modifier
+                            .weight(1.15f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        analysisAndChartsSection()
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 600.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                headerBar()
+                actionButtonsSection()
+                VectorTrackCanvasCard(
+                    points = detail.points,
+                    mode = session.activityMode,
+                    speedUnit = speedUnit,
+                    highlightedIndex = selectedPointIndex
+                )
+                summaryMetricsCard()
+                analysisAndChartsSection()
+                Spacer(modifier = Modifier.height(12.dp))
+            }
         }
     }
 }

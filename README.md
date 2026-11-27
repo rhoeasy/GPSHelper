@@ -41,32 +41,35 @@
 
 项目中的 `app/build.gradle.kts` 已预配置正式版签名读取规则（`keyAlias = "upload"`，通过环境变量读取密钥路径与密码）。以下提供 **GitHub 自动发版** 与 **本地手动打包** 两种方式。
 
-### 第一步：生成你的正式版签名密钥（仅需执行一次）
+### 第一步：云端一键生成正式签名密钥（无需本地安装 Java，推荐）
 
-在任意装有 JDK 的电脑终端执行以下命令生成 `.jks` 正式签名文件（**注意：`-alias` 必须为 `upload`**）：
+如果你的电脑没有安装 Java / `keytool`，可以直接在 GitHub 云端一键生成与本项目 `app/build.gradle.kts` 严格匹配（`alias = upload`）的正式签名证书：
+
+1. （可选，公开仓库强烈推荐）先到仓库 **Settings → Secrets and variables → Actions** 提前建好 `STORE_PASSWORD` 和 `KEY_PASSWORD` 两个密码 Secret；若未提前设置，云端会自动生成 20 位高强度随机密码。
+2. 打开仓库顶部 **Actions** → 左侧选择 **Generate Release Keystore (Cloud)** → 点击右侧 **Run workflow**（默认主体为 `CN=GPSHelper, O=Rhoeasy, C=CN`，可按需修改）并等待约 20 秒完成。
+3. 在本次运行页面底部的 **Artifacts** 下载 `release-keystore-bundle.zip` 并解压，里面包含：
+   - `my-upload-key.jks`：你的正式签名证书文件（请本地妥善备份，切勿提交到仓库）
+   - `KEYSTORE_BASE64.txt`：已转换好的单行 Base64 文本
+   - `SETUP_INFO.txt`：完整的配置说明与密码
+4. **重要安全提示**：复制完成后，请立即在 GitHub Actions 页面删除这一次 `Generate Release Keystore (Cloud)` 运行记录，避免 Artifact 被他人下载。
+
+<details>
+<summary>备选：如果你本地已有 Java / Android Studio，也可以本地命令行生成</summary>
 
 ```bash
-keytool -genkey -v \
+keytool -genkeypair -v \
   -keystore my-upload-key.jks \
   -keyalg RSA \
   -keysize 2048 \
   -validity 10000 \
-  -alias upload
-```
+  -alias upload \
+  -dname "CN=GPSHelper, O=Rhoeasy, C=CN"
 
-按提示输入密钥库密码（`STORE_PASSWORD`）和密钥密码（`KEY_PASSWORD`，建议与密钥库密码一致）。
-
-> **安全提示**：`my-upload-key.jks` 是应用的唯一身份凭证，已加入 `.gitignore`，**切勿提交到代码仓库**，请自行妥善备份。
-
-将该密钥文件转换为单行 Base64 字符串（供 GitHub Actions 使用）：
-
-```bash
-# macOS / Linux
+# 转为单行 Base64
 base64 -i my-upload-key.jks | tr -d '\n'
-
-# Linux (部分发行版)
-base64 -w 0 my-upload-key.jks
 ```
+
+</details>
 
 ---
 

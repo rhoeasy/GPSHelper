@@ -7,9 +7,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -55,6 +58,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
@@ -139,114 +143,105 @@ fun CompassDetailScreen(
             )
         }
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 640.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        val heroCompassCard: @Composable (Dp) -> Unit = { dialSize ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(28.dp),
+                color = cs.surfaceContainerLow
             ) {
-                // Hero Compass Dial Card
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(28.dp),
-                    color = cs.surfaceContainerLow
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    // Top mode row: True North / Magnetic North segmented toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Top mode row: True North / Magnetic North segmented toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column {
-                                Text(
-                                    text = if (hasAnyHeading) "${activeHeading.roundToInt()}° $cardinalZh" else "--°",
-                                    style = MaterialTheme.typography.headlineLarge.copy(
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 34.sp
-                                    ),
-                                    color = cs.onSurface,
-                                    modifier = Modifier.testTag("compass_heading_text")
-                                )
-                                val declLabel = if (declinationDeg != null) {
-                                    "${stringResource(R.string.compass_declination_prefix)} ${String.format(Locale.US, "%+.1f°", declinationDeg)}"
-                                } else {
-                                    stringResource(R.string.compass_mode_magnetic)
-                                }
-                                Text(
-                                    text = declLabel,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = cs.onSurfaceVariant
-                                )
-                            }
-
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(cs.surfaceContainer)
-                                    .padding(3.dp)
-                            ) {
-                                listOf(
-                                    true to R.string.compass_mode_true,
-                                    false to R.string.compass_mode_magnetic
-                                ).forEach { (isTrue, labelRes) ->
-                                    val selected = useTrueNorth == isTrue
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(50))
-                                            .background(if (selected) cs.primaryContainer else Color.Transparent)
-                                            .clickable { useTrueNorth = isTrue }
-                                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                                            .testTag(if (isTrue) "compass_true_north" else "compass_mag_north"),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = stringResource(labelRes),
-                                            style = MaterialTheme.typography.labelMedium.copy(
-                                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-                                            ),
-                                            color = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Material 3 High-Precision Rotating Compass Rose + Center Spirit Level
-                        MaterialCompassDial(
-                            headingDeg = activeHeading,
-                            gpsBearingDeg = if (gpsData.hasFix) gpsData.bearingDegrees else null,
-                            pitchDeg = envTelemetry.pitchDeg,
-                            rollDeg = envTelemetry.rollDeg,
-                            modifier = Modifier.size(252.dp)
-                        )
-
-                        if (!envTelemetry.hasCompass) {
+                        Column {
                             Text(
-                                text = stringResource(R.string.compass_no_sensor),
-                                style = MaterialTheme.typography.bodySmall,
+                                text = if (hasAnyHeading) "${activeHeading.roundToInt()}° $cardinalZh" else "--°",
+                                style = MaterialTheme.typography.headlineLarge.copy(
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 34.sp
+                                ),
+                                color = cs.onSurface,
+                                modifier = Modifier.testTag("compass_heading_text")
+                            )
+                            val declLabel = if (declinationDeg != null) {
+                                "${stringResource(R.string.compass_declination_prefix)} ${String.format(Locale.US, "%+.1f°", declinationDeg)}"
+                            } else {
+                                stringResource(R.string.compass_mode_magnetic)
+                            }
+                            Text(
+                                text = declLabel,
+                                style = MaterialTheme.typography.labelMedium,
                                 color = cs.onSurfaceVariant
                             )
                         }
+
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(cs.surfaceContainer)
+                                .padding(3.dp)
+                        ) {
+                            listOf(
+                                true to R.string.compass_mode_true,
+                                false to R.string.compass_mode_magnetic
+                            ).forEach { (isTrue, labelRes) ->
+                                val selected = useTrueNorth == isTrue
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(if (selected) cs.primaryContainer else Color.Transparent)
+                                        .clickable { useTrueNorth = isTrue }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                        .testTag(if (isTrue) "compass_true_north" else "compass_mag_north"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = stringResource(labelRes),
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                                        ),
+                                        color = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Material 3 High-Precision Rotating Compass Rose + Center Spirit Level
+                    MaterialCompassDial(
+                        headingDeg = activeHeading,
+                        gpsBearingDeg = if (gpsData.hasFix) gpsData.bearingDegrees else null,
+                        pitchDeg = envTelemetry.pitchDeg,
+                        rollDeg = envTelemetry.rollDeg,
+                        modifier = Modifier.size(dialSize)
+                    )
+
+                    if (!envTelemetry.hasCompass) {
+                        Text(
+                            text = stringResource(R.string.compass_no_sensor),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurfaceVariant
+                        )
                     }
                 }
+            }
+        }
 
-                // Calibration / Magnetic interference advisory banner (only when needed)
+        val secondaryCompassDetails: @Composable () -> Unit = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 if (needsCalibration) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
@@ -275,7 +270,6 @@ fun CompassDetailScreen(
                     }
                 }
 
-                // 2-column Navigation & Magnetic Field Cards
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -466,8 +460,62 @@ fun CompassDetailScreen(
                         }
                     }
                 }
+            }
+        }
 
-                Spacer(modifier = Modifier.height(16.dp))
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .displayCutoutPadding(),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            val isLandscape = maxWidth > maxHeight && maxWidth >= 540.dp
+            if (isLandscape) {
+                val dialSize = (maxHeight - 122.dp).coerceIn(188.dp, 286.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .testTag("compass_landscape_layout"),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1.02f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        heroCompassCard(dialSize)
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .weight(0.98f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        secondaryCompassDetails()
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 640.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    heroCompassCard(252.dp)
+                    secondaryCompassDetails()
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
             }
         }
     }
