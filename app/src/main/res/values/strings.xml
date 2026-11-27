@@ -99,6 +99,9 @@
     <string name="hr_status_disconnected">未连接小米手环或心率带</string>
     <string name="hr_status_last_prefix">上次连接：%s</string>
     <string name="hr_status_connecting">正在连接…</string>
+    <string name="hr_status_connected">已连接：%1$s</string>
+    <string name="hr_status_waiting_measurement">%1$s 已连接，等待心率数据</string>
+    <string name="hr_device_name_fallback">BLE 心率设备</string>
     <string name="hr_dialog_title">连接蓝牙心率设备</string>
     <string name="hr_mi_band_tip">小米手环提示：已在「小米运动健康」连上手环的，直接点下方「本机已连接」中的手环即可；首次使用请先在手环端开启「心率广播」。</string>
     <string name="hr_scanning">正在扫描附近蓝牙设备…</string>

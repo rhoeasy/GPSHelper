@@ -11,6 +11,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
@@ -45,6 +46,7 @@ object HeartRateRepository {
     private const val KEY_LAST_TIME_MS = "last_hr_connected_ms"
     private const val KEY_AUTO_RECONNECT = "auto_reconnect_hr"
     private const val SCAN_TIMEOUT_MS = 12_000L
+    private const val CONNECT_TIMEOUT_MS = 20_000L
 
     val HEART_RATE_SERVICE_UUID: UUID = UUID.fromString("0000180D-0000-1000-8000-00805F9B34FB")
     val HEART_RATE_MEASUREMENT_UUID: UUID = UUID.fromString("00002A37-0000-1000-8000-00805F9B34FB")
@@ -79,6 +81,11 @@ object HeartRateRepository {
     val autoReconnectEnabled: StateFlow<Boolean> = _autoReconnectEnabled.asStateFlow()
 
     private val stopScanRunnable = Runnable { stopScan() }
+    private val connectTimeoutRunnable = Runnable {
+        if (_heartRateState.value.status == BleConnectionStatus.CONNECTING) {
+            failConnection("连接超时，请确认手环在附近并开启心率广播后重试")
+        }
+    }
 
     fun loadLastDevice(context: Context) {
         val appCtx = context.applicationContext
@@ -316,30 +323,24 @@ object HeartRateRepository {
         stopScan()
 
         if (!hasBlePermissions(appCtx)) {
-            _heartRateState.update {
-                it.copy(status = BleConnectionStatus.ERROR, errorMessage = "请先授予蓝牙连接权限")
-            }
+            failConnection("请先授予蓝牙连接权限")
             return
         }
 
         val adapter = getBluetoothAdapter(appCtx)
         if (adapter == null || !adapter.isEnabled) {
-            _heartRateState.update {
-                it.copy(status = BleConnectionStatus.ERROR, errorMessage = "请先开启手机蓝牙")
-            }
+            failConnection("请先开启手机蓝牙")
+            return
+        }
+        if (activeGatt != null && address.equals(_heartRateState.value.deviceAddress, ignoreCase = true)) return
+
+        val device = runCatching { adapter.getRemoteDevice(address) }.getOrNull()
+        if (device == null) {
+            failConnection("无效的蓝牙设备地址")
             return
         }
 
         closeActiveGatt()
-
-        val device = runCatching { adapter.getRemoteDevice(address) }.getOrNull()
-        if (device == null) {
-            _heartRateState.update {
-                it.copy(status = BleConnectionStatus.ERROR, errorMessage = "无效的蓝牙设备地址")
-            }
-            return
-        }
-
         val friendlyName = resolveFriendlyName(device, deviceName)
 
         _heartRateState.value = HeartRateState(
@@ -350,8 +351,8 @@ object HeartRateRepository {
             errorMessage = null
         )
 
-        try {
-            activeGatt = device.connectGatt(
+        val gatt = try {
+            device.connectGatt(
                 appCtx,
                 false,
                 gattCallback,
@@ -359,15 +360,19 @@ object HeartRateRepository {
             )
         } catch (se: SecurityException) {
             Log.w(TAG, "Missing BLUETOOTH_CONNECT permission", se)
-            _heartRateState.update {
-                it.copy(status = BleConnectionStatus.ERROR, errorMessage = "蓝牙连接权限不足")
-            }
+            failConnection("蓝牙连接权限不足")
+            return
         } catch (e: Exception) {
             Log.e(TAG, "BLE connectGatt failed", e)
-            _heartRateState.update {
-                it.copy(status = BleConnectionStatus.ERROR, errorMessage = "连接设备失败，请重试")
-            }
+            failConnection("连接设备失败，请重试")
+            return
         }
+        if (gatt == null) {
+            failConnection("无法发起蓝牙连接，请重试")
+            return
+        }
+        activeGatt = gatt
+        mainHandler.postDelayed(connectTimeoutRunnable, CONNECT_TIMEOUT_MS)
     }
 
     @SuppressLint("MissingPermission")
@@ -380,11 +385,19 @@ object HeartRateRepository {
 
     @SuppressLint("MissingPermission")
     private fun closeActiveGatt() {
+        mainHandler.removeCallbacks(connectTimeoutRunnable)
         val gatt = activeGatt
         activeGatt = null
         if (gatt != null) {
             runCatching { gatt.disconnect() }
             runCatching { gatt.close() }
+        }
+    }
+
+    private fun failConnection(message: String) {
+        closeActiveGatt()
+        _heartRateState.update {
+            it.copy(status = BleConnectionStatus.ERROR, bpm = null, errorMessage = message)
         }
     }
 
@@ -509,6 +522,7 @@ object HeartRateRepository {
         }
 
         override fun onScanFailed(errorCode: Int) {
+            if (!isScanningInternal) return
             isScanningInternal = false
             _isScanning.value = false
             _heartRateState.update {
@@ -517,45 +531,36 @@ object HeartRateRepository {
         }
     }
 
+    private fun onActiveGatt(gatt: BluetoothGatt, action: () -> Unit) {
+        // Serialize callbacks with connect/disconnect and ignore callbacks after a GATT is replaced.
+        mainHandler.post { if (activeGatt === gatt) action() }
+    }
+
     private val gattCallback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
-        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS && newState != BluetoothProfile.STATE_CONNECTED) {
+        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) = onActiveGatt(gatt) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.w(TAG, "GATT connection error: status=$status newState=$newState")
-                if (activeGatt == gatt) {
-                    closeActiveGatt()
-                    _heartRateState.update {
-                        it.copy(
-                            status = BleConnectionStatus.DISCONNECTED,
-                            bpm = null,
-                            errorMessage = "蓝牙连接已断开，请确认手环在附近并开启心率广播"
-                        )
-                    }
-                }
-                return
+                failConnection("蓝牙连接中断（错误码 $status），请确认设备在附近后重试")
+                return@onActiveGatt
             }
 
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     val discovered = runCatching { gatt.discoverServices() }.getOrDefault(false)
-                    if (!discovered) {
-                        closeActiveGatt()
-                        _heartRateState.update {
-                            it.copy(
-                                status = BleConnectionStatus.ERROR,
-                                errorMessage = "无法读取设备蓝牙服务"
-                            )
-                        }
-                    }
+                    if (!discovered) failConnection("无法读取设备蓝牙服务")
                 }
 
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    if (activeGatt == gatt) {
+                    if (_heartRateState.value.status == BleConnectionStatus.CONNECTING) {
+                        failConnection("设备在完成心率订阅前断开，请重试")
+                    } else {
                         closeActiveGatt()
                         _heartRateState.update {
                             it.copy(
                                 status = BleConnectionStatus.DISCONNECTED,
-                                bpm = null
+                                bpm = null,
+                                errorMessage = "蓝牙连接已断开"
                             )
                         }
                     }
@@ -564,30 +569,17 @@ object HeartRateRepository {
         }
 
         @SuppressLint("MissingPermission")
-        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) = onActiveGatt(gatt) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                closeActiveGatt()
-                _heartRateState.update {
-                    it.copy(
-                        status = BleConnectionStatus.ERROR,
-                        errorMessage = "蓝牙服务发现失败 ($status)"
-                    )
-                }
-                return
+                failConnection("蓝牙服务发现失败（错误码 $status）")
+                return@onActiveGatt
             }
 
             val hrService = gatt.getService(HEART_RATE_SERVICE_UUID)
             val hrChar = hrService?.getCharacteristic(HEART_RATE_MEASUREMENT_UUID)
-            if (hrService == null || hrChar == null) {
-                closeActiveGatt()
-                _heartRateState.update {
-                    it.copy(
-                        status = BleConnectionStatus.ERROR,
-                        bpm = null,
-                        errorMessage = "未发现标准心率服务，请在「小米运动健康」中开启手环「心率广播」后重试"
-                    )
-                }
-                return
+            if (hrChar == null) {
+                failConnection("未发现标准蓝牙心率服务，请确认设备支持并已开启心率广播")
+                return@onActiveGatt
             }
 
             val notifyEnabled = runCatching {
@@ -596,20 +588,14 @@ object HeartRateRepository {
 
             val cccd = hrChar.getDescriptor(CCCD_UUID)
             if (!notifyEnabled || cccd == null) {
-                closeActiveGatt()
-                _heartRateState.update {
-                    it.copy(
-                        status = BleConnectionStatus.ERROR,
-                        errorMessage = "无法订阅心率通知特征"
-                    )
-                }
-                return
+                failConnection("无法订阅设备的心率通知")
+                return@onActiveGatt
             }
 
             val writeStarted = runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     gatt.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ==
-                        BluetoothGatt.GATT_SUCCESS
+                        BluetoothStatusCodes.SUCCESS
                 } else {
                     @Suppress("DEPRECATION")
                     cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
@@ -619,29 +605,35 @@ object HeartRateRepository {
             }.getOrDefault(false)
 
             if (!writeStarted) {
-                closeActiveGatt()
-                _heartRateState.update {
-                    it.copy(
-                        status = BleConnectionStatus.ERROR,
-                        errorMessage = "启用心率广播通知失败"
-                    )
-                }
-                return
-            }
-
-            val currentName = resolveFriendlyName(gatt.device, _heartRateState.value.deviceName)
-            val currentAddr = gatt.device.address
-            saveLastDevice(currentName, currentAddr)
-
-            _heartRateState.update {
-                it.copy(
-                    status = BleConnectionStatus.CONNECTED,
-                    deviceName = currentName,
-                    deviceAddress = currentAddr,
-                    errorMessage = null
-                )
+                failConnection("发起心率订阅失败，请重试")
             }
         }
+
+        @SuppressLint("MissingPermission")
+        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) =
+            onActiveGatt(gatt) {
+                if (_heartRateState.value.status != BleConnectionStatus.CONNECTING ||
+                    descriptor.uuid != CCCD_UUID || descriptor.characteristic?.uuid != HEART_RATE_MEASUREMENT_UUID
+                ) return@onActiveGatt
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    failConnection("设备未接受心率订阅（错误码 $status），请确认已开启心率广播")
+                    return@onActiveGatt
+                }
+
+                mainHandler.removeCallbacks(connectTimeoutRunnable)
+                val currentName = resolveFriendlyName(gatt.device, _heartRateState.value.deviceName)
+                val currentAddr = gatt.device.address
+                saveLastDevice(currentName, currentAddr)
+
+                _heartRateState.update {
+                    it.copy(
+                        status = BleConnectionStatus.CONNECTED,
+                        deviceName = currentName,
+                        deviceAddress = currentAddr,
+                        errorMessage = null
+                    )
+                }
+            }
 
         // Android 13+ (API 33+) callback
         override fun onCharacteristicChanged(
@@ -650,7 +642,7 @@ object HeartRateRepository {
             value: ByteArray
         ) {
             if (characteristic.uuid == HEART_RATE_MEASUREMENT_UUID) {
-                handleHeartRatePacket(value)
+                onActiveGatt(gatt) { handleHeartRatePacket(value) }
             }
         }
 
@@ -664,16 +656,17 @@ object HeartRateRepository {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU &&
                 characteristic.uuid == HEART_RATE_MEASUREMENT_UUID
             ) {
-                characteristic.value?.let { handleHeartRatePacket(it) }
+                val value = characteristic.value?.copyOf() ?: return
+                onActiveGatt(gatt) { handleHeartRatePacket(value) }
             }
         }
     }
 
     private fun handleHeartRatePacket(bytes: ByteArray) {
+        if (!_heartRateState.value.isConnected) return
         val bpm = parseHeartRateBpm(bytes) ?: return
         _heartRateState.update { current ->
             current.copy(
-                status = BleConnectionStatus.CONNECTED,
                 bpm = bpm,
                 lastUpdatedMs = SystemClock.elapsedRealtime(),
                 errorMessage = null
