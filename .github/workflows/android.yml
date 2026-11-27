@@ -22,14 +22,27 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug
+      - name: Find project root and build Debug APK
+        run: |
+          PROJECT_DIR=$(find . -maxdepth 3 -name "settings.gradle*" -printf "%h\n" | head -n 1)
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "未找到 Android 工程目录，当前文件列表如下："
+            ls -la
+            exit 1
+          fi
+          echo "找到工程目录: $PROJECT_DIR"
+          cd "$PROJECT_DIR"
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleDebug
+          else
+            gradle wrapper --gradle-version 8.7
+            chmod +x ./gradlew
+            ./gradlew assembleDebug
+          fi
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: GPSHelper-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: "**/build/outputs/apk/debug/*.apk"
