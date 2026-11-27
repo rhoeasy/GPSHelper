@@ -16,8 +16,27 @@ android {
     applicationId = "com.aistudio.gpsoverlay.kvnxqr"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0.0"
+
+    val resolvedVersionName = (project.findProperty("appVersionName") as String?)
+      ?.trim()
+      ?.removePrefix("v")
+      ?.takeIf { it.isNotEmpty() }
+      ?: System.getenv("APP_VERSION_NAME")
+        ?.trim()
+        ?.removePrefix("v")
+        ?.takeIf { it.isNotEmpty() }
+      ?: "1.0.0"
+
+    val resolvedVersionCode = (project.findProperty("appVersionCode") as String?)
+      ?.trim()
+      ?.toIntOrNull()
+      ?: System.getenv("APP_VERSION_CODE")
+        ?.trim()
+        ?.toIntOrNull()
+      ?: 1
+
+    versionCode = resolvedVersionCode
+    versionName = resolvedVersionName
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -123,7 +142,7 @@ dependencies {
   implementation(libs.kotlinx.coroutines.core)
   // implementation(libs.logging.interceptor)
   // implementation(libs.moshi.kotlin)
-  // implementation(libs.okhttp)
+  implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   // implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)

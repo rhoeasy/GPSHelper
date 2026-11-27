@@ -71,9 +71,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.ai.AiAnalysisState
+import com.example.ai.AiConnectionState
+import com.example.ai.AiGatewayConfig
 import com.example.alert.SafetyAlertState
 import com.example.ble.HeartRateState
 import com.example.ble.SavedBleDevice
+import com.example.gps.AccuracyTelemetry
 import com.example.gps.AltitudeTelemetry
 import com.example.gps.GnssSatelliteInfo
 import com.example.gps.GpsData
@@ -83,7 +87,9 @@ import com.example.gps.SpeedUnit
 import com.example.sensor.EnvironmentTelemetry
 import com.example.sensor.GForceData
 import com.example.track.ActivityMode
+import com.example.track.AiAnalysisRecordEntity
 import com.example.track.RecordingSnapshot
+import com.example.track.TrackEndpoints
 import com.example.track.TrackSessionDetail
 import com.example.track.TrackSessionEntity
 import com.example.ui.theme.ThemeMode
@@ -96,6 +102,7 @@ enum class MainTab {
 
 enum class TelemetryDetailPage {
     ALTITUDE,
+    ACCURACY,
     COMPASS,
     SATELLITES
 }
@@ -124,7 +131,10 @@ fun GpsHudAppShell(
     selectedTelemetryDetail: TelemetryDetailPage?,
     satellites: List<GnssSatelliteInfo>,
     altitudeTelemetry: AltitudeTelemetry,
+    accuracyTelemetry: AccuracyTelemetry,
     environmentTelemetry: EnvironmentTelemetry,
+    sessionEndpoints: Map<Long, TrackEndpoints>,
+    mergeCompletedSignal: Int,
     onSelectSpeedUnit: (SpeedUnit) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
     onSelectThemeMode: (ThemeMode) -> Unit,
@@ -139,6 +149,7 @@ fun GpsHudAppShell(
     onOpenTelemetryDetail: (TelemetryDetailPage) -> Unit,
     onCloseTelemetryDetail: () -> Unit,
     onResetAltitudeSession: () -> Unit,
+    onResetAccuracySession: () -> Unit,
     onCalibrateBarometer: () -> Unit,
     onResetBarometerQnh: () -> Unit,
     onCopyCoordinates: () -> Unit,
@@ -158,11 +169,31 @@ fun GpsHudAppShell(
     onSetStartGate: () -> Unit,
     onSelectSession: (Long) -> Unit,
     onCloseSessionDetail: () -> Unit,
+    onEnterMergeMode: () -> Unit,
+    onRequestMergePreview: (List<Long>) -> Unit,
     onCopyJson: (TrackSessionDetail, Boolean) -> Unit,
     onExportJson: (TrackSessionDetail, Boolean) -> Unit,
     onExportGpx: (TrackSessionDetail) -> Unit,
     onShareSocialImage: (Uri, String) -> Unit,
-    onDeleteSession: (Long) -> Unit
+    onDeleteSession: (Long) -> Unit,
+    aiGatewayConfig: AiGatewayConfig,
+    aiFetchedModels: List<String>,
+    aiConnectionState: AiConnectionState,
+    aiAnalysisState: AiAnalysisState,
+    aiAnalysisHistory: List<AiAnalysisRecordEntity>,
+    showAiAnalysisHistory: Boolean,
+    onTestAndFetchAiModels: (baseUrl: String, apiKey: String, currentModelId: String) -> Unit,
+    onSaveAiGatewayConfig: (baseUrl: String, apiKey: String, modelId: String) -> Unit,
+    onClearAiGatewayConfig: () -> Unit,
+    onStartAiAnalysis: (TrackSessionDetail) -> Unit,
+    onStopAiAnalysis: () -> Unit,
+    onCopyAiReport: (String) -> Unit,
+    onOpenAiSettingsFromDetail: () -> Unit,
+    onOpenAiHistory: () -> Unit,
+    onCloseAiHistory: () -> Unit,
+    onOpenSessionFromAiHistory: (Long) -> Unit,
+    onDeleteAiHistoryRecord: (Long) -> Unit,
+    onClearAiHistory: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
 
@@ -171,6 +202,8 @@ fun GpsHudAppShell(
             detail = selectedSessionDetail,
             speedUnit = speedUnit,
             isFocusLockActive = isFocusLockActive,
+            aiGatewayConfig = aiGatewayConfig,
+            aiAnalysisState = aiAnalysisState,
             onExitFocusLock = onExitFocusLock,
             onBack = onCloseSessionDetail,
             onCopyJson = { includePrompt -> onCopyJson(selectedSessionDetail, includePrompt) },
@@ -178,6 +211,33 @@ fun GpsHudAppShell(
             onExportGpx = { onExportGpx(selectedSessionDetail) },
             onShareSocialImage = { uri -> onShareSocialImage(uri, selectedSessionDetail.session.name) },
             onDeleteSession = { onDeleteSession(selectedSessionDetail.session.id) },
+            onStartAiAnalysis = { onStartAiAnalysis(selectedSessionDetail) },
+            onStopAiAnalysis = onStopAiAnalysis,
+            onCopyAiReport = onCopyAiReport,
+            onOpenAiSettings = onOpenAiSettingsFromDetail,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(cs.background)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        )
+        return
+    }
+
+    if (showAiAnalysisHistory) {
+        val existingSessionIds = remember(savedSessions) {
+            savedSessions.mapTo(HashSet(savedSessions.size)) { it.id }
+        }
+        AiAnalysisHistoryScreen(
+            records = aiAnalysisHistory,
+            existingSessionIds = existingSessionIds,
+            isFocusLockActive = isFocusLockActive,
+            onExitFocusLock = onExitFocusLock,
+            onBack = onCloseAiHistory,
+            onCopyReport = onCopyAiReport,
+            onOpenLinkedSession = onOpenSessionFromAiHistory,
+            onDeleteRecord = onDeleteAiHistoryRecord,
+            onClearAllRecords = onClearAiHistory,
             modifier = Modifier
                 .fillMaxSize()
                 .background(cs.background)
@@ -198,6 +258,20 @@ fun GpsHudAppShell(
                     onResetAltitudeSession = onResetAltitudeSession,
                     onCalibrateBarometer = onCalibrateBarometer,
                     onResetBarometerQnh = onResetBarometerQnh,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(cs.background)
+                )
+            }
+
+            TelemetryDetailPage.ACCURACY -> {
+                AccuracyDetailScreen(
+                    gpsData = gpsData,
+                    accuracyTelemetry = accuracyTelemetry,
+                    satellites = satellites,
+                    speedUnit = speedUnit,
+                    onBack = onCloseTelemetryDetail,
+                    onResetAccuracySession = onResetAccuracySession,
                     modifier = Modifier
                         .fillMaxSize()
                         .background(cs.background)
@@ -508,6 +582,7 @@ fun GpsHudAppShell(
                                             TelemetryGrid(
                                                 gpsData = gpsData,
                                                 onOpenAltitudeDetail = { onOpenTelemetryDetail(TelemetryDetailPage.ALTITUDE) },
+                                                onOpenAccuracyDetail = { onOpenTelemetryDetail(TelemetryDetailPage.ACCURACY) },
                                                 onOpenCompassDetail = { onOpenTelemetryDetail(TelemetryDetailPage.COMPASS) },
                                                 onOpenSatelliteDetail = { onOpenTelemetryDetail(TelemetryDetailPage.SATELLITES) }
                                             )
@@ -599,6 +674,7 @@ fun GpsHudAppShell(
                                     TelemetryGrid(
                                         gpsData = gpsData,
                                         onOpenAltitudeDetail = { onOpenTelemetryDetail(TelemetryDetailPage.ALTITUDE) },
+                                        onOpenAccuracyDetail = { onOpenTelemetryDetail(TelemetryDetailPage.ACCURACY) },
                                         onOpenCompassDetail = { onOpenTelemetryDetail(TelemetryDetailPage.COMPASS) },
                                         onOpenSatelliteDetail = { onOpenTelemetryDetail(TelemetryDetailPage.SATELLITES) }
                                     )
@@ -658,7 +734,13 @@ fun GpsHudAppShell(
                                 TrackHistoryScreen(
                                     sessions = savedSessions,
                                     speedUnit = speedUnit,
+                                    aiHistoryCount = aiAnalysisHistory.size,
                                     onSelectSession = onSelectSession,
+                                    onOpenAiHistory = onOpenAiHistory,
+                                    sessionEndpoints = sessionEndpoints,
+                                    mergeCompletedSignal = mergeCompletedSignal,
+                                    onEnterMergeMode = onEnterMergeMode,
+                                    onRequestMergePreview = onRequestMergePreview,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -686,6 +768,10 @@ fun GpsHudAppShell(
                                     themeMode = themeMode,
                                     keepScreenOn = keepScreenOn,
                                     autoFocusOnLaunch = autoFocusOnLaunch,
+                                    aiGatewayConfig = aiGatewayConfig,
+                                    aiFetchedModels = aiFetchedModels,
+                                    aiConnectionState = aiConnectionState,
+                                    aiHistoryCount = aiAnalysisHistory.size,
                                     onUpdateOverlayConfig = onUpdateOverlayConfig,
                                     onResetOverlayConfig = onResetOverlayConfig,
                                     onUpdateSafetyAlertConfig = onUpdateSafetyAlertConfig,
@@ -693,6 +779,10 @@ fun GpsHudAppShell(
                                     onSelectThemeMode = onSelectThemeMode,
                                     onToggleKeepScreenOn = onToggleKeepScreenOn,
                                     onToggleAutoFocusOnLaunch = onToggleAutoFocusOnLaunch,
+                                    onTestAndFetchAiModels = onTestAndFetchAiModels,
+                                    onSaveAiGatewayConfig = onSaveAiGatewayConfig,
+                                    onClearAiGatewayConfig = onClearAiGatewayConfig,
+                                    onOpenAiHistory = onOpenAiHistory,
                                     modifier = Modifier.weight(1f)
                                 )
                             }

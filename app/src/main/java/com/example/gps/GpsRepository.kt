@@ -150,6 +150,10 @@ object GpsRepository {
     private val _altitudeTelemetry = MutableStateFlow(AltitudeTelemetry())
     val altitudeTelemetry: StateFlow<AltitudeTelemetry> = _altitudeTelemetry.asStateFlow()
 
+    private val accuracyTracker = AccuracySessionTracker()
+    private val _accuracyTelemetry = MutableStateFlow(AccuracyTelemetry())
+    val accuracyTelemetry: StateFlow<AccuracyTelemetry> = _accuracyTelemetry.asStateFlow()
+
     private var prefsLoaded = false
 
     fun ensurePrefsLoaded(context: Context) {
@@ -363,6 +367,25 @@ object GpsRepository {
                 )
             } else {
                 AltitudeTelemetry()
+            }
+        }
+    }
+
+    fun resetAccuracySession() {
+        synchronized(lock) {
+            accuracyTracker.reset()
+            val curAcc = _gpsData.value.accuracyMeters
+            val prev = _accuracyTelemetry.value
+            _accuracyTelemetry.value = if (curAcc != null && _gpsData.value.hasFix) {
+                accuracyTracker.onAccuracySample(
+                    horizontalAccuracyM = curAcc,
+                    verticalAccuracyM = prev.verticalAccuracyM,
+                    speedAccuracyMps = prev.speedAccuracyMps,
+                    bearingAccuracyDeg = prev.bearingAccuracyDeg,
+                    elapsedMs = SystemClock.elapsedRealtime()
+                )
+            } else {
+                AccuracyTelemetry()
             }
         }
     }
@@ -606,12 +629,36 @@ object GpsRepository {
             )
         }
 
-        if (location.hasAltitude()) {
-            val vAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasVerticalAccuracy()) {
-                location.verticalAccuracyMeters
-            } else {
-                null
+        val vAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasVerticalAccuracy()) {
+            location.verticalAccuracyMeters
+        } else {
+            null
+        }
+        val spdAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasSpeedAccuracy()) {
+            location.speedAccuracyMetersPerSecond
+        } else {
+            null
+        }
+        val brgAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasBearingAccuracy()) {
+            location.bearingAccuracyDegrees
+        } else {
+            null
+        }
+
+        if (location.hasAccuracy()) {
+            val updatedAcc = synchronized(lock) {
+                accuracyTracker.onAccuracySample(
+                    horizontalAccuracyM = location.accuracy,
+                    verticalAccuracyM = vAcc,
+                    speedAccuracyMps = spdAcc,
+                    bearingAccuracyDeg = brgAcc,
+                    elapsedMs = nowElapsedMs
+                )
             }
+            _accuracyTelemetry.value = updatedAcc
+        }
+
+        if (location.hasAltitude()) {
             val horizSpeed = if (location.hasSpeed()) location.speed else _gpsData.value.speedMps
             val updatedAlt = synchronized(lock) {
                 altitudeTracker.onAltitudeSample(

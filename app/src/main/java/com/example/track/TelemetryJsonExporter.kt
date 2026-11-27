@@ -154,6 +154,33 @@ object TelemetryJsonExporter {
                             put("speed_span_kmh", round1(analysis.difficulty.speedSpanKmh))
                         })
                         put("body_performance", buildBodyPerformanceJson(analysis.body))
+                        KartingSectorEngine.analyze(points, laps)?.let { f1 ->
+                            put("f1_sectors", JSONObject().apply {
+                                put("theoretical_best_lap_sec", round2(f1.theoreticalBestLapMs / 1000.0))
+                                put("potential_gain_sec", round2(f1.potentialGainMs / 1000.0))
+                                put("best_sectors_sec", JSONArray().apply {
+                                    f1.bestSectorTimesMs.forEach { put(round2(it / 1000.0)) }
+                                })
+                                put("lap_sectors", JSONArray().apply {
+                                    f1.lapTimings.forEach { lapTiming ->
+                                        put(JSONObject().apply {
+                                            put("lap", lapTiming.lapNumber)
+                                            put("lap_status", lapTiming.lapStatus.name)
+                                            put("sectors", JSONArray().apply {
+                                                lapTiming.sectors.forEach { sec ->
+                                                    put(JSONObject().apply {
+                                                        put("sector", sec.label)
+                                                        put("duration_sec", round2(sec.durationMs / 1000.0))
+                                                        put("delta_sec", round2(sec.deltaToBestMs / 1000.0))
+                                                        put("status", sec.status.name)
+                                                    })
+                                                }
+                                            })
+                                        })
+                                    }
+                                })
+                            })
+                        }
                     })
                 }
             }

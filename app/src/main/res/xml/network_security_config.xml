@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Permits cleartext HTTP only for local LAN / loopback AI gateways (e.g. Ollama / LM Studio),
+  while OpenAiGatewayClient strictly enforces HTTPS for all public internet hosts.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

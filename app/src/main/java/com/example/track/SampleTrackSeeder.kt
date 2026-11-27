@@ -130,6 +130,7 @@ object SampleTrackSeeder {
             }
 
             // Compute raw speeds inversely proportional to local curvature (straights fast, hairpins slow)
+            // with realistic per-sector pace variation so F1 Purple / Green / Yellow sectors shine
             val rawSpeeds = FloatArray(n)
             for (i in 0 until n) {
                 val localAbsCurv = (
@@ -137,7 +138,14 @@ object SampleTrackSeeder {
                         2.0 * abs(curvatures[i]) +
                         abs(curvatures[(i + 1) % n])
                     ) / 4.0
-                val targetSpeedMps = (21.4 - localAbsCurv * 230.0).coerceIn(7.8, 21.2) * speedFactor
+                val lapProgress = i.toDouble() / n.toDouble()
+                val sectorBias = when {
+                    lapIdx == 1 && lapProgress in 0.30..0.68 -> 1.10 // Lap 2 nails Sector 2 (Purple!)
+                    lapIdx == 2 && lapProgress in 0.30..0.68 -> 0.94 // Lap 3 slight traffic in S2 (Yellow!)
+                    lapIdx == 2 -> 1.07 // Lap 3 dominates S1 & S3 (Purple!)
+                    else -> 1.0
+                }
+                val targetSpeedMps = (21.4 - localAbsCurv * 230.0).coerceIn(7.8, 21.2) * speedFactor * sectorBias
                 rawSpeeds[i] = targetSpeedMps.toFloat()
             }
 

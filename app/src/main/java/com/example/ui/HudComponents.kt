@@ -636,6 +636,7 @@ fun CoordinatesCard(
 fun TelemetryGrid(
     gpsData: GpsData,
     onOpenAltitudeDetail: () -> Unit = {},
+    onOpenAccuracyDetail: () -> Unit = {},
     onOpenCompassDetail: () -> Unit = {},
     onOpenSatelliteDetail: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -675,6 +676,7 @@ fun TelemetryGrid(
                 label = stringResource(R.string.telemetry_accuracy),
                 value = gpsData.formattedAccuracy(),
                 hasValue = gpsData.hasFix && gpsData.accuracyMeters != null,
+                onClick = onOpenAccuracyDetail,
                 modifier = Modifier
                     .weight(1f)
                     .testTag("metric_accuracy_card")

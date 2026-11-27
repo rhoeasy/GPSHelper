@@ -45,6 +45,7 @@ import com.example.ui.FocusModeDialog
 import com.example.ui.GpsDashboardViewModel
 import com.example.ui.GpsHudAppShell
 import com.example.ui.MainTab
+import com.example.ui.MergeTracksConfirmDialog
 import com.example.ui.TelemetryDetailPage
 import com.example.ui.theme.GpsHudTheme
 import com.example.ui.theme.ThemeMode
@@ -88,6 +89,7 @@ class MainActivity : ComponentActivity() {
                 val gpsData by viewModel.gpsData.collectAsStateWithLifecycle()
                 val satellites by viewModel.satellites.collectAsStateWithLifecycle()
                 val altitudeTelemetry by viewModel.altitudeTelemetry.collectAsStateWithLifecycle()
+                val accuracyTelemetry by viewModel.accuracyTelemetry.collectAsStateWithLifecycle()
                 val environmentTelemetry by viewModel.environmentTelemetry.collectAsStateWithLifecycle()
                 val gForceData by viewModel.gForceData.collectAsStateWithLifecycle()
                 val speedUnit by viewModel.speedUnit.collectAsStateWithLifecycle()
@@ -109,6 +111,14 @@ class MainActivity : ComponentActivity() {
                 val recordingSnapshot by viewModel.recordingSnapshot.collectAsStateWithLifecycle()
                 val savedSessions by viewModel.savedSessions.collectAsStateWithLifecycle()
                 val selectedSessionDetail by viewModel.selectedSessionDetail.collectAsStateWithLifecycle()
+                val sessionEndpoints by viewModel.sessionEndpoints.collectAsStateWithLifecycle()
+                val mergePreview by viewModel.mergePreview.collectAsStateWithLifecycle()
+                val isMergingTracks by viewModel.isMergingTracks.collectAsStateWithLifecycle()
+                val aiGatewayConfig by viewModel.aiGatewayConfig.collectAsStateWithLifecycle()
+                val aiFetchedModels by viewModel.aiFetchedModels.collectAsStateWithLifecycle()
+                val aiConnectionState by viewModel.aiConnectionState.collectAsStateWithLifecycle()
+                val aiAnalysisState by viewModel.aiAnalysisState.collectAsStateWithLifecycle()
+                val aiAnalysisHistory by viewModel.aiAnalysisHistory.collectAsStateWithLifecycle()
 
                 val alertState = SafetyAlertMonitor.evaluate(
                     gpsData = gpsData,
@@ -130,8 +140,10 @@ class MainActivity : ComponentActivity() {
 
                 var activeTab by rememberSaveable { mutableStateOf(MainTab.DASHBOARD) }
                 var selectedTelemetryDetail by rememberSaveable { mutableStateOf<TelemetryDetailPage?>(null) }
+                var showAiAnalysisHistory by rememberSaveable { mutableStateOf(false) }
                 var showBleDialog by rememberSaveable { mutableStateOf(false) }
                 var showFocusDialog by rememberSaveable { mutableStateOf(false) }
+                var mergeCompletedSignal by rememberSaveable { mutableStateOf(0) }
                 var isActivityStarted by rememberSaveable { mutableStateOf(true) }
 
                 LifecycleEventEffect(Lifecycle.Event.ON_START) {
@@ -171,7 +183,8 @@ class MainActivity : ComponentActivity() {
                 BackHandler(
                     enabled = focusLockActiveState &&
                         selectedSessionDetail == null &&
-                        selectedTelemetryDetail == null
+                        selectedTelemetryDetail == null &&
+                        !showAiAnalysisHistory
                 ) {
                     Toast.makeText(
                         this,
@@ -260,7 +273,10 @@ class MainActivity : ComponentActivity() {
                     selectedTelemetryDetail = selectedTelemetryDetail,
                     satellites = satellites,
                     altitudeTelemetry = altitudeTelemetry,
+                    accuracyTelemetry = accuracyTelemetry,
                     environmentTelemetry = environmentTelemetry,
+                    sessionEndpoints = sessionEndpoints,
+                    mergeCompletedSignal = mergeCompletedSignal,
                     onSelectSpeedUnit = { unit -> viewModel.setSpeedUnit(unit) },
                     onToggleKeepScreenOn = { enabled -> viewModel.setKeepScreenOn(enabled) },
                     onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
@@ -310,6 +326,14 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(
                             this,
                             getString(R.string.toast_altitude_session_reset),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onResetAccuracySession = {
+                        viewModel.resetAccuracySession()
+                        Toast.makeText(
+                            this,
+                            getString(R.string.toast_accuracy_session_reset),
                             Toast.LENGTH_SHORT
                         ).show()
                     },
@@ -490,6 +514,14 @@ class MainActivity : ComponentActivity() {
                     onCloseSessionDetail = {
                         viewModel.closeSessionDetail()
                     },
+                    onEnterMergeMode = {
+                        viewModel.loadMergeableEndpoints()
+                    },
+                    onRequestMergePreview = { sessionIds ->
+                        viewModel.prepareMergePreview(sessionIds) { errorMessage ->
+                            Toast.makeText(this, errorMessage, Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     onCopyJson = { detail, includeAiPrompt ->
                         viewModel.buildJsonClipboardPayload(detail, includeAiPrompt) { payload ->
                             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -538,6 +570,80 @@ class MainActivity : ComponentActivity() {
                     },
                     onDeleteSession = { sessionId ->
                         viewModel.deleteSession(sessionId)
+                    },
+                    aiGatewayConfig = aiGatewayConfig,
+                    aiFetchedModels = aiFetchedModels,
+                    aiConnectionState = aiConnectionState,
+                    aiAnalysisState = aiAnalysisState,
+                    aiAnalysisHistory = aiAnalysisHistory,
+                    showAiAnalysisHistory = showAiAnalysisHistory,
+                    onTestAndFetchAiModels = { baseUrl, apiKey, modelId ->
+                        viewModel.testAndFetchAiModels(baseUrl, apiKey, modelId)
+                    },
+                    onSaveAiGatewayConfig = { baseUrl, apiKey, modelId ->
+                        val result = viewModel.saveAiGatewayConfig(baseUrl, apiKey, modelId)
+                        if (result.isSuccess) {
+                            Toast.makeText(
+                                this,
+                                getString(R.string.toast_ai_config_saved),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    onClearAiGatewayConfig = {
+                        viewModel.clearAiGatewayConfig()
+                        Toast.makeText(
+                            this,
+                            getString(R.string.toast_ai_config_cleared),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onStartAiAnalysis = { detail ->
+                        viewModel.generateAiCoachReport(detail)
+                    },
+                    onStopAiAnalysis = {
+                        viewModel.stopAiCoachGeneration()
+                    },
+                    onCopyAiReport = { reportText ->
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("AI Coach Report", reportText))
+                        Toast.makeText(
+                            this,
+                            getString(R.string.toast_ai_report_copied),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onOpenAiSettingsFromDetail = {
+                        viewModel.closeSessionDetail()
+                        showAiAnalysisHistory = false
+                        activeTab = MainTab.SETTINGS
+                    },
+                    onOpenAiHistory = {
+                        showAiAnalysisHistory = true
+                    },
+                    onCloseAiHistory = {
+                        showAiAnalysisHistory = false
+                    },
+                    onOpenSessionFromAiHistory = { sessionId ->
+                        showAiAnalysisHistory = false
+                        activeTab = MainTab.TRACKS
+                        viewModel.loadSessionDetail(sessionId)
+                    },
+                    onDeleteAiHistoryRecord = { recordId ->
+                        viewModel.deleteAiAnalysisRecord(recordId)
+                        Toast.makeText(
+                            this,
+                            getString(R.string.toast_ai_history_deleted),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onClearAiHistory = {
+                        viewModel.clearAllAiAnalysisHistory()
+                        Toast.makeText(
+                            this,
+                            getString(R.string.toast_ai_history_cleared),
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
                 )
 
@@ -587,6 +693,29 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onDismiss = { showFocusDialog = false }
+                    )
+                }
+
+                mergePreview?.let { preview ->
+                    MergeTracksConfirmDialog(
+                        preview = preview,
+                        isMerging = isMergingTracks,
+                        onConfirm = { mergedName, keepOriginals ->
+                            viewModel.confirmMergeTracks(
+                                mergedName = mergedName,
+                                keepOriginalSegments = keepOriginals
+                            ) { mergedCount, newSessionId ->
+                                if (newSessionId != null) {
+                                    mergeCompletedSignal += 1
+                                    Toast.makeText(
+                                        this,
+                                        getString(R.string.toast_merge_success, mergedCount),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+                        },
+                        onDismiss = { viewModel.dismissMergePreview() }
                     )
                 }
             }

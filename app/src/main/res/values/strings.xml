@@ -179,15 +179,35 @@
     <string name="detail_chart_title">行程剖面曲线</string>
     <string name="detail_chart_stacked_title">同步时间轴剖面</string>
     <string name="detail_chart_scrub_hint">按住或左右滑动图表，查看该时刻海拔、速度与心率</string>
+    <string name="detail_chart_scrub_hint_karting">按住或左右滑动图表，查看该时刻速度、G 力与心率</string>
     <string name="detail_chart_clear_scrub">重置</string>
     <string name="detail_chart_elevation">海拔</string>
     <string name="detail_chart_speed">速度</string>
     <string name="detail_chart_hr">心率</string>
+    <string name="detail_chart_total_g">综合 G 力</string>
+    <string name="detail_chart_lat_g">横向 G 力</string>
+    <string name="detail_chart_lon_g">纵向 G 力</string>
     <string name="detail_chart_time">时刻</string>
     <string name="detail_laps_title">单圈圈速明细</string>
     <string name="detail_lap_best_tag">最佳</string>
     <string name="detail_legend_low">低</string>
     <string name="detail_legend_high">高</string>
+    <string name="detail_map_mode_f1">F1 分段</string>
+    <string name="detail_map_mode_speed">速度热力</string>
+    <string name="kart_f1_sector_title">F1 自动分段计时</string>
+    <string name="kart_f1_legend_purple">刷紫</string>
+    <string name="kart_f1_legend_green">刷绿</string>
+    <string name="kart_f1_legend_yellow">刷黄</string>
+    <string name="kart_f1_best_lap">实际最佳 (L%d)</string>
+    <string name="kart_f1_theoretical_best">理论最佳 (S1+S2+S3)</string>
+    <string name="kart_f1_potential_gain">潜在提升</string>
+    <string name="kart_f1_optimal_hit">已达极限</string>
+    <string name="kart_f1_single_run_hint">本次未触发多圈计时，已按赛道弯道结构自动划分为 S1 / S2 / S3 三段（按均速对比刷紫/刷绿/刷黄）。</string>
+    <string name="kart_f1_col_lap">圈</string>
+    <string name="kart_f1_col_lap_time">圈速</string>
+    <string name="kart_f1_selected_lap_detail">第 %d 圈分段明细（赛道图已同步高亮）</string>
+    <string name="kart_f1_single_detail_header">赛道分段明细</string>
+    <string name="kart_f1_tap_lap_hint">提示：点击任意圈数，上方矢量赛道图将同步切换该圈的 S1/S2/S3 刷紫/刷绿/刷黄配色。</string>
     <string name="detail_no_laps">本次未触发完整绕圈（需离开起终点 25 米后返回）</string>
     <string name="share_gpx_chooser">分享 GPX 轨迹文件</string>
     <string name="share_json_chooser">分享结构化 JSON 遥测数据</string>
@@ -343,7 +363,7 @@
     <string name="alert_badge_overspeed">超速预警</string>
     <string name="alert_badge_high_hr">心率偏高</string>
 
-    <string name="settings_version_footer">GPS 悬浮仪表 v1.0.0 · 纯本地离线版</string>
+    <string name="settings_version_footer">GPS 悬浮仪表 v%1$s (%2$d) · 本地离线优先</string>
 
     <!-- Floating Window Control -->
     <string name="action_start_overlay">开启悬浮窗</string>
@@ -411,4 +431,115 @@
     <string name="sat_empty_desc">请移步至开阔室外或窗边，GNSS 芯片捕获北斗/GPS 卫星后将实时展示星空分布与各通道信噪比。</string>
     <string name="sat_badge_used">定位中</string>
     <string name="sat_badge_tracking">跟踪中</string>
+
+    <!-- OpenAI-Compatible AI Gateway Settings -->
+    <string name="ai_section_title">AI 网关与智能复盘</string>
+    <string name="ai_status_configured">已配置</string>
+    <string name="ai_status_offline">未配置 · 纯离线</string>
+    <string name="ai_gateway_subtitle">支持 OneAPI / NewAPI / DeepSeek / OpenRouter / 硅基流动及局域网 Ollama。未配置时不发起任何网络请求，密钥仅加密保存在本机。</string>
+    <string name="ai_base_url_label">网关 Base URL</string>
+    <string name="ai_base_url_placeholder">如 https://api.deepseek.com/v1</string>
+    <string name="ai_api_key_label">API Key（本机加密存储）</string>
+    <string name="ai_api_key_placeholder">sk-...（本地 Ollama 可留空）</string>
+    <string name="ai_api_key_toggle_show">显示 API Key</string>
+    <string name="ai_api_key_toggle_hide">隐藏 API Key</string>
+    <string name="ai_model_id_label">模型 ID（支持手填或点选）</string>
+    <string name="ai_model_id_placeholder">如 deepseek-chat / gpt-4o-mini</string>
+    <string name="ai_action_test_fetch">测试连接并拉取模型</string>
+    <string name="ai_action_testing">正在连接网关…</string>
+    <string name="ai_action_save">保存配置</string>
+    <string name="ai_action_clear">清除配置</string>
+    <string name="ai_test_success_format">连接成功，共拉取到 %d 个模型</string>
+    <string name="ai_models_picker_label">已拉取模型（点击选用）</string>
+    <string name="ai_models_search_placeholder">搜索模型名称…</string>
+    <string name="ai_models_more_button">查看全部 %d 个模型</string>
+    <string name="ai_models_dialog_title">选择对话模型</string>
+    <string name="ai_security_note">公网地址强制 HTTPS；API Key 使用系统密钥库本机加密且排除云备份。</string>
+    <string name="toast_ai_config_saved">AI 网关配置已加密保存至本机</string>
+    <string name="toast_ai_config_cleared">已清除 AI 网关配置，恢复纯离线状态</string>
+
+    <!-- Track Detail AI Coach Analysis -->
+    <string name="ai_coach_title">AI 教练分析</string>
+    <string name="ai_coach_badge_cached">本地已缓存</string>
+    <string name="ai_coach_badge_streaming">实时生成中…</string>
+    <string name="ai_coach_unconfigured_desc">配置 OpenAI 兼容网关后，可一键将本次轨迹的 GPS、速度、海拔、G 力与心率遥测直接发送给 AI 教练生成中文复盘，结果自动缓存在本地。</string>
+    <string name="ai_coach_go_settings">前往设置配置网关</string>
+    <string name="ai_coach_ready_desc">自动整合本次轨迹遥测数据与专业教练提示词，流式生成中文复盘并缓存在本地数据库。</string>
+    <string name="ai_coach_start">生成 AI 教练复盘</string>
+    <string name="ai_coach_regenerate">重新分析</string>
+    <string name="ai_coach_stop">停止生成</string>
+    <string name="ai_coach_retry">重试</string>
+    <string name="ai_coach_copy">复制报告</string>
+    <string name="ai_coach_waiting_token">正在连接模型并分析轨迹遥测数据…</string>
+    <string name="ai_coach_meta_model">模型：%s</string>
+    <string name="toast_ai_report_copied">AI 教练复盘报告已复制到剪贴板</string>
+
+    <!-- AI Analysis History Screen -->
+    <string name="ai_history_entry">分析历史</string>
+    <string name="ai_history_title">AI 分析历史</string>
+    <string name="ai_history_back_cd">返回轨迹列表</string>
+    <string name="ai_history_detail_back_cd">返回分析历史列表</string>
+    <string name="ai_history_count_format">共 %d 条复盘</string>
+    <string name="ai_history_search_placeholder">搜索轨迹名称、模型或教练建议…</string>
+    <string name="ai_history_empty_title">还没有 AI 分析历史</string>
+    <string name="ai_history_empty_desc">进入任意轨迹详情页点击「生成 AI 教练复盘」，所有历史复盘报告都会自动保存在本地，方便随时回顾对比。</string>
+    <string name="ai_history_filter_empty">当前筛选条件下暂无分析记录</string>
+    <string name="ai_history_open_track">查看关联轨迹</string>
+    <string name="ai_history_track_deleted_hint">关联轨迹已删除（复盘报告已独立保留）</string>
+    <string name="ai_history_delete_record">删除记录</string>
+    <string name="ai_history_delete_title">删除分析记录</string>
+    <string name="ai_history_delete_confirm">确定要删除这条 AI 复盘记录吗？删除后无法恢复。</string>
+    <string name="ai_history_clear_all">清空</string>
+    <string name="ai_history_clear_title">清空全部 AI 分析历史</string>
+    <string name="ai_history_clear_confirm">确定要清空全部 %d 条历史 AI 复盘记录吗？此操作不会删除原始轨迹。</string>
+    <string name="ai_history_select_prompt">在左侧选择一条历史复盘查看完整教练建议</string>
+    <string name="toast_ai_history_deleted">已删除该条 AI 分析记录</string>
+    <string name="toast_ai_history_cleared">已清空全部 AI 分析历史</string>
+
+    <!-- GNSS Accuracy Detail Screen -->
+    <string name="acc_detail_title">定位精度与信号质量</string>
+    <string name="acc_horizontal_label">水平定位误差 (68% CEP)</string>
+    <string name="acc_source_label">当前定位源</string>
+    <string name="acc_source_gnss">GNSS 卫星</string>
+    <string name="acc_source_fused">系统融合</string>
+    <string name="acc_update_rate_label">更新频率</string>
+    <string name="acc_chart_title">实时水平误差变化曲线</string>
+    <string name="acc_chart_empty">持续接收定位信号后将自动绘制实时精度曲线</string>
+    <string name="acc_vertical_sub">海拔高度置信误差</string>
+    <string name="acc_speed_accuracy">速度精度</string>
+    <string name="acc_speed_sub">瞬时测速误差范围</string>
+    <string name="acc_bearing_accuracy">航向精度</string>
+    <string name="acc_bearing_sub">行进方向角误差</string>
+    <string name="acc_avg_stability">平均误差与稳定度</string>
+    <string name="acc_stability_score_format">稳定度 %d / 100</string>
+    <string name="acc_samples_waiting">等待定位采样</string>
+    <string name="acc_diagnostics_title">定位质量诊断</string>
+    <string name="acc_best_recorded">本次最佳</string>
+    <string name="acc_sample_count">累计采样</string>
+    <string name="acc_cep_explanation">Android 水平定位精度代表 68% 概率的误差半径（1σ CEP）：数值越小表示位置越可靠。若在深山峡谷、密林或高楼间误差偏大，可查看「卫星数」页面确认多星系（北斗/GPS）信噪比。</string>
+    <string name="toast_accuracy_session_reset">已重置本次定位精度统计与曲线</string>
+
+    <!-- Track Merge (Hiking & Off-road Crossing Only) -->
+    <string name="merge_entry_btn">合并轨迹</string>
+    <string name="merge_mode_title">选择同类型轨迹合并</string>
+    <string name="merge_mode_banner">请选择 2 条及以上同类型的「徒步」或「越野穿越」轨迹按时间首尾合并（卡丁车不支持合并）</string>
+    <string name="merge_filter_all_eligible">全部可合并</string>
+    <string name="merge_empty_eligible">暂无可合并的徒步或越野穿越轨迹（需至少 2 条同类型记录）</string>
+    <string name="merge_selected_count_format">已选 %d 条</string>
+    <string name="merge_preview_btn">预览并合并</string>
+    <string name="merge_same_type_only_tag">需与已选同类型</string>
+    <string name="merge_connection_seamless_format">首尾衔接 %s · 无缝</string>
+    <string name="merge_connection_nearby_format">首尾间距 %s</string>
+    <string name="merge_connection_far_format">相距 %s</string>
+    <string name="merge_dialog_title">合并 %1$s 轨迹（%2$d 段）</string>
+    <string name="merge_name_label">合并后的轨迹名称</string>
+    <string name="merge_active_duration">有效用时</string>
+    <string name="merge_chain_section_title">按时间顺序首尾衔接预览</string>
+    <string name="merge_far_junction_notice">提示：存在超过 1 km 的断点跨度，合并时会自动排除中断休息时长与超大跨度里程，仅连接实际录制轨迹。</string>
+    <string name="merge_keep_originals_title">合并后保留原分段记录</string>
+    <string name="merge_keep_originals_desc">取消勾选将在合并成功后自动删除被合并的旧分段</string>
+    <string name="merge_confirm_action">确认合并</string>
+    <string name="merge_confirming">正在合并…</string>
+    <string name="toast_merge_success">已合并 %d 条轨迹并生成完整记录</string>
+    <string name="toast_merge_need_two_same_type">请选择至少 2 条同类型的徒步或越野穿越轨迹</string>
 </resources>

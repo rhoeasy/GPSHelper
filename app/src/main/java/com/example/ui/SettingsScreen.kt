@@ -61,7 +61,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.BuildConfig
 import com.example.R
+import com.example.ai.AiConnectionState
+import com.example.ai.AiGatewayConfig
 import com.example.alert.SafetyAlertState
 import com.example.ble.HeartRateState
 import com.example.gps.GpsData
@@ -88,6 +91,10 @@ fun SettingsScreen(
     themeMode: ThemeMode,
     keepScreenOn: Boolean,
     autoFocusOnLaunch: Boolean,
+    aiGatewayConfig: AiGatewayConfig,
+    aiFetchedModels: List<String>,
+    aiConnectionState: AiConnectionState,
+    aiHistoryCount: Int,
     onUpdateOverlayConfig: ((OverlayDisplayConfig) -> OverlayDisplayConfig) -> Unit,
     onResetOverlayConfig: () -> Unit,
     onUpdateSafetyAlertConfig: ((SafetyAlertConfig) -> SafetyAlertConfig) -> Unit,
@@ -95,6 +102,10 @@ fun SettingsScreen(
     onSelectThemeMode: (ThemeMode) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
     onToggleAutoFocusOnLaunch: (Boolean) -> Unit,
+    onTestAndFetchAiModels: (baseUrl: String, apiKey: String, currentModelId: String) -> Unit,
+    onSaveAiGatewayConfig: (baseUrl: String, apiKey: String, modelId: String) -> Unit,
+    onClearAiGatewayConfig: () -> Unit,
+    onOpenAiHistory: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -785,15 +796,33 @@ fun SettingsScreen(
                 }
             }
 
-            // Version footer
+            // OpenAI-Compatible AI Gateway Configuration
+            SectionHeaderText(text = stringResource(R.string.ai_section_title))
+            AiGatewaySettingsCard(
+                config = aiGatewayConfig,
+                fetchedModels = aiFetchedModels,
+                connectionState = aiConnectionState,
+                aiHistoryCount = aiHistoryCount,
+                onTestAndFetchModels = onTestAndFetchAiModels,
+                onSaveConfig = onSaveAiGatewayConfig,
+                onClearConfig = onClearAiGatewayConfig,
+                onOpenAiHistory = onOpenAiHistory
+            )
+
+            // Version footer (dynamically populated from BuildConfig / GitHub Actions release version)
             Text(
-                text = stringResource(R.string.settings_version_footer),
+                text = stringResource(
+                    R.string.settings_version_footer,
+                    BuildConfig.VERSION_NAME,
+                    BuildConfig.VERSION_CODE
+                ),
                 style = MaterialTheme.typography.labelSmall,
                 color = cs.onSurfaceVariant.copy(alpha = 0.72f),
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 6.dp, bottom = 18.dp)
+                    .testTag("settings_version_footer")
             )
         }
     }

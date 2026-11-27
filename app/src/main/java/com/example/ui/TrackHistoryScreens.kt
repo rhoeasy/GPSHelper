@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -29,12 +31,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CallMerge
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DataObject
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.IosShare
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -50,6 +55,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +63,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -67,11 +74,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.ai.AiAnalysisState
+import com.example.ai.AiGatewayConfig
 import com.example.gps.SpeedUnit
 import com.example.track.ActivityMode
+import com.example.track.KartingSectorEngine
+import com.example.track.MergeJunctionQuality
 import com.example.track.OffroadAnalysisEngine
+import com.example.track.TrackEndpoints
 import com.example.track.TrackFormatters
 import com.example.track.TrackLapEntity
+import com.example.track.TrackMergeEngine
 import com.example.track.TrackSessionDetail
 import com.example.track.TrackSessionEntity
 import com.example.track.TrackTelemetryAnalyzer
@@ -83,14 +96,57 @@ import java.util.Locale
 fun TrackHistoryScreen(
     sessions: List<TrackSessionEntity>,
     speedUnit: SpeedUnit,
+    aiHistoryCount: Int,
     onSelectSession: (Long) -> Unit,
+    onOpenAiHistory: () -> Unit,
+    sessionEndpoints: Map<Long, TrackEndpoints> = emptyMap(),
+    mergeCompletedSignal: Int = 0,
+    onEnterMergeMode: () -> Unit = {},
+    onRequestMergePreview: (List<Long>) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
     var filterMode by remember { mutableStateOf<ActivityMode?>(null) }
-    val filtered = remember(sessions, filterMode) {
-        if (filterMode == null) sessions else sessions.filter { it.activityMode == filterMode }
+    var isMergeMode by rememberSaveable { mutableStateOf(false) }
+    var selectedMergeIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+
+    LaunchedEffect(mergeCompletedSignal) {
+        if (mergeCompletedSignal > 0) {
+            isMergeMode = false
+            selectedMergeIds = emptySet()
+        }
     }
+
+    LaunchedEffect(sessions, isMergeMode) {
+        if (isMergeMode) {
+            val validIds = sessions.mapTo(HashSet(sessions.size)) { it.id }
+            val pruned = selectedMergeIds.filterTo(HashSet()) { it in validIds }
+            if (pruned.size != selectedMergeIds.size) {
+                selectedMergeIds = pruned
+            }
+        }
+    }
+
+    BackHandler(enabled = isMergeMode) {
+        isMergeMode = false
+        selectedMergeIds = emptySet()
+    }
+
+    val filtered = remember(sessions, filterMode, isMergeMode) {
+        if (isMergeMode) {
+            sessions.filter { session ->
+                TrackMergeEngine.isModeMergeable(session.activityMode) &&
+                    (filterMode == null || session.activityMode == filterMode)
+            }
+        } else {
+            if (filterMode == null) sessions else sessions.filter { it.activityMode == filterMode }
+        }
+    }
+
+    val selectedSessions = remember(sessions, selectedMergeIds) {
+        if (selectedMergeIds.isEmpty()) emptyList() else sessions.filter { it.id in selectedMergeIds }
+    }
+    val lockedMode = selectedSessions.firstOrNull()?.activityMode
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -103,14 +159,130 @@ fun TrackHistoryScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = stringResource(R.string.tab_tracks),
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 22.sp
-                ),
-                color = cs.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = stringResource(if (isMergeMode) R.string.merge_mode_title else R.string.tab_tracks),
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Medium,
+                        fontSize = if (isMergeMode) 19.sp else 22.sp
+                    ),
+                    color = cs.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+
+                if (isMergeMode) {
+                    TextButton(
+                        onClick = {
+                            isMergeMode = false
+                            selectedMergeIds = emptySet()
+                        },
+                        modifier = Modifier
+                            .height(48.dp)
+                            .testTag("btn_cancel_merge_mode")
+                    ) {
+                        Text(
+                            text = stringResource(R.string.detail_cancel),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilledTonalButton(
+                            onClick = {
+                                isMergeMode = true
+                                selectedMergeIds = emptySet()
+                                if (filterMode == ActivityMode.KARTING) {
+                                    filterMode = null
+                                }
+                                onEnterMergeMode()
+                            },
+                            shape = RoundedCornerShape(50),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = cs.secondaryContainer,
+                                contentColor = cs.onSecondaryContainer
+                            ),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .testTag("btn_enter_merge_mode")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.CallMerge,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = stringResource(R.string.merge_entry_btn),
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1
+                            )
+                        }
+
+                        FilledTonalButton(
+                            onClick = onOpenAiHistory,
+                            shape = RoundedCornerShape(50),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .testTag("btn_open_ai_history")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.History,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = if (aiHistoryCount > 0) {
+                                    "${stringResource(R.string.ai_history_entry)} ($aiHistoryCount)"
+                                } else {
+                                    stringResource(R.string.ai_history_entry)
+                                },
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (isMergeMode) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = cs.secondaryContainer.copy(alpha = 0.65f)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.CallMerge,
+                            contentDescription = null,
+                            tint = cs.onSecondaryContainer,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.merge_mode_banner),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSecondaryContainer
+                        )
+                    }
+                }
+            }
 
             Row(
                 modifier = Modifier
@@ -121,17 +293,25 @@ fun TrackHistoryScreen(
                 FilterChip(
                     selected = filterMode == null,
                     onClick = { filterMode = null },
-                    label = { Text(stringResource(R.string.filter_all)) },
+                    label = {
+                        Text(
+                            stringResource(
+                                if (isMergeMode) R.string.merge_filter_all_eligible else R.string.filter_all
+                            )
+                        )
+                    },
                     shape = RoundedCornerShape(50),
                     modifier = Modifier.testTag("filter_chip_all")
                 )
-                FilterChip(
-                    selected = filterMode == ActivityMode.KARTING,
-                    onClick = { filterMode = ActivityMode.KARTING },
-                    label = { Text(stringResource(R.string.mode_karting)) },
-                    shape = RoundedCornerShape(50),
-                    modifier = Modifier.testTag("filter_chip_karting")
-                )
+                if (!isMergeMode) {
+                    FilterChip(
+                        selected = filterMode == ActivityMode.KARTING,
+                        onClick = { filterMode = ActivityMode.KARTING },
+                        label = { Text(stringResource(R.string.mode_karting)) },
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.testTag("filter_chip_karting")
+                    )
+                }
                 FilterChip(
                     selected = filterMode == ActivityMode.HIKING,
                     onClick = { filterMode = ActivityMode.HIKING },
@@ -168,23 +348,28 @@ fun TrackHistoryScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.Route,
+                                imageVector = if (isMergeMode) Icons.Rounded.CallMerge else Icons.Rounded.Route,
                                 contentDescription = null,
                                 tint = cs.onPrimaryContainer,
                                 modifier = Modifier.size(32.dp)
                             )
                         }
                         Text(
-                            text = stringResource(R.string.tracks_empty_title),
+                            text = stringResource(
+                                if (isMergeMode) R.string.merge_empty_eligible else R.string.tracks_empty_title
+                            ),
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = cs.onSurface
-                        )
-                        Text(
-                            text = stringResource(R.string.tracks_empty_desc),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = cs.onSurfaceVariant,
+                            color = cs.onSurface,
                             textAlign = TextAlign.Center
                         )
+                        if (!isMergeMode) {
+                            Text(
+                                text = stringResource(R.string.tracks_empty_desc),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = cs.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 }
             } else {
@@ -196,11 +381,91 @@ fun TrackHistoryScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filtered, key = { it.id }) { session ->
+                        val isSelected = session.id in selectedMergeIds
+                        val isEligible = !isMergeMode || lockedMode == null || session.activityMode == lockedMode
+                        val connectionGapM = if (isMergeMode && !isSelected && isEligible && selectedSessions.isNotEmpty()) {
+                            TrackMergeEngine.bestChainConnectionMeters(
+                                selectedOrdered = selectedSessions,
+                                candidate = session,
+                                endpointsById = sessionEndpoints
+                            )
+                        } else {
+                            null
+                        }
+
                         TrackSessionCard(
                             session = session,
                             speedUnit = speedUnit,
-                            onClick = { onSelectSession(session.id) }
+                            isMergeMode = isMergeMode,
+                            isSelectedForMerge = isSelected,
+                            isEligibleForMerge = isEligible,
+                            connectionGapMeters = connectionGapM,
+                            onClick = {
+                                if (isMergeMode) {
+                                    if (isEligible) {
+                                        selectedMergeIds = if (isSelected) {
+                                            selectedMergeIds - session.id
+                                        } else {
+                                            selectedMergeIds + session.id
+                                        }
+                                    }
+                                } else {
+                                    onSelectSession(session.id)
+                                }
+                            }
                         )
+                    }
+                }
+            }
+
+            if (isMergeMode) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("merge_bottom_action_bar"),
+                    shape = RoundedCornerShape(20.dp),
+                    color = cs.surfaceContainerHigh,
+                    tonalElevation = 2.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = stringResource(R.string.merge_selected_count_format, selectedMergeIds.size),
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = cs.onSurface
+                            )
+                            Text(
+                                text = lockedMode?.labelZh ?: stringResource(R.string.merge_filter_all_eligible),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = cs.onSurfaceVariant
+                            )
+                        }
+
+                        Button(
+                            onClick = { onRequestMergePreview(selectedMergeIds.toList()) },
+                            enabled = selectedMergeIds.size >= 2,
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .testTag("btn_preview_merge_tracks")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.CallMerge,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(R.string.merge_preview_btn),
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
                     }
                 }
             }
@@ -212,6 +477,10 @@ fun TrackHistoryScreen(
 private fun TrackSessionCard(
     session: TrackSessionEntity,
     speedUnit: SpeedUnit,
+    isMergeMode: Boolean = false,
+    isSelectedForMerge: Boolean = false,
+    isEligibleForMerge: Boolean = true,
+    connectionGapMeters: Double? = null,
     onClick: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
@@ -223,14 +492,26 @@ private fun TrackSessionCard(
         ActivityMode.OFFROAD_CROSSING -> cs.primaryContainer to cs.onPrimaryContainer
     }
 
+    val cardColor = when {
+        isMergeMode && isSelectedForMerge -> cs.primaryContainer.copy(alpha = 0.35f)
+        else -> cs.surfaceContainerLow
+    }
+    val cardBorder = if (isMergeMode && isSelectedForMerge) {
+        BorderStroke(1.5.dp, cs.primary)
+    } else {
+        null
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .alpha(if (isMergeMode && !isEligibleForMerge) 0.48f else 1f)
             .clip(RoundedCornerShape(22.dp))
-            .clickable(onClick = onClick)
+            .clickable(enabled = !isMergeMode || isEligibleForMerge, onClick = onClick)
             .testTag("track_session_card_${session.id}"),
         shape = RoundedCornerShape(22.dp),
-        color = cs.surfaceContainerLow
+        color = cardColor,
+        border = cardBorder
     ) {
         Column(
             modifier = Modifier
@@ -280,12 +561,96 @@ private fun TrackSessionCard(
                     )
                 }
 
-                Icon(
-                    imageVector = Icons.Rounded.ChevronRight,
-                    contentDescription = null,
-                    tint = cs.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
+                if (isMergeMode) {
+                    Checkbox(
+                        checked = isSelectedForMerge,
+                        onCheckedChange = { if (isEligibleForMerge) onClick() },
+                        enabled = isEligibleForMerge,
+                        modifier = Modifier.testTag("merge_checkbox_${session.id}")
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.ChevronRight,
+                        contentDescription = null,
+                        tint = cs.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            if (isMergeMode && (!isEligibleForMerge || connectionGapMeters != null)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (!isEligibleForMerge) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = cs.surfaceContainerHighest
+                        ) {
+                            Text(
+                                text = stringResource(R.string.merge_same_type_only_tag),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = cs.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    } else if (connectionGapMeters != null) {
+                        val quality = TrackMergeEngine.classifyJunction(connectionGapMeters)
+                        val (pillBg, pillFg, pillText) = when (quality) {
+                            MergeJunctionQuality.SEAMLESS -> Triple(
+                                cs.secondaryContainer,
+                                cs.onSecondaryContainer,
+                                stringResource(
+                                    R.string.merge_connection_seamless_format,
+                                    formatGapMeters(connectionGapMeters)
+                                )
+                            )
+                            MergeJunctionQuality.NEARBY -> Triple(
+                                cs.primaryContainer,
+                                cs.onPrimaryContainer,
+                                stringResource(
+                                    R.string.merge_connection_nearby_format,
+                                    formatGapMeters(connectionGapMeters)
+                                )
+                            )
+                            MergeJunctionQuality.FAR -> Triple(
+                                cs.surfaceContainerHighest,
+                                cs.onSurfaceVariant,
+                                stringResource(
+                                    R.string.merge_connection_far_format,
+                                    formatGapMeters(connectionGapMeters)
+                                )
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = pillBg
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Link,
+                                    contentDescription = null,
+                                    tint = pillFg,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = pillText,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Medium,
+                                        fontFamily = JetBrainsMonoFontFamily
+                                    ),
+                                    color = pillFg
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             Row(
@@ -375,6 +740,8 @@ fun TrackDetailScreen(
     detail: TrackSessionDetail,
     speedUnit: SpeedUnit,
     isFocusLockActive: Boolean,
+    aiGatewayConfig: AiGatewayConfig,
+    aiAnalysisState: AiAnalysisState,
     onExitFocusLock: () -> Unit,
     onBack: () -> Unit,
     onCopyJson: (includeAiPrompt: Boolean) -> Unit,
@@ -382,6 +749,10 @@ fun TrackDetailScreen(
     onExportGpx: () -> Unit,
     onShareSocialImage: (Uri) -> Unit,
     onDeleteSession: () -> Unit,
+    onStartAiAnalysis: () -> Unit,
+    onStopAiAnalysis: () -> Unit,
+    onCopyAiReport: (String) -> Unit,
+    onOpenAiSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -409,6 +780,12 @@ fun TrackDetailScreen(
 
     val session = detail.session
     val isKart = session.activityMode == ActivityMode.KARTING
+    val kartingF1Analysis = remember(detail.session.id, detail.points, detail.laps) {
+        if (isKart) KartingSectorEngine.analyze(detail.points, detail.laps) else null
+    }
+    var selectedF1LapNumber by remember(detail.session.id, kartingF1Analysis?.bestLapNumber) {
+        mutableStateOf(kartingF1Analysis?.bestLapNumber)
+    }
 
     if (showJsonExportDialog) {
         AlertDialog(
@@ -871,6 +1248,16 @@ fun TrackDetailScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            TrackAiCoachCard(
+                sessionId = session.id,
+                gatewayConfig = aiGatewayConfig,
+                analysisState = aiAnalysisState,
+                onStartAnalysis = onStartAiAnalysis,
+                onStopAnalysis = onStopAiAnalysis,
+                onCopyReport = onCopyAiReport,
+                onOpenAiSettings = onOpenAiSettings
+            )
+
             when (session.activityMode) {
                 ActivityMode.OFFROAD_CROSSING -> {
                     val offroadAnalysis = remember(detail.session.id, detail.points) {
@@ -885,6 +1272,14 @@ fun TrackDetailScreen(
                     HikingAnalysisCard(analysis = hikingAnalysis)
                 }
                 ActivityMode.KARTING -> {
+                    if (kartingF1Analysis != null) {
+                        KartingF1SectorCard(
+                            analysis = kartingF1Analysis,
+                            selectedLapNumber = selectedF1LapNumber,
+                            onSelectLap = { selectedF1LapNumber = it },
+                            speedUnit = speedUnit
+                        )
+                    }
                     val kartingAnalysis = remember(detail.session.id, detail.points, detail.laps) {
                         TrackTelemetryAnalyzer.analyzeKarting(session, detail.points, detail.laps)
                     }
@@ -947,46 +1342,69 @@ fun TrackDetailScreen(
                             points = detail.points,
                             mode = session.activityMode,
                             speedUnit = speedUnit,
-                            highlightedIndex = selectedPointIndex
+                            highlightedIndex = selectedPointIndex,
+                            f1SectorAnalysis = kartingF1Analysis,
+                            selectedLapNumber = selectedF1LapNumber
                         )
                         summaryMetricsCard()
                         actionButtonsSection()
                         Spacer(modifier = Modifier.height(12.dp))
                     }
 
-                    // Right Pane: Telemetry Analysis + Synchronized Profile Charts + Laps
-                    Column(
+                    // Right Pane: Telemetry Analysis + Synchronized Profile Charts + Laps (supports native long screenshot)
+                    SystemLongScreenshotScrollContainer(
                         modifier = Modifier
                             .weight(1.15f)
                             .fillMaxHeight()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                            .testTag("track_detail_landscape_right_long_scroll")
                     ) {
-                        analysisAndChartsSection()
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .wrapContentHeight(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            analysisAndChartsSection()
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
                     }
                 }
             }
         } else {
-            Column(
+            SystemLongScreenshotScrollContainer(
                 modifier = Modifier
                     .fillMaxSize()
-                    .widthIn(max = 600.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .testTag("track_detail_long_scroll")
             ) {
-                headerBar()
-                actionButtonsSection()
-                VectorTrackCanvasCard(
-                    points = detail.points,
-                    mode = session.activityMode,
-                    speedUnit = speedUnit,
-                    highlightedIndex = selectedPointIndex
-                )
-                summaryMetricsCard()
-                analysisAndChartsSection()
-                Spacer(modifier = Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight(),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentHeight()
+                            .widthIn(max = 600.dp)
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        headerBar()
+                        actionButtonsSection()
+                        VectorTrackCanvasCard(
+                            points = detail.points,
+                            mode = session.activityMode,
+                            speedUnit = speedUnit,
+                            highlightedIndex = selectedPointIndex,
+                            f1SectorAnalysis = kartingF1Analysis,
+                            selectedLapNumber = selectedF1LapNumber
+                        )
+                        summaryMetricsCard()
+                        analysisAndChartsSection()
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
             }
         }
     }

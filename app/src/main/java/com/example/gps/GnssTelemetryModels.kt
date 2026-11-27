@@ -154,3 +154,140 @@ class AltitudeSessionTracker {
         )
     }
 }
+
+enum class AccuracyQualityGrade(val labelZh: String, val descZh: String) {
+    EXCELLENT("极佳", "误差 ≤ 5 m，高精度锁定，适合弯道与越野精细记录"),
+    GOOD("良好", "误差 5–12 m，户外正常骑行与徒步定位水准"),
+    FAIR("一般", "误差 12–25 m，可能存在峡谷、树冠或楼宇遮挡"),
+    POOR("偏弱", "误差 > 25 m，建议移步开阔地带等待卫星收敛"),
+    WAITING("等待定位", "正在接收 GNSS 定位精度数据")
+}
+
+data class AccuracySample(
+    val elapsedMs: Long,
+    val horizontalAccuracyM: Float
+)
+
+data class AccuracyTelemetry(
+    val currentHorizontalAccuracyM: Float? = null,
+    val verticalAccuracyM: Float? = null,
+    val speedAccuracyMps: Float? = null,
+    val bearingAccuracyDeg: Float? = null,
+    val bestAccuracyM: Float? = null,
+    val worstAccuracyM: Float? = null,
+    val avgAccuracyM: Float? = null,
+    val sampleCount: Int = 0,
+    val fixIntervalMs: Long? = null,
+    val samples: List<AccuracySample> = emptyList()
+) {
+    val qualityGrade: AccuracyQualityGrade
+        get() {
+            val acc = currentHorizontalAccuracyM ?: return AccuracyQualityGrade.WAITING
+            return when {
+                acc <= 5.0f -> AccuracyQualityGrade.EXCELLENT
+                acc <= 12.0f -> AccuracyQualityGrade.GOOD
+                acc <= 25.0f -> AccuracyQualityGrade.FAIR
+                else -> AccuracyQualityGrade.POOR
+            }
+        }
+
+    /**
+     * Stability score (0..100) combining average horizontal precision and consistency across samples.
+     */
+    val stabilityScore: Int?
+        get() {
+            val avg = avgAccuracyM ?: return null
+            if (sampleCount <= 0) return null
+            val precisionPts = when {
+                avg <= 4f -> 70f
+                avg <= 10f -> 70f - (avg - 4f) * 3.5f
+                avg <= 25f -> 49f - (avg - 10f) * 2.0f
+                else -> (19f - (avg - 25f) * 0.4f).coerceAtLeast(4f)
+            }
+            val spread = if (bestAccuracyM != null && worstAccuracyM != null) {
+                (worstAccuracyM - bestAccuracyM).coerceAtLeast(0f)
+            } else {
+                0f
+            }
+            val consistencyPts = (30f - spread * 1.1f).coerceIn(4f, 30f)
+            return (precisionPts + consistencyPts).toInt().coerceIn(0, 100)
+        }
+}
+
+/**
+ * Pure deterministic GNSS positioning accuracy statistics & trend tracker.
+ */
+class AccuracySessionTracker {
+    companion object {
+        private const val MAX_HISTORY_SAMPLES = 120
+        private const val MIN_SAMPLE_INTERVAL_MS = 1_000L
+    }
+
+    private var bestAcc: Float? = null
+    private var worstAcc: Float? = null
+    private var accSum: Double = 0.0
+    private var count: Int = 0
+    private var lastFixElapsedMs: Long = 0L
+    private var lastHistoryElapsedMs: Long = 0L
+    private var smoothedIntervalMs: Long? = null
+    private val history = ArrayDeque<AccuracySample>()
+
+    fun reset() {
+        bestAcc = null
+        worstAcc = null
+        accSum = 0.0
+        count = 0
+        lastFixElapsedMs = 0L
+        lastHistoryElapsedMs = 0L
+        smoothedIntervalMs = null
+        history.clear()
+    }
+
+    fun onAccuracySample(
+        horizontalAccuracyM: Float,
+        verticalAccuracyM: Float?,
+        speedAccuracyMps: Float?,
+        bearingAccuracyDeg: Float?,
+        elapsedMs: Long
+    ): AccuracyTelemetry {
+        val acc = horizontalAccuracyM.coerceAtLeast(0.1f)
+        if (bestAcc == null || acc < bestAcc!!) bestAcc = acc
+        if (worstAcc == null || acc > worstAcc!!) worstAcc = acc
+        accSum += acc
+        count++
+
+        if (lastFixElapsedMs > 0L) {
+            val delta = elapsedMs - lastFixElapsedMs
+            if (delta in 100L..30_000L) {
+                smoothedIntervalMs = if (smoothedIntervalMs == null) {
+                    delta
+                } else {
+                    ((smoothedIntervalMs!! * 0.65) + (delta * 0.35)).toLong()
+                }
+            }
+        }
+        lastFixElapsedMs = elapsedMs
+
+        if (history.isEmpty() || (elapsedMs - lastHistoryElapsedMs) >= MIN_SAMPLE_INTERVAL_MS) {
+            history.addLast(AccuracySample(elapsedMs, acc))
+            if (history.size > MAX_HISTORY_SAMPLES) {
+                history.removeFirst()
+            }
+            lastHistoryElapsedMs = elapsedMs
+        }
+
+        return AccuracyTelemetry(
+            currentHorizontalAccuracyM = acc,
+            verticalAccuracyM = verticalAccuracyM,
+            speedAccuracyMps = speedAccuracyMps,
+            bearingAccuracyDeg = bearingAccuracyDeg,
+            bestAccuracyM = bestAcc,
+            worstAccuracyM = worstAcc,
+            avgAccuracyM = (accSum / count).toFloat(),
+            sampleCount = count,
+            fixIntervalMs = smoothedIntervalMs,
+            samples = history.toList()
+        )
+    }
+}
+
