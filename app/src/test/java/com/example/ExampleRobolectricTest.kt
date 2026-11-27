@@ -1,11 +1,16 @@
 package com.example
 
+import android.app.Application
 import android.content.Context
+import android.graphics.PixelFormat
+import android.view.WindowManager
 import androidx.test.core.app.ApplicationProvider
 import com.example.ble.parseHeartRateBpm
 import com.example.gps.GpsData
 import com.example.gps.GpsFixStatus
 import com.example.gps.SpeedUnit
+import com.example.overlay.OverlayWindowController
+import com.example.sensor.GForceFusionEngine
 import com.example.track.ActivityMode
 import com.example.track.GpxExporter
 import com.example.track.TelemetryJsonExporter
@@ -14,10 +19,13 @@ import com.example.track.TrackLapEntity
 import com.example.track.TrackPointEntity
 import com.example.track.TrackRecorder
 import com.example.track.TrackSessionEntity
+import com.example.ui.GpsDashboardViewModel
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import kotlin.math.sqrt
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -219,5 +227,117 @@ class ExampleRobolectricTest {
         assertEquals(168, samplesArr.getJSONObject(1).getInt("hr_bpm"))
         assertEquals(1.38, samplesArr.getJSONObject(1).getDouble("lat_g"), 0.01)
         assertEquals(1.45, samplesArr.getJSONObject(1).getDouble("total_g"), 0.01)
+    }
+
+    @Test
+    fun `motion sensor fusion cancels gravity at tilted mount and computes accurate gyro-fused G-force`() {
+        val engine = GForceFusionEngine()
+        val g = GForceFusionEngine.STANDARD_GRAVITY
+        val invSqrt2 = (1.0 / sqrt(2.0)).toFloat()
+
+        // 1. Stationary phone mounted at 45° tilt on handlebar: gravity split equally across +Y and +Z
+        var state = engine.onAccelerometerSample(
+            ax = 0f,
+            ay = g * invSqrt2,
+            az = g * invSqrt2,
+            elapsedRealtimeMs = 100L,
+            hasGyroscope = true
+        )
+        assertEquals(0f, state.lateralG, 0.01f)
+        assertEquals(0f, state.longitudinalG, 0.01f)
+        assertEquals(0f, state.totalG, 0.01f)
+        assertFalse(state.isGyroFused)
+
+        // 2. Feed gyroscope readings during a steady turn (1.0 rad/s around vertical gravity axis)
+        engine.onGyroscopeSample(wx = 0f, wy = 1f * invSqrt2, wz = 1f * invSqrt2, timestampNs = 1_000_000_000L)
+        engine.onGyroscopeSample(wx = 0f, wy = 1f * invSqrt2, wz = 1f * invSqrt2, timestampNs = 1_020_000_000L)
+
+        // 3. Apply pure 1.0G lateral cornering force (+X) while tilted 45° for several samples to settle smoothing
+        var tMs = 120L
+        var tNs = 1_040_000_000L
+        repeat(25) {
+            engine.onGyroscopeSample(wx = 0f, wy = 1f * invSqrt2, wz = 1f * invSqrt2, timestampNs = tNs)
+            state = engine.onAccelerometerSample(
+                ax = 1.0f * g,
+                ay = g * invSqrt2,
+                az = g * invSqrt2,
+                elapsedRealtimeMs = tMs,
+                hasGyroscope = true
+            )
+            tMs += 20L
+            tNs += 20_000_000L
+        }
+
+        assertTrue(state.isGyroFused)
+        assertTrue("Expected yaw rate ~ -57 deg/s, got ${state.yawRateDegPerSec}", state.yawRateDegPerSec < -50f)
+        // Gyro trust keeps gravity reference stable during high-G cornering so lateralG stays close to 1.0G
+        assertTrue("Expected lateralG > 0.85G, got ${state.lateralG}", state.lateralG > 0.85f)
+        assertTrue("Expected longitudinalG near 0, got ${state.longitudinalG}", kotlin.math.abs(state.longitudinalG) < 0.15f)
+        assertTrue("Expected peakG >= totalG", state.peakG >= state.totalG)
+
+        // 4. Zero calibration resets residual reading & peak cleanly
+        engine.calibrateZero()
+        state = engine.onAccelerometerSample(
+            ax = 0f,
+            ay = g * invSqrt2,
+            az = g * invSqrt2,
+            elapsedRealtimeMs = tMs + 50L,
+            hasGyroscope = true
+        )
+        engine.calibrateZero()
+        state = engine.onAccelerometerSample(
+            ax = 0f,
+            ay = g * invSqrt2,
+            az = g * invSqrt2,
+            elapsedRealtimeMs = tMs + 70L,
+            hasGyroscope = true
+        )
+        assertEquals(0f, state.totalG, 0.02f)
+    }
+
+    @Test
+    fun `dashboard viewModel exposes live GForceData stateflow and calibration controls`() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val vm = GpsDashboardViewModel(app)
+        vm.startMotionSensors()
+        vm.calibrateGForceZero()
+        vm.resetGForcePeak()
+        assertEquals(0f, vm.gForceData.value.totalG, 0.001f)
+        assertEquals(0f, vm.gForceData.value.peakG, 0.001f)
+        vm.stopMotionSensors()
+    }
+
+    @Test
+    fun `overlay window layout params configure always-on-top non-focusable application overlay`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val params = OverlayWindowController.createOverlayLayoutParams(context)
+        assertEquals(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, params.type)
+        assertTrue((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) != 0)
+        assertTrue((params.flags and WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN) != 0)
+        assertEquals(PixelFormat.TRANSLUCENT, params.format)
+    }
+
+    @Test
+    fun `overlay display config supports toggling speed and guards against disabling all items`() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val vm = GpsDashboardViewModel(app)
+        vm.resetOverlayConfig()
+
+        // Default config enables speed, G-Force, and altitude
+        assertTrue(vm.overlayConfig.value.showSpeed)
+        assertTrue(vm.overlayConfig.value.showGForce)
+        assertTrue(vm.overlayConfig.value.showAltitude)
+
+        // Turning off altitude and G-Force succeeds while speed stays enabled
+        assertTrue(vm.updateOverlayConfig { it.copy(showAltitude = false, showGForce = false) })
+        assertEquals(1, vm.overlayConfig.value.enabledCount)
+
+        // Attempting to turn off the last remaining item (speed) is rejected
+        assertFalse(vm.updateOverlayConfig { it.copy(showSpeed = false) })
+        assertTrue(vm.overlayConfig.value.showSpeed)
+
+        // Reset restores defaults cleanly
+        vm.resetOverlayConfig()
+        assertEquals(3, vm.overlayConfig.value.enabledCount)
     }
 }

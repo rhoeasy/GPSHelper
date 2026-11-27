@@ -16,7 +16,10 @@ import com.example.ble.HeartRateRepository
 import com.example.ble.HeartRateState
 import com.example.gps.GpsData
 import com.example.gps.GpsRepository
+import com.example.gps.OverlayDisplayConfig
 import com.example.gps.SpeedUnit
+import com.example.sensor.GForceData
+import com.example.sensor.MotionSensorManager
 import com.example.track.ActivityMode
 import com.example.track.GpxExporter
 import com.example.track.RecordingSnapshot
@@ -51,10 +54,12 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     private val trackRepository = TrackRepository(application)
 
     val gpsData: StateFlow<GpsData> = GpsRepository.gpsData
+    val gForceData: StateFlow<GForceData> = MotionSensorManager.gForceData
     val speedUnit: StateFlow<SpeedUnit> = GpsRepository.speedUnit
     val keepScreenOn: StateFlow<Boolean> = GpsRepository.keepScreenOn
     val themeMode: StateFlow<ThemeMode> = GpsRepository.themeMode
     val autoFocusOnLaunch: StateFlow<Boolean> = GpsRepository.autoFocusOnLaunch
+    val overlayConfig: StateFlow<OverlayDisplayConfig> = GpsRepository.overlayConfig
     val isOverlayRunning: StateFlow<Boolean> = GpsRepository.isOverlayRunning
 
     val heartRateState: StateFlow<HeartRateState> = HeartRateRepository.heartRateState
@@ -105,6 +110,36 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
 
     fun setAutoFocusOnLaunch(enabled: Boolean) {
         GpsRepository.setAutoFocusOnLaunch(getApplication(), enabled)
+    }
+
+    fun updateOverlayConfig(transform: (OverlayDisplayConfig) -> OverlayDisplayConfig): Boolean {
+        return GpsRepository.updateOverlayConfig(getApplication(), transform)
+    }
+
+    fun resetOverlayConfig() {
+        GpsRepository.resetOverlayConfig(getApplication())
+    }
+
+    // IMU (Accelerometer + Gyroscope) G-Force controls
+    fun startMotionSensors() {
+        MotionSensorManager.startListening(getApplication(), VIEWMODEL_SENSOR_CLIENT_ID)
+    }
+
+    fun stopMotionSensors() {
+        MotionSensorManager.stopListening(VIEWMODEL_SENSOR_CLIENT_ID)
+    }
+
+    fun calibrateGForceZero() {
+        MotionSensorManager.calibrateZero()
+    }
+
+    fun resetGForcePeak() {
+        MotionSensorManager.resetPeak()
+    }
+
+    override fun onCleared() {
+        MotionSensorManager.stopListening(VIEWMODEL_SENSOR_CLIENT_ID)
+        super.onCleared()
     }
 
     // BLE Heart Rate controls
@@ -243,5 +278,9 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
             hasNotificationPermission = notifGranted,
             requiresNotificationPermission = notifRequired
         )
+    }
+
+    companion object {
+        private const val VIEWMODEL_SENSOR_CLIENT_ID = "gps_dashboard_viewmodel"
     }
 }

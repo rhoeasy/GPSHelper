@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -64,7 +65,9 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.ble.HeartRateState
 import com.example.gps.GpsData
+import com.example.gps.OverlayDisplayConfig
 import com.example.gps.SpeedUnit
+import com.example.sensor.GForceData
 import com.example.track.ActivityMode
 import com.example.track.RecordingSnapshot
 import com.example.track.TrackSessionDetail
@@ -73,7 +76,8 @@ import com.example.ui.theme.ThemeMode
 
 enum class MainTab {
     DASHBOARD,
-    TRACKS
+    TRACKS,
+    SETTINGS
 }
 
 @Composable
@@ -81,9 +85,12 @@ fun GpsHudAppShell(
     activeTab: MainTab,
     onSelectTab: (MainTab) -> Unit,
     gpsData: GpsData,
+    gForceData: GForceData,
     speedUnit: SpeedUnit,
     keepScreenOn: Boolean,
     themeMode: ThemeMode,
+    autoFocusOnLaunch: Boolean,
+    overlayConfig: OverlayDisplayConfig,
     isFocusLockActive: Boolean,
     isOverlayRunning: Boolean,
     permissionStatus: PermissionStatus,
@@ -94,8 +101,13 @@ fun GpsHudAppShell(
     onSelectSpeedUnit: (SpeedUnit) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
     onSelectThemeMode: (ThemeMode) -> Unit,
+    onToggleAutoFocusOnLaunch: (Boolean) -> Unit,
+    onUpdateOverlayConfig: ((OverlayDisplayConfig) -> OverlayDisplayConfig) -> Unit,
+    onResetOverlayConfig: () -> Unit,
     onOpenFocusDialog: () -> Unit,
     onExitFocusLock: () -> Unit,
+    onCalibrateGForceZero: () -> Unit,
+    onResetGForcePeak: () -> Unit,
     onCopyCoordinates: () -> Unit,
     onRequestLocationPermission: () -> Unit,
     onRequestOverlayPermission: () -> Unit,
@@ -210,6 +222,25 @@ fun GpsHudAppShell(
                         unselectedTextColor = cs.onSurfaceVariant
                     )
                 )
+                NavigationBarItem(
+                    selected = activeTab == MainTab.SETTINGS,
+                    onClick = { onSelectTab(MainTab.SETTINGS) },
+                    modifier = Modifier.testTag("nav_tab_settings"),
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Rounded.Tune,
+                            contentDescription = stringResource(R.string.tab_settings)
+                        )
+                    },
+                    label = { Text(stringResource(R.string.tab_settings)) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = cs.onPrimaryContainer,
+                        selectedTextColor = cs.onSurface,
+                        indicatorColor = cs.primaryContainer,
+                        unselectedIconColor = cs.onSurfaceVariant,
+                        unselectedTextColor = cs.onSurfaceVariant
+                    )
+                )
             }
         }
     ) { innerPadding ->
@@ -270,6 +301,12 @@ fun GpsHudAppShell(
 
                         TelemetryGrid(gpsData = gpsData)
 
+                        GForceTelemetryCard(
+                            gForceData = gForceData,
+                            onCalibrateZero = onCalibrateGForceZero,
+                            onResetPeak = onResetGForcePeak
+                        )
+
                         CoordinatesCard(
                             gpsData = gpsData,
                             onCopyCoordinates = onCopyCoordinates
@@ -313,6 +350,37 @@ fun GpsHudAppShell(
                             sessions = savedSessions,
                             speedUnit = speedUnit,
                             onSelectSession = onSelectSession,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                MainTab.SETTINGS -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .widthIn(max = 600.dp)
+                    ) {
+                        if (isFocusLockActive) {
+                            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                FocusActiveBanner(onExitFocusLock = onExitFocusLock)
+                            }
+                        }
+                        SettingsScreen(
+                            overlayConfig = overlayConfig,
+                            gpsData = gpsData,
+                            gForceData = gForceData,
+                            heartRateState = heartRateState,
+                            speedUnit = speedUnit,
+                            themeMode = themeMode,
+                            keepScreenOn = keepScreenOn,
+                            autoFocusOnLaunch = autoFocusOnLaunch,
+                            onUpdateOverlayConfig = onUpdateOverlayConfig,
+                            onResetOverlayConfig = onResetOverlayConfig,
+                            onSelectSpeedUnit = onSelectSpeedUnit,
+                            onSelectThemeMode = onSelectThemeMode,
+                            onToggleKeepScreenOn = onToggleKeepScreenOn,
+                            onToggleAutoFocusOnLaunch = onToggleAutoFocusOnLaunch,
                             modifier = Modifier.weight(1f)
                         )
                     }

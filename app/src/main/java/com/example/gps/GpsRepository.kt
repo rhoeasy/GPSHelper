@@ -22,6 +22,31 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 /**
+ * Configurable visibility flags controlling which live telemetry modules render inside the
+ * floating [com.example.overlay.OverlayWindow].
+ */
+data class OverlayDisplayConfig(
+    val showSpeed: Boolean = true,
+    val showGForce: Boolean = true,
+    val showAltitude: Boolean = true,
+    val showHeartRate: Boolean = false,
+    val showBearing: Boolean = false,
+    val showAccuracy: Boolean = false,
+    val showCoordinates: Boolean = false
+) {
+    val enabledCount: Int
+        get() = listOf(
+            showSpeed,
+            showGForce,
+            showAltitude,
+            showHeartRate,
+            showBearing,
+            showAccuracy,
+            showCoordinates
+        ).count { it }
+}
+
+/**
  * Singleton GPS telemetry hub backed exclusively by native Android LocationManager
  * and GnssStatus.Callback (API 24+). Shares a single active listener across MainActivity
  * and FloatingGpsService using reference-counted client IDs.
@@ -33,6 +58,13 @@ object GpsRepository {
     private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
     private const val KEY_THEME_MODE = "theme_mode"
     private const val KEY_AUTO_FOCUS_ON_LAUNCH = "auto_focus_on_launch"
+    private const val KEY_OV_SHOW_SPEED = "overlay_show_speed"
+    private const val KEY_OV_SHOW_GFORCE = "overlay_show_gforce"
+    private const val KEY_OV_SHOW_ALTITUDE = "overlay_show_altitude"
+    private const val KEY_OV_SHOW_HR = "overlay_show_hr"
+    private const val KEY_OV_SHOW_BEARING = "overlay_show_bearing"
+    private const val KEY_OV_SHOW_ACCURACY = "overlay_show_accuracy"
+    private const val KEY_OV_SHOW_COORDS = "overlay_show_coords"
 
     private const val MIN_TIME_MS = 500L
     private const val MIN_DISTANCE_M = 0f
@@ -63,6 +95,9 @@ object GpsRepository {
     private val _autoFocusOnLaunch = MutableStateFlow(false)
     val autoFocusOnLaunch: StateFlow<Boolean> = _autoFocusOnLaunch.asStateFlow()
 
+    private val _overlayConfig = MutableStateFlow(OverlayDisplayConfig())
+    val overlayConfig: StateFlow<OverlayDisplayConfig> = _overlayConfig.asStateFlow()
+
     private val _isOverlayRunning = MutableStateFlow(false)
     val isOverlayRunning: StateFlow<Boolean> = _isOverlayRunning.asStateFlow()
 
@@ -82,6 +117,16 @@ object GpsRepository {
             _themeMode.value = runCatching { ThemeMode.valueOf(savedTheme ?: ThemeMode.AUTO.name) }
                 .getOrDefault(ThemeMode.AUTO)
             _autoFocusOnLaunch.value = prefs.getBoolean(KEY_AUTO_FOCUS_ON_LAUNCH, false)
+            val loadedOverlay = OverlayDisplayConfig(
+                showSpeed = prefs.getBoolean(KEY_OV_SHOW_SPEED, true),
+                showGForce = prefs.getBoolean(KEY_OV_SHOW_GFORCE, true),
+                showAltitude = prefs.getBoolean(KEY_OV_SHOW_ALTITUDE, true),
+                showHeartRate = prefs.getBoolean(KEY_OV_SHOW_HR, false),
+                showBearing = prefs.getBoolean(KEY_OV_SHOW_BEARING, false),
+                showAccuracy = prefs.getBoolean(KEY_OV_SHOW_ACCURACY, false),
+                showCoordinates = prefs.getBoolean(KEY_OV_SHOW_COORDS, false)
+            )
+            _overlayConfig.value = if (loadedOverlay.enabledCount > 0) loadedOverlay else OverlayDisplayConfig()
             prefsLoaded = true
         }
     }
@@ -128,6 +173,43 @@ object GpsRepository {
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_AUTO_FOCUS_ON_LAUNCH, enabled)
+            .apply()
+    }
+
+    /**
+     * Updates the floating overlay content config. Returns false without applying if the
+     * resulting config would disable every visible module.
+     */
+    fun updateOverlayConfig(
+        context: Context,
+        transform: (OverlayDisplayConfig) -> OverlayDisplayConfig
+    ): Boolean {
+        ensurePrefsLoaded(context)
+        val next = transform(_overlayConfig.value)
+        if (next.enabledCount == 0) return false
+        _overlayConfig.value = next
+        persistOverlayConfig(context, next)
+        return true
+    }
+
+    fun resetOverlayConfig(context: Context) {
+        ensurePrefsLoaded(context)
+        val defaults = OverlayDisplayConfig()
+        _overlayConfig.value = defaults
+        persistOverlayConfig(context, defaults)
+    }
+
+    private fun persistOverlayConfig(context: Context, cfg: OverlayDisplayConfig) {
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_OV_SHOW_SPEED, cfg.showSpeed)
+            .putBoolean(KEY_OV_SHOW_GFORCE, cfg.showGForce)
+            .putBoolean(KEY_OV_SHOW_ALTITUDE, cfg.showAltitude)
+            .putBoolean(KEY_OV_SHOW_HR, cfg.showHeartRate)
+            .putBoolean(KEY_OV_SHOW_BEARING, cfg.showBearing)
+            .putBoolean(KEY_OV_SHOW_ACCURACY, cfg.showAccuracy)
+            .putBoolean(KEY_OV_SHOW_COORDS, cfg.showCoordinates)
             .apply()
     }
 

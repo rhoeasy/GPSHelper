@@ -82,9 +82,11 @@ class MainActivity : ComponentActivity() {
 
             GpsHudTheme(themeMode = themeMode) {
                 val gpsData by viewModel.gpsData.collectAsStateWithLifecycle()
+                val gForceData by viewModel.gForceData.collectAsStateWithLifecycle()
                 val speedUnit by viewModel.speedUnit.collectAsStateWithLifecycle()
                 val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
                 val autoFocusOnLaunch by viewModel.autoFocusOnLaunch.collectAsStateWithLifecycle()
+                val overlayConfig by viewModel.overlayConfig.collectAsStateWithLifecycle()
                 val hasDndPolicyAccess by viewModel.hasDndPolicyAccess.collectAsStateWithLifecycle()
                 val isOverlayRunning by viewModel.isOverlayRunning.collectAsStateWithLifecycle()
                 val permissionStatus by viewModel.permissionStatus.collectAsStateWithLifecycle()
@@ -181,9 +183,12 @@ class MainActivity : ComponentActivity() {
                     activeTab = activeTab,
                     onSelectTab = { activeTab = it },
                     gpsData = gpsData,
+                    gForceData = gForceData,
                     speedUnit = speedUnit,
                     keepScreenOn = keepScreenOn,
                     themeMode = themeMode,
+                    autoFocusOnLaunch = autoFocusOnLaunch,
+                    overlayConfig = overlayConfig,
                     isFocusLockActive = focusLockActiveState,
                     isOverlayRunning = isOverlayRunning,
                     permissionStatus = permissionStatus,
@@ -194,8 +199,38 @@ class MainActivity : ComponentActivity() {
                     onSelectSpeedUnit = { unit -> viewModel.setSpeedUnit(unit) },
                     onToggleKeepScreenOn = { enabled -> viewModel.setKeepScreenOn(enabled) },
                     onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
+                    onToggleAutoFocusOnLaunch = { enabled -> viewModel.setAutoFocusOnLaunch(enabled) },
+                    onUpdateOverlayConfig = { transform ->
+                        val applied = viewModel.updateOverlayConfig(transform)
+                        if (!applied) {
+                            Toast.makeText(
+                                this,
+                                getString(R.string.toast_overlay_min_one_item),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    onResetOverlayConfig = {
+                        viewModel.resetOverlayConfig()
+                        Toast.makeText(
+                            this,
+                            getString(R.string.toast_overlay_config_reset),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
                     onOpenFocusDialog = { showFocusDialog = true },
                     onExitFocusLock = { exitFocusLockMode(showToast = true) },
+                    onCalibrateGForceZero = {
+                        viewModel.calibrateGForceZero()
+                        Toast.makeText(
+                            this,
+                            getString(R.string.toast_gforce_calibrated),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onResetGForcePeak = {
+                        viewModel.resetGForcePeak()
+                    },
                     onCopyCoordinates = {
                         val coords = gpsData.formattedCoordinates()
                         if (coords != null) {
@@ -412,15 +447,18 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         viewModel.refreshPermissions()
         GpsRepository.startTracking(applicationContext, ACTIVITY_CLIENT_ID)
+        viewModel.startMotionSensors()
     }
 
     override fun onStop() {
         super.onStop()
+        viewModel.stopMotionSensors()
         GpsRepository.stopTracking(ACTIVITY_CLIENT_ID)
     }
 
     override fun onDestroy() {
         restoreDndFilterIfSaved()
+        viewModel.stopMotionSensors()
         GpsRepository.stopTracking(ACTIVITY_CLIENT_ID)
         super.onDestroy()
     }

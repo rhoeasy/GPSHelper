@@ -5,6 +5,7 @@
     <!-- Navigation Tabs -->
     <string name="tab_dashboard">仪表盘</string>
     <string name="tab_tracks">轨迹记录</string>
+    <string name="tab_settings">设置</string>
 
     <!-- Status Badges -->
     <string name="status_gps_locked">GPS 已锁定</string>
@@ -73,6 +74,19 @@
     <string name="dir_sw">西南</string>
     <string name="dir_w">西</string>
     <string name="dir_nw">西北</string>
+
+    <!-- Live G-Force IMU Card -->
+    <string name="gforce_card_title">实时 G 力</string>
+    <string name="gforce_badge_gyro_fused">加速度计 + 陀螺仪融合</string>
+    <string name="gforce_badge_accel_only">加速度计模式</string>
+    <string name="gforce_badge_unavailable">无传感器</string>
+    <string name="gforce_label_total">即时合成</string>
+    <string name="gforce_label_peak">峰值</string>
+    <string name="gforce_label_lateral">横向</string>
+    <string name="gforce_label_longitudinal">纵向</string>
+    <string name="gforce_action_calibrate">零点校准</string>
+    <string name="gforce_action_reset_peak">重置峰值</string>
+    <string name="toast_gforce_calibrated">已按当前倾角完成 G 力零点校准</string>
 
     <!-- BLE Heart Rate -->
     <string name="hr_card_title">蓝牙心率</string>
@@ -171,11 +185,38 @@
     <string name="toast_focus_entered">已开启专注防打扰锁定</string>
     <string name="toast_focus_exited">已退出专注防打扰并恢复系统通知设置</string>
 
+    <!-- Settings Page & Overlay Customization -->
+    <string name="settings_title">悬浮窗与仪表设置</string>
+    <string name="settings_preview_title">悬浮窗实时预览</string>
+    <string name="settings_preview_standard">标准视图</string>
+    <string name="settings_preview_mini">精简视图</string>
+    <string name="settings_preview_hint">修改下方开关会实时同步到正在运行的悬浮窗，单击预览可切换尺寸</string>
+    <string name="settings_section_overlay_content">悬浮窗显示内容</string>
+    <string name="settings_reset_default">恢复默认</string>
+    <string name="settings_item_speed_title">实时速度</string>
+    <string name="settings_item_speed_desc">显示当前车速（跟随仪表盘 km/h 或 mph 单位）</string>
+    <string name="settings_item_gforce_title">G 力图与峰值 G 力</string>
+    <string name="settings_item_gforce_desc">显示圆形 G 力雷达图、即时合成 G 力与峰值</string>
+    <string name="settings_item_altitude_title">实时海拔</string>
+    <string name="settings_item_altitude_desc">显示 GNSS 实时海拔高度（米）</string>
+    <string name="settings_item_hr_title">蓝牙心率</string>
+    <string name="settings_item_hr_desc">连接小米手环或心率带后在悬浮窗同步显示心率</string>
+    <string name="settings_item_bearing_title">航向罗盘</string>
+    <string name="settings_item_bearing_desc">显示当前行驶角度与中文方位（如 128° 东南）</string>
+    <string name="settings_item_accuracy_title">定位精度</string>
+    <string name="settings_item_accuracy_desc">显示当前水平定位误差（如 ±3.5 m）</string>
+    <string name="settings_item_coords_title">经纬度坐标</string>
+    <string name="settings_item_coords_desc">显示 6 位小数经纬度位置信息</string>
+    <string name="settings_section_general">通用与显示</string>
+    <string name="settings_speed_unit_title">速度单位</string>
+    <string name="toast_overlay_min_one_item">悬浮窗至少需保留一项显示内容</string>
+    <string name="toast_overlay_config_reset">已恢复悬浮窗默认显示项</string>
+
     <!-- Floating Window Control -->
     <string name="action_start_overlay">开启悬浮窗</string>
     <string name="action_stop_overlay">关闭悬浮窗</string>
-    <string name="overlay_running_hint">悬浮窗运行中 · 仅显示海拔与 G 力图，单击切换精简尺寸</string>
-    <string name="overlay_ready_hint">在导航或其他应用上方悬浮显示实时海拔与 G 力图</string>
+    <string name="overlay_running_hint">悬浮窗运行中 · 可在「设置」自由自定义显示内容，单击切换精简尺寸</string>
+    <string name="overlay_ready_hint">在导航或其他应用上方悬浮显示自定义仪表数据</string>
     <string name="overlay_close_cd">关闭悬浮窗</string>
     <string name="overlay_searching">搜索卫星中…</string>
 
