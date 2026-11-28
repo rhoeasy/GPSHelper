@@ -1,10 +1,14 @@
 package com.example.track
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Rect
+import android.net.Uri
+import androidx.test.core.app.ApplicationProvider
 import com.example.gps.SpeedUnit
-import kotlin.math.abs
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,30 +24,66 @@ class SocialCardLayoutTest {
     private val hike = SampleTrackSeeder.buildSampleHikingTrack(1_750_000_000_000L)
 
     @Test
-    fun framedPhotosPreserveTheWholeImageAndKeepMetricsOffIt() {
-        for ((width, height) in listOf(320 to 160, 160 to 320)) {
+    fun everyLayoutPaintsOverTheOriginalPhotoWithoutResizingOrCroppingIt() {
+        for ((width, height) in listOf(640 to 320, 320 to 640, 760 to 130)) {
             val photo = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             photo.eraseColor(Color.CYAN)
-            val square = IntArray(32 * 32) { Color.MAGENTA }
-            photo.setPixels(square, 0, 32, width / 2 - 16, height / 2 - 16, 32, 32)
-            for (layout in listOf(SocialCardLayout.PHOTO_TOP, SocialCardLayout.PHOTO_SIDE)) {
-                val config = SocialCardConfig(useImportedPhoto = true, layout = layout)
-                val output = SocialCardBitmapRenderer.renderBitmap(hike, SpeedUnit.KMH, config, photo, targetWidth = 480)
-                val clean = SocialCardBitmapRenderer.renderBitmap(
-                    hike, SpeedUnit.KMH, config.copy(showTitle = false, showRoute = false, showDistance = false), photo, targetWidth = 480
+            photo.setPixel(0, 0, Color.RED)
+            photo.setPixel(width - 1, 0, Color.YELLOW)
+            photo.setPixel(0, height - 1, Color.GREEN)
+            photo.setPixel(width - 1, height - 1, Color.MAGENTA)
+            for (layout in SocialCardLayout.entries) {
+                val config = SocialCardConfig(
+                    useImportedPhoto = true, layout = layout, overlayBackdrop = SocialOverlayBackdrop.FROSTED, showSteps = true
                 )
-                val photoBounds = pixelBounds(output, Color.CYAN)
-                val squareBounds = pixelBounds(output, Color.MAGENTA)
-                assertEquals(width.toFloat() / height, photoBounds.width().toFloat() / photoBounds.height(), 0.04f)
-                assertTrue(squareBounds.width() > 0 && abs(squareBounds.width() - squareBounds.height()) <= 1)
-                assertEquals(photoBounds, pixelBounds(clean, Color.CYAN))
-                assertTrue(output.pixelsIn(photoBounds).contentEquals(clean.pixelsIn(photoBounds)))
-                val fullImage = Rect(0, 0, output.width, output.height)
-                assertTrue(!output.pixelsIn(fullImage).contentEquals(clean.pixelsIn(fullImage)))
+                val output = SocialCardBitmapRenderer.renderBitmap(hike, SpeedUnit.KMH, config, photo, targetWidth = 480)
+                assertEquals("${layout.name} width", width, output.width)
+                assertEquals("${layout.name} height", height, output.height)
+                assertEquals(Color.RED, output.getPixel(0, 0))
+                assertEquals(Color.YELLOW, output.getPixel(width - 1, 0))
+                assertEquals(Color.GREEN, output.getPixel(0, height - 1))
+                assertEquals(Color.MAGENTA, output.getPixel(width - 1, height - 1))
+                val overlay = changedArea(photo, output)
+                assertTrue("No data was drawn for ${layout.name}", !overlay.isEmpty)
+                when (layout) {
+                    SocialCardLayout.TOP -> assertTrue(overlay.centerY() < height / 2)
+                    SocialCardLayout.BOTTOM -> assertTrue(overlay.centerY() > height / 2)
+                    SocialCardLayout.LEFT -> assertTrue(overlay.centerX() < width / 2)
+                    SocialCardLayout.PHOTO_SIDE -> assertTrue(overlay.centerX() > width / 2)
+                    SocialCardLayout.COVER -> assertTrue(overlay.contains(width / 2, height / 2))
+                }
                 output.recycle()
-                clean.recycle()
             }
             photo.recycle()
+        }
+    }
+
+    @Test
+    fun exportedPngUsesTheOriginalResolutionRatherThanThePreviewSize() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val file = File.createTempFile("social-source", ".png", context.cacheDir)
+        val exportedFile = File.createTempFile("social-export", ".png", context.cacheDir)
+        try {
+            val original = Bitmap.createBitmap(1907, 1081, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.CYAN) }
+            file.outputStream().use { assertTrue(original.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+            original.recycle()
+            val sourceUri = Uri.fromFile(file)
+            val preview = requireNotNull(SocialCardBitmapRenderer.decodeSampledPhoto(context, sourceUri, 600))
+            assertEquals(600, preview.width)
+            preview.recycle()
+
+            val config = SocialCardConfig(useImportedPhoto = true, layout = SocialCardLayout.PHOTO_SIDE)
+            val rendered = SocialCardBitmapRenderer.renderExportBitmap(context, hike, SpeedUnit.KMH, config, sourceUri)
+            exportedFile.outputStream().use { assertTrue(rendered.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+            rendered.recycle()
+            val output = requireNotNull(BitmapFactory.decodeFile(exportedFile.path))
+            assertEquals(1907, output.width)
+            assertEquals(1081, output.height)
+            assertEquals(Color.CYAN, output.getPixel(0, 0))
+            output.recycle()
+        } finally {
+            file.delete()
+            exportedFile.delete()
         }
     }
 
@@ -57,14 +97,15 @@ class SocialCardLayoutTest {
             .none { it.label == "\u6b65\u6570" })
     }
 
-    private fun pixelBounds(bitmap: Bitmap, color: Int): Rect {
-        var left = bitmap.width
+    private fun changedArea(original: Bitmap, rendered: Bitmap): Rect {
+        var left = original.width
         var right = -1
-        var top = bitmap.height
+        var top = original.height
         var bottom = -1
-        for (y in 0 until bitmap.height) {
-            bitmap.rowPixels(y).forEachIndexed { x, pixel ->
-                if (pixel == color) {
+        for (y in 0 until original.height) {
+            val source = original.rowPixels(y)
+            rendered.rowPixels(y).forEachIndexed { x, pixel ->
+                if (pixel != source[x]) {
                     left = minOf(left, x)
                     right = maxOf(right, x)
                     top = minOf(top, y)
@@ -79,7 +120,4 @@ class SocialCardLayoutTest {
         getPixels(it, 0, width, 0, y, width, 1)
     }
 
-    private fun Bitmap.pixelsIn(rect: Rect): IntArray = IntArray(rect.width() * rect.height()).also {
-        getPixels(it, 0, rect.width(), rect.left, rect.top, rect.width(), rect.height())
-    }
 }

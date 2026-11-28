@@ -206,6 +206,7 @@
     <string name="tracks_empty_desc">在仪表盘选择「卡丁车」「徒步」或「越野穿越」点击开始记录，结束后会自动保存在本机，支持制作社交图与导出 JSON / GPX。</string>
     <string name="detail_back_cd">返回轨迹列表</string>
     <string name="detail_export_json">导出 JSON</string>
+    <string name="detail_export_track">导出</string>
     <string name="detail_export_gpx">导出 GPX</string>
     <string name="detail_make_social_card">制作社交图</string>
     <string name="detail_delete">删除</string>
@@ -272,10 +273,12 @@
     <string name="social_replace_photo">更换照片</string>
     <string name="social_clear_photo">移除照片</string>
     <string name="social_section_background">背景样式</string>
-    <string name="social_layout_title">图片版式</string>
-    <string name="social_layout_photo_top">上图下数据</string>
+    <string name="social_layout_title">数据叠放版式</string>
+    <string name="social_layout_top">顶部海报</string>
+    <string name="social_layout_bottom">底部海报</string>
+    <string name="social_layout_left">左侧海报</string>
     <string name="social_layout_photo_side">左图右数据</string>
-    <string name="social_layout_cover">背景海报</string>
+    <string name="social_layout_cover">背景海报（居中）</string>
     <string name="social_bg_photo">导入照片</string>
     <string name="social_bg_transparent">透明 PNG</string>
     <string name="social_ink_light">浅色字</string>

@@ -53,7 +53,9 @@ enum class SocialOverlayBackdrop(val labelZh: String) {
 
 enum class SocialCardLayout {
     COVER,
-    PHOTO_TOP,
+    TOP,
+    BOTTOM,
+    LEFT,
     PHOTO_SIDE
 }
 
@@ -76,7 +78,7 @@ data class SocialCardConfig(
     val showBodyPerformance: Boolean = false,
     val showF1Sectors: Boolean = true,
     val showMiniProfile: Boolean = true,
-    val layout: SocialCardLayout = SocialCardLayout.PHOTO_TOP,
+    val layout: SocialCardLayout = SocialCardLayout.BOTTOM,
     val showSteps: Boolean = false
 )
 
@@ -365,94 +367,129 @@ object SocialCardBitmapRenderer {
         photoBitmap: Bitmap? = null,
         targetWidth: Int = 1080
     ): Bitmap {
-        val activePhoto = if (config.useImportedPhoto && photoBitmap != null && !photoBitmap.isRecycled) {
-            photoBitmap
+        if (config.useImportedPhoto && photoBitmap != null && !photoBitmap.isRecycled) {
+            val output = checkNotNull(photoBitmap.copy(Bitmap.Config.ARGB_8888, true))
+            drawTelemetry(output, detail, speedUnit, config, hasPhoto = true)
+            return output
+        }
+
+        val width = targetWidth.coerceIn(480, 1440)
+        val height = (width * 1.25f).roundToInt()
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        if (!config.bgPreset.isTransparent) {
+            output.eraseColor(config.bgPreset.topColorArgb)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(
+                    0f, 0f, width.toFloat(), height.toFloat(),
+                    config.bgPreset.topColorArgb, config.bgPreset.bottomColorArgb, Shader.TileMode.CLAMP
+                )
+            }
+            Canvas(output).drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+        }
+        drawTelemetry(output, detail, speedUnit, config, hasPhoto = false)
+        return output
+    }
+
+    fun renderExportBitmap(
+        context: Context,
+        detail: TrackSessionDetail,
+        speedUnit: SpeedUnit,
+        config: SocialCardConfig,
+        photoUri: Uri?
+    ): Bitmap {
+        if (!config.useImportedPhoto) return renderBitmap(detail, speedUnit, config)
+        val photo = checkNotNull(decodePhoto(context, checkNotNull(photoUri), maxDim = null)) {
+            "Could not decode the original photo"
+        }
+        // The decoded original belongs to this export, so no second full-size bitmap is needed.
+        try {
+            drawTelemetry(photo, detail, speedUnit, config, hasPhoto = true)
+            return photo
+        } catch (e: Throwable) {
+            photo.recycle()
+            throw e
+        }
+    }
+
+    private fun drawTelemetry(
+        bitmap: Bitmap,
+        detail: TrackSessionDetail,
+        speedUnit: SpeedUnit,
+        config: SocialCardConfig,
+        hasPhoto: Boolean
+    ) {
+        val session = detail.session
+        val showRoute = config.showRoute && detail.points.size >= 2
+        val isFrosted = config.overlayBackdrop == SocialOverlayBackdrop.FROSTED
+        // Measure the data panel in logical units before fitting it to the photo.
+        val kartingF1 = if (session.activityMode == ActivityMode.KARTING && config.showF1Sectors) {
+            KartingSectorEngine.analyze(detail.points, detail.laps)
         } else {
             null
         }
-        val outputWidth = targetWidth.coerceIn(480, 1440)
-        val photoOnTop = activePhoto != null && config.layout == SocialCardLayout.PHOTO_TOP
-        val photoAtSide = activePhoto != null && config.layout == SocialCardLayout.PHOTO_SIDE
-        val hasPhoto = activePhoto != null && !photoOnTop && !photoAtSide
-        val isFrosted = config.overlayBackdrop == SocialOverlayBackdrop.FROSTED && (activePhoto == null || hasPhoto)
-        val panelLeft = if (photoAtSide) (outputWidth * 0.42f).roundToInt() else 0
-        val framePadding = outputWidth * (28f / 1080f)
-        val panelTop = if (photoOnTop && activePhoto != null) {
-            val ratio = activePhoto.height.toFloat() / activePhoto.width
-            (outputWidth * ratio.coerceIn(0.34f, 1.05f) + 2f * framePadding).roundToInt()
-        } else 0
-        // The data panel keeps its aspect ratio regardless of the source photo.
-        val width = outputWidth - panelLeft
-        val height = (width * 1.25f).roundToInt()
-        val out = Bitmap.createBitmap(outputWidth, panelTop + height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(out)
-        val s = width / 1080f
+        val f1BestLapTiming = kartingF1?.timingForLap(kartingF1.bestLapNumber)
+        val f1BlockHeight = if (f1BestLapTiming != null) 142f else 0f
 
+        val analysisTags = buildAnalysisOverlayTags(detail, config)
+        val stats = buildSelectedStats(detail, speedUnit, config)
+        val hasMiniProfile = config.showMiniProfile && detail.points.size >= 2
+        val analysisBlockHeight = if (analysisTags.isNotEmpty()) 114f else 0f
+        val statRows = if (stats.isEmpty()) 0 else ((stats.size + 2) / 3)
+        val statsBlockHeight = if (statRows > 0) statRows * 112f + 28f else 0f
+        val profileBlockHeight = if (hasMiniProfile) 128f else 0f
+        val bottomPad = 56f
+        var bottomPanelHeight = f1BlockHeight + analysisBlockHeight + statsBlockHeight + profileBlockHeight
+        if (f1BlockHeight > 0f && (analysisBlockHeight > 0f || statsBlockHeight > 0f || profileBlockHeight > 0f)) {
+            bottomPanelHeight += 18f
+        }
+        if (analysisBlockHeight > 0f && (statsBlockHeight > 0f || profileBlockHeight > 0f)) {
+            bottomPanelHeight += 20f
+        }
+        if (statsBlockHeight > 0f && profileBlockHeight > 0f) {
+            bottomPanelHeight += 24f
+        }
+        if (!config.showTitle && !showRoute && bottomPanelHeight == 0f) return
+
+        val region = if (hasPhoto) {
+            photoOverlayArea(bitmap.width.toFloat(), bitmap.height.toFloat(), config.layout)
+        } else {
+            RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat())
+        }
+        val titleRoom = if (config.showTitle) 138f else 0f
+        val routeRoom = if (showRoute) 196f else 0f
+        val minHeight = 64f + titleRoom + routeRoom + bottomPanelHeight + bottomPad
+        val fit = min(region.width() / 1080f, region.height() / minHeight)
+        val width = (region.width() / fit).coerceAtMost(1600f)
+        val height = if (!hasPhoto || config.layout == SocialCardLayout.COVER) region.height() / fit else minHeight
+        val left = when (config.layout.takeIf { hasPhoto }) {
+            SocialCardLayout.PHOTO_SIDE -> region.right - width * fit
+            SocialCardLayout.LEFT -> region.left
+            else -> region.centerX() - width * fit / 2f
+        }
+        val top = when (config.layout.takeIf { hasPhoto }) {
+            SocialCardLayout.TOP -> region.top
+            SocialCardLayout.BOTTOM -> region.bottom - height * fit
+            else -> region.centerY() - height * fit / 2f
+        }
+        val canvas = Canvas(bitmap)
+        canvas.translate(left, top)
+        canvas.scale(fit, fit)
+        canvas.clipRect(0f, 0f, width, height)
+        if (hasPhoto) drawPhotoBackdrop(canvas, width, height, config)
         val inkPrimary = if (config.useLightInk) Color.WHITE else 0xFF171C24.toInt()
         val inkSecondary = if (config.useLightInk) 0xCCFFFFFF.toInt() else 0xB83C4554.toInt()
 
-        if (activePhoto != null && !hasPhoto) {
-            out.eraseColor(if (config.useLightInk) 0xFF111821.toInt() else 0xFFF4F7FA.toInt())
-            val photoRight = if (photoAtSide) panelLeft else outputWidth
-            val photoBottom = if (photoOnTop) panelTop else out.height
-            val imageFrame = RectF(framePadding, framePadding, photoRight - framePadding, photoBottom - framePadding)
-            canvas.drawRect(imageFrame, Paint().apply {
-                color = if (config.useLightInk) 0xFF1C2633.toInt() else 0xFFE0E8EF.toInt()
-            })
-            drawPhotoInFrame(canvas, activePhoto, imageFrame, crop = false)
-        }
-        canvas.translate(panelLeft.toFloat(), panelTop.toFloat())
-        canvas.clipRect(0f, 0f, width.toFloat(), height.toFloat())
+        val padX = 64f
+        var topCursorY = 64f
 
-        // Only cover mode paints data on top of the photo.
-        if (activePhoto != null && hasPhoto) {
-            drawPhotoInFrame(canvas, activePhoto, RectF(0f, 0f, width.toFloat(), height.toFloat()), crop = true)
-            if (config.overlayBackdrop == SocialOverlayBackdrop.SCRIM) {
-                val topTint = if (config.useLightInk) 0x99000000.toInt() else 0xB3FFFFFF.toInt()
-                val bottomTint = if (config.useLightInk) 0xCC000000.toInt() else 0xE6FFFFFF.toInt()
-                val topScrim = Paint().apply {
-                    shader = LinearGradient(
-                        0f, 0f, 0f, height * 0.28f,
-                        topTint, Color.TRANSPARENT,
-                        Shader.TileMode.CLAMP
-                    )
-                }
-                canvas.drawRect(0f, 0f, width.toFloat(), height * 0.28f, topScrim)
-
-                val bottomScrim = Paint().apply {
-                    shader = LinearGradient(
-                        0f, height * 0.48f, 0f, height.toFloat(),
-                        Color.TRANSPARENT, bottomTint,
-                        Shader.TileMode.CLAMP
-                    )
-                }
-                canvas.drawRect(0f, height * 0.48f, width.toFloat(), height.toFloat(), bottomScrim)
-            }
-        } else if (activePhoto == null && !config.bgPreset.isTransparent) {
-            out.eraseColor(config.bgPreset.topColorArgb)
-            val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = LinearGradient(
-                    0f, 0f, width.toFloat(), height.toFloat(),
-                    config.bgPreset.topColorArgb,
-                    config.bgPreset.bottomColorArgb,
-                    Shader.TileMode.CLAMP
-                )
-            }
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
-        }
-
-        val padX = 64f * s
-        var topCursorY = 64f * s
-
-        // 2. Title & date header
-        val session = detail.session
+        // Title and date
         if (config.showTitle) {
             val modePillBg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = if (config.useLightInk) 0x38FFFFFF else 0x1F1A73E8
             }
             val pillTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = inkPrimary
-                textSize = 26f * s
+                textSize = 26f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             }
             val modeText = session.activityMode.labelZh
@@ -460,78 +497,50 @@ object SocialCardBitmapRenderer {
             val pillRect = RectF(
                 padX,
                 topCursorY,
-                padX + modeTextW + 38f * s,
-                topCursorY + 48f * s
+                padX + modeTextW + 38f,
+                topCursorY + 48f
             )
-            canvas.drawRoundRect(pillRect, 24f * s, 24f * s, modePillBg)
+            canvas.drawRoundRect(pillRect, 24f, 24f, modePillBg)
             canvas.drawText(
                 modeText,
-                pillRect.left + 19f * s,
-                pillRect.top + 33f * s,
+                pillRect.left + 19f,
+                pillRect.top + 33f,
                 pillTextPaint
             )
 
             val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = inkSecondary
-                textSize = 26f * s
+                textSize = 26f
                 typeface = Typeface.MONOSPACE
             }
             val dateStr = TrackFormatters.formatDateTime(session.startTimeMs)
             canvas.drawText(
                 dateStr,
-                pillRect.right + 20f * s,
-                pillRect.top + 33f * s,
+                pillRect.right + 20f,
+                pillRect.top + 33f,
                 datePaint
             )
 
-            topCursorY = pillRect.bottom + 24f * s
+            topCursorY = pillRect.bottom + 24f
 
             val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = inkPrimary
-                textSize = 46f * s
+                textSize = 46f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 if (hasPhoto && config.useLightInk) {
-                    setShadowLayer(8f * s, 0f, 2f * s, 0x80000000.toInt())
+                    setShadowLayer(8f, 0f, 2f, 0x80000000.toInt())
                 }
             }
             val displayTitle = ellipsize(session.name, titlePaint, width - padX * 2f)
-            canvas.drawText(displayTitle, padX, topCursorY + 38f * s, titlePaint)
-            topCursorY += 66f * s
+            canvas.drawText(displayTitle, padX, topCursorY + 38f, titlePaint)
+            topCursorY += 66f
         }
+        val bottomPanelTop = height - bottomPad - bottomPanelHeight
 
-        // Compute bottom block height for F1 sectors + analysis rating pills + stats + optional mini profile curve
-        val kartingF1 = if (session.activityMode == ActivityMode.KARTING && config.showF1Sectors) {
-            KartingSectorEngine.analyze(detail.points, detail.laps)
-        } else {
-            null
-        }
-        val f1BestLapTiming = kartingF1?.timingForLap(kartingF1.bestLapNumber)
-        val f1BlockHeight = if (f1BestLapTiming != null) 142f * s else 0f
-
-        val analysisTags = buildAnalysisOverlayTags(detail, config)
-        val stats = buildSelectedStats(detail, speedUnit, config)
-        val hasMiniProfile = config.showMiniProfile && detail.points.size >= 2
-        val analysisBlockHeight = if (analysisTags.isNotEmpty()) 114f * s else 0f
-        val statRows = if (stats.isEmpty()) 0 else ((stats.size + 2) / 3)
-        val statsBlockHeight = if (statRows > 0) statRows * (112f * s) + 28f * s else 0f
-        val profileBlockHeight = if (hasMiniProfile) 128f * s else 0f
-        val bottomPad = 56f * s
-        var bottomPanelHeight = f1BlockHeight + analysisBlockHeight + statsBlockHeight + profileBlockHeight
-        if (f1BlockHeight > 0f && (analysisBlockHeight > 0f || statsBlockHeight > 0f || profileBlockHeight > 0f)) {
-            bottomPanelHeight += 18f * s
-        }
-        if (analysisBlockHeight > 0f && (statsBlockHeight > 0f || profileBlockHeight > 0f)) {
-            bottomPanelHeight += 20f * s
-        }
-        if (statsBlockHeight > 0f && profileBlockHeight > 0f) {
-            bottomPanelHeight += 24f * s
-        }
-        val bottomPanelTop = (height - bottomPad - bottomPanelHeight).coerceAtLeast(topCursorY + 80f * s)
-
-        // 3. Vector Route Overlay in the visual hero zone
-        if (config.showRoute && detail.points.size >= 2) {
-            val routeTop = topCursorY + 18f * s
-            val routeBottom = (bottomPanelTop - 28f * s).coerceAtLeast(routeTop + 140f * s)
+        // Route between the header and the metrics
+        if (showRoute) {
+            val routeTop = topCursorY + 18f
+            val routeBottom = (bottomPanelTop - 28f).coerceAtLeast(routeTop + 140f)
             val routeRect = RectF(padX, routeTop, width - padX, routeBottom)
             drawRouteOverlay(
                 canvas = canvas,
@@ -539,7 +548,7 @@ object SocialCardBitmapRenderer {
                 points = detail.points,
                 mode = session.activityMode,
                 speedUnit = speedUnit,
-                scale = s,
+                scale = 1f,
                 lightInk = config.useLightInk,
                 addPhotoGlow = hasPhoto || config.bgPreset.isTransparent,
                 kartingF1 = kartingF1,
@@ -547,20 +556,20 @@ object SocialCardBitmapRenderer {
             )
         }
 
-        // 4. Bottom F1 Sector Strip, Analysis Ratings, Stats & Mini Profile Panel
+        // F1 sectors, analysis badges, selected metrics, and profile
         if (bottomPanelHeight > 0f) {
             val panelRect = RectF(
-                padX - 16f * s,
-                bottomPanelTop - 20f * s,
-                width - padX + 16f * s,
-                height - bottomPad + 16f * s
+                padX - 16f,
+                bottomPanelTop - 20f,
+                width - padX + 16f,
+                height - bottomPad + 16f
             )
 
-            if (isFrosted) {
+            if (isFrosted && !hasPhoto) {
                 val frostedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = if (config.useLightInk) 0xA6101620.toInt() else 0xD9FFFFFF.toInt()
                 }
-                canvas.drawRoundRect(panelRect, 36f * s, 36f * s, frostedPaint)
+                canvas.drawRoundRect(panelRect, 36f, 36f, frostedPaint)
             }
 
             var cursorY = bottomPanelTop
@@ -573,13 +582,13 @@ object SocialCardBitmapRenderer {
                     top = cursorY,
                     width = width - padX * 2f,
                     height = f1BlockHeight,
-                    scale = s,
+                    scale = 1f,
                     lightInk = config.useLightInk,
                     inkPrimary = inkPrimary,
                     inkSecondary = inkSecondary,
                     isFrosted = isFrosted
                 )
-                cursorY += f1BlockHeight + if (analysisTags.isNotEmpty() || stats.isNotEmpty() || hasMiniProfile) 18f * s else 0f
+                cursorY += f1BlockHeight + if (analysisTags.isNotEmpty() || stats.isNotEmpty() || hasMiniProfile) 18f else 0f
             }
 
             if (analysisTags.isNotEmpty()) {
@@ -590,12 +599,12 @@ object SocialCardBitmapRenderer {
                     top = cursorY,
                     width = width - padX * 2f,
                     height = analysisBlockHeight,
-                    scale = s,
+                    scale = 1f,
                     lightInk = config.useLightInk,
                     inkSecondary = inkSecondary,
                     isFrosted = isFrosted
                 )
-                cursorY += analysisBlockHeight + if (stats.isNotEmpty() || hasMiniProfile) 20f * s else 0f
+                cursorY += analysisBlockHeight + if (stats.isNotEmpty() || hasMiniProfile) 20f else 0f
             }
 
             if (stats.isNotEmpty()) {
@@ -605,7 +614,7 @@ object SocialCardBitmapRenderer {
                     left = padX,
                     top = cursorY,
                     width = width - padX * 2f,
-                    scale = s,
+                    scale = 1f,
                     inkSecondary = inkSecondary,
                     addShadow = hasPhoto && config.overlayBackdrop != SocialOverlayBackdrop.FROSTED && config.useLightInk
                 )
@@ -613,22 +622,52 @@ object SocialCardBitmapRenderer {
             }
 
             if (hasMiniProfile) {
-                if (stats.isNotEmpty()) cursorY += 16f * s
-                val profileRect = RectF(padX, cursorY, width - padX, cursorY + 112f * s)
+                if (stats.isNotEmpty()) cursorY += 16f
+                val profileRect = RectF(padX, cursorY, width - padX, cursorY + 112f)
                 drawMiniProfileCurve(
                     canvas = canvas,
                     rect = profileRect,
                     points = detail.points,
                     mode = session.activityMode,
                     speedUnit = speedUnit,
-                    scale = s,
+                    scale = 1f,
                     lightInk = config.useLightInk,
                     inkSecondary = inkSecondary
                 )
             }
         }
+    }
 
-        return out
+    private fun photoOverlayArea(width: Float, height: Float, layout: SocialCardLayout): RectF {
+        val padding = min(width, height) * 0.045f
+        val area = RectF(padding, padding, width - padding, height - padding)
+        val sideFraction = if (width >= height) 0.53f else 0.70f
+        when (layout) {
+            SocialCardLayout.COVER -> Unit
+            SocialCardLayout.TOP -> area.bottom = area.top + area.height() * 0.65f
+            SocialCardLayout.BOTTOM -> area.top = area.bottom - area.height() * 0.65f
+            SocialCardLayout.LEFT -> area.right = area.left + area.width() * sideFraction
+            SocialCardLayout.PHOTO_SIDE -> area.left = area.right - area.width() * sideFraction
+        }
+        return area
+    }
+
+    private fun drawPhotoBackdrop(canvas: Canvas, width: Float, height: Float, config: SocialCardConfig) {
+        if (config.overlayBackdrop == SocialOverlayBackdrop.CLEAR) return
+        val dark = config.useLightInk
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            if (config.overlayBackdrop == SocialOverlayBackdrop.SCRIM) {
+                shader = LinearGradient(
+                    0f, 0f, 0f, height,
+                    if (dark) 0x9810171E.toInt() else 0xB3FFFFFF.toInt(),
+                    if (dark) 0xCE10171E.toInt() else 0xE6FFFFFF.toInt(),
+                    Shader.TileMode.CLAMP
+                )
+            } else {
+                color = if (dark) 0xBD101620.toInt() else 0xE6FFFFFF.toInt()
+            }
+        }
+        canvas.drawRoundRect(0f, 0f, width, height, 32f, 32f, paint)
     }
 
     private fun f1StatusColorArgb(status: F1SectorStatus, lightInk: Boolean): Int {
@@ -821,22 +860,6 @@ object SocialCardBitmapRenderer {
             val fitSub = ellipsize(tag.detailLine, subPaint, maxTextW)
             canvas.drawText(fitSub, x + innerPad, top + 95f * scale, subPaint)
         }
-    }
-
-    private fun drawPhotoInFrame(canvas: Canvas, photo: Bitmap, frame: RectF, crop: Boolean) {
-        val scaleX = frame.width() / photo.width
-        val scaleY = frame.height() / photo.height
-        val scale = if (crop) max(scaleX, scaleY) else min(scaleX, scaleY)
-        val halfWidth = photo.width * scale / 2f
-        val halfHeight = photo.height * scale / 2f
-        val destination = RectF(
-            frame.centerX() - halfWidth, frame.centerY() - halfHeight,
-            frame.centerX() + halfWidth, frame.centerY() + halfHeight
-        )
-        canvas.save()
-        canvas.clipRect(frame)
-        canvas.drawBitmap(photo, null, destination, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
-        canvas.restore()
     }
 
     private fun drawRouteOverlay(
@@ -1132,16 +1155,19 @@ object SocialCardBitmapRenderer {
         canvas.drawPath(linePath, strokePaint)
     }
 
-    fun decodeSampledPhoto(context: Context, uri: Uri, maxDim: Int = 1440): Bitmap? {
+    fun decodeSampledPhoto(context: Context, uri: Uri, maxDim: Int = 1440): Bitmap? = decodePhoto(context, uri, maxDim)
+
+    private fun decodePhoto(context: Context, uri: Uri, maxDim: Int?): Bitmap? {
         return runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val source = ImageDecoder.createSource(context.contentResolver, uri)
                 ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
                     decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    decoder.isMutableRequired = maxDim == null
                     val w = info.size.width
                     val h = info.size.height
                     val longest = max(w, h)
-                    if (longest > maxDim && longest > 0) {
+                    if (maxDim != null && longest > maxDim) {
                         val ratio = maxDim.toFloat() / longest.toFloat()
                         decoder.setTargetSize(
                             (w * ratio).roundToInt().coerceAtLeast(1),
@@ -1150,15 +1176,21 @@ object SocialCardBitmapRenderer {
                     }
                 }
             } else {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                context.contentResolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it, null, bounds)
-                }
                 var sampleSize = 1
-                while (max(bounds.outWidth, bounds.outHeight) / sampleSize > maxDim) {
-                    sampleSize *= 2
+                if (maxDim != null) {
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    context.contentResolver.openInputStream(uri)?.use {
+                        BitmapFactory.decodeStream(it, null, bounds)
+                    }
+                    while (max(bounds.outWidth, bounds.outHeight) / sampleSize > maxDim) {
+                        sampleSize *= 2
+                    }
                 }
-                val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                val opts = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inMutable = maxDim == null
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
                 context.contentResolver.openInputStream(uri)?.use {
                     BitmapFactory.decodeStream(it, null, opts)
                 }

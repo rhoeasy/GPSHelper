@@ -44,6 +44,7 @@ import androidx.compose.material.icons.rounded.CallMerge
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DataObject
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FiberManualRecord
@@ -56,6 +57,8 @@ import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -1193,87 +1196,11 @@ fun TrackDetailScreen(
     }
 
     val actionButtonsSection: @Composable () -> Unit = {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Button(
-                onClick = { showSocialStudio = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("btn_make_social_card"),
-                shape = RoundedCornerShape(50),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = cs.primary,
-                    contentColor = cs.onPrimary
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.AutoAwesome,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = stringResource(R.string.detail_make_social_card),
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                FilledTonalButton(
-                    onClick = { showJsonExportDialog = true },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                        .testTag("btn_export_json"),
-                    shape = RoundedCornerShape(50),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = cs.primaryContainer,
-                        contentColor = cs.onPrimaryContainer
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.DataObject,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.detail_export_json),
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
-
-                FilledTonalButton(
-                    onClick = onExportGpx,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                        .testTag("btn_export_gpx"),
-                    shape = RoundedCornerShape(50),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = cs.secondaryContainer,
-                        contentColor = cs.onSecondaryContainer
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.IosShare,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.detail_export_gpx),
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
-            }
-        }
+        TrackDetailActions(
+            onMakeSocialCard = { showSocialStudio = true },
+            onExportJson = { showJsonExportDialog = true },
+            onExportGpx = onExportGpx
+        )
     }
 
     val summaryMetricsCard: @Composable () -> Unit = {
@@ -1638,6 +1565,50 @@ fun TrackDetailScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun TrackDetailActions(onMakeSocialCard: () -> Unit, onExportJson: () -> Unit, onExportGpx: () -> Unit) {
+    var exportMenuOpen by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("track_detail_actions"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Button(
+            onClick = onMakeSocialCard,
+            modifier = Modifier.weight(1f).testTag("btn_make_social_card"),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+        ) {
+            Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(16.dp))
+            Spacer(Modifier.width(5.dp))
+            Text(stringResource(R.string.detail_make_social_card))
+        }
+        Box {
+            FilledTonalButton(
+                onClick = { exportMenuOpen = true },
+                modifier = Modifier.testTag("btn_export_track"),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Text(stringResource(R.string.detail_export_track))
+                Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
+            }
+            DropdownMenu(expanded = exportMenuOpen, onDismissRequest = { exportMenuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.detail_export_json)) },
+                    leadingIcon = { Icon(Icons.Rounded.DataObject, null) },
+                    modifier = Modifier.testTag("btn_export_json"),
+                    onClick = { exportMenuOpen = false; onExportJson() }
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.detail_export_gpx)) },
+                    leadingIcon = { Icon(Icons.Rounded.IosShare, null) },
+                    modifier = Modifier.testTag("btn_export_gpx"),
+                    onClick = { exportMenuOpen = false; onExportGpx() }
+                )
             }
         }
     }

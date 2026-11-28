@@ -91,6 +91,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private data class ImportedSocialPhoto(val uri: Uri, val preview: Bitmap)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SocialShareCardScreen(
@@ -139,7 +141,7 @@ fun SocialShareCardScreen(
         )
     }
 
-    var importedPhoto by remember { mutableStateOf<Bitmap?>(null) }
+    var importedPhoto by remember { mutableStateOf<ImportedSocialPhoto?>(null) }
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isExporting by remember { mutableStateOf(false) }
 
@@ -152,7 +154,7 @@ fun SocialShareCardScreen(
                     SocialCardBitmapRenderer.decodeSampledPhoto(context, uri, maxDim = 1440)
                 }
                 if (decoded != null) {
-                    importedPhoto = decoded
+                    importedPhoto = ImportedSocialPhoto(uri, decoded)
                     config = config.copy(
                         useImportedPhoto = true,
                         useLightInk = true
@@ -175,7 +177,7 @@ fun SocialShareCardScreen(
                 detail = detail,
                 speedUnit = speedUnit,
                 config = config,
-                photoBitmap = importedPhoto,
+                photoBitmap = importedPhoto?.preview,
                 targetWidth = 760
             )
         }
@@ -237,9 +239,11 @@ fun SocialShareCardScreen(
                     Text(stringResource(R.string.social_layout_title), style = MaterialTheme.typography.titleSmall)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         val layouts = listOf(
-                            SocialCardLayout.PHOTO_TOP to R.string.social_layout_photo_top,
+                            SocialCardLayout.BOTTOM to R.string.social_layout_bottom,
                             SocialCardLayout.PHOTO_SIDE to R.string.social_layout_photo_side,
-                            SocialCardLayout.COVER to R.string.social_layout_cover
+                            SocialCardLayout.COVER to R.string.social_layout_cover,
+                            SocialCardLayout.TOP to R.string.social_layout_top,
+                            SocialCardLayout.LEFT to R.string.social_layout_left
                         )
                         layouts.forEach { (layout, label) ->
                             FilterChip(
@@ -259,7 +263,7 @@ fun SocialShareCardScreen(
                 ) {
                     val bmp = previewBitmap
                     val aspect = if (bmp != null && bmp.height > 0) {
-                        bmp.width.toFloat() / bmp.height.toFloat()
+                        (bmp.width.toFloat() / bmp.height.toFloat()).coerceIn(0.45f, 2.5f)
                     } else {
                         0.8f
                     }
@@ -471,9 +475,10 @@ fun SocialShareCardScreen(
                         }
 
                         // Overlay Backdrop Style (Transparent floating / Scrim / Frosted card)
-                        if (!config.useImportedPhoto || config.layout == SocialCardLayout.COVER) Row(
+                        FlowRow(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             SocialOverlayBackdrop.entries.forEach { backdrop ->
                                 val selected = config.overlayBackdrop == backdrop
@@ -639,18 +644,18 @@ fun SocialShareCardScreen(
                         enabled = !isExporting,
                         onClick = {
                             isExporting = true
+                            val exportConfig = config
+                            val photoUri = importedPhoto?.uri
                             scope.launch {
                                 val saved = withContext(Dispatchers.IO) {
-                                    val fullBmp = SocialCardBitmapRenderer.renderBitmap(
-                                        detail = detail,
-                                        speedUnit = speedUnit,
-                                        config = config,
-                                        photoBitmap = importedPhoto,
-                                        targetWidth = 1080
-                                    )
-                                    val ok = SocialCardBitmapRenderer.savePngToGallery(context, fullBmp, filePrefix)
-                                    fullBmp.recycle()
-                                    ok
+                                    runCatching {
+                                        val bitmap = SocialCardBitmapRenderer.renderExportBitmap(context, detail, speedUnit, exportConfig, photoUri)
+                                        try {
+                                            SocialCardBitmapRenderer.savePngToGallery(context, bitmap, filePrefix)
+                                        } finally {
+                                            bitmap.recycle()
+                                        }
+                                    }.getOrDefault(false)
                                 }
                                 isExporting = false
                                 Toast.makeText(
@@ -686,23 +691,17 @@ fun SocialShareCardScreen(
                         enabled = !isExporting,
                         onClick = {
                             isExporting = true
+                            val exportConfig = config
+                            val photoUri = importedPhoto?.uri
                             scope.launch {
                                 val uri = withContext(Dispatchers.IO) {
                                     runCatching {
-                                        val fullBmp = SocialCardBitmapRenderer.renderBitmap(
-                                            detail = detail,
-                                            speedUnit = speedUnit,
-                                            config = config,
-                                            photoBitmap = importedPhoto,
-                                            targetWidth = 1080
-                                        )
-                                        val outUri = SocialCardBitmapRenderer.exportPngToShareUri(
-                                            context = context,
-                                            bitmap = fullBmp,
-                                            fileNamePrefix = filePrefix
-                                        )
-                                        fullBmp.recycle()
-                                        outUri
+                                        val bitmap = SocialCardBitmapRenderer.renderExportBitmap(context, detail, speedUnit, exportConfig, photoUri)
+                                        try {
+                                            SocialCardBitmapRenderer.exportPngToShareUri(context, bitmap, filePrefix)
+                                        } finally {
+                                            bitmap.recycle()
+                                        }
                                     }.getOrNull()
                                 }
                                 isExporting = false
