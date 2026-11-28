@@ -531,7 +531,8 @@ fun GpsHudAppShell(
                         .fillMaxSize()
                         .padding(innerPadding)
                         .statusBarsPadding()
-                        .then(if (isLandscapeWide) Modifier.navigationBarsPadding() else Modifier),
+                        .then(if (isLandscapeWide) Modifier.navigationBarsPadding() else Modifier)
+                        .mainTabSwipe(activeTab, selectedSettingsSubPage == null && !showTrackRecorderSheet, onSelectTab),
                     contentAlignment = Alignment.TopCenter
                 ) {
                     when (activeTab) {
@@ -789,6 +790,7 @@ fun GpsHudAppShell(
                                     speedUnit = speedUnit,
                                     aiHistoryCount = aiAnalysisHistory.size,
                                     onSelectSession = onSelectSession,
+                                    onDeleteSession = onDeleteSession,
                                     onOpenAiHistory = onOpenAiHistory,
                                     recordingSnapshot = recordingSnapshot,
                                     heartRateState = heartRateState,

@@ -51,6 +51,7 @@ import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Route
@@ -70,6 +71,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -140,6 +144,7 @@ fun TrackHistoryScreen(
     mergeCompletedSignal: Int = 0,
     onEnterMergeMode: () -> Unit = {},
     onRequestMergePreview: (List<Long>) -> Unit = {},
+    onDeleteSession: ((Long) -> Unit)? = null,
     onZeroMotorcycleLean: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -147,7 +152,29 @@ fun TrackHistoryScreen(
     var filterMode by remember { mutableStateOf<ActivityMode?>(null) }
     var isMergeMode by rememberSaveable { mutableStateOf(false) }
     var selectedMergeIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var moreOpen by remember { mutableStateOf(false) }
+    var pendingDelete by rememberSaveable { mutableStateOf<Long?>(null) }
     val isRecordingActive = recordingSnapshot.status != RecordingStatus.IDLE
+
+    pendingDelete?.let { id ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(stringResource(R.string.detail_delete_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    sessions.firstOrNull { it.id == id }?.let { Text(it.name) }
+                    Text(stringResource(R.string.detail_delete_confirm))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDelete = null
+                    onDeleteSession?.invoke(id)
+                }) { Text(stringResource(R.string.detail_delete), color = cs.error) }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.detail_cancel)) } }
+        )
+    }
 
     LaunchedEffect(mergeCompletedSignal) {
         if (mergeCompletedSignal > 0) {
@@ -231,64 +258,32 @@ fun TrackHistoryScreen(
                         )
                     }
                 } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilledTonalButton(
-                            onClick = {
-                                isMergeMode = true
-                                selectedMergeIds = emptySet()
-                                if (filterMode == ActivityMode.KARTING) {
-                                    filterMode = null
-                                }
-                                onEnterMergeMode()
-                            },
-                            shape = RoundedCornerShape(50),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = cs.secondaryContainer,
-                                contentColor = cs.onSecondaryContainer
-                            ),
-                            modifier = Modifier
-                                .height(48.dp)
-                                .testTag("btn_enter_merge_mode")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.CallMerge,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = stringResource(R.string.merge_entry_btn),
-                                style = MaterialTheme.typography.labelLarge,
-                                maxLines = 1
-                            )
+                    Box {
+                        IconButton(onClick = { moreOpen = true }, modifier = Modifier.testTag("tracks_more_actions")) {
+                            Icon(Icons.Rounded.MoreVert, stringResource(R.string.tracks_more_actions))
                         }
-
-                        FilledTonalButton(
-                            onClick = onOpenAiHistory,
-                            shape = RoundedCornerShape(50),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                            modifier = Modifier
-                                .height(48.dp)
-                                .testTag("btn_open_ai_history")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.History,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = if (aiHistoryCount > 0) {
-                                    "${stringResource(R.string.ai_history_entry)} ($aiHistoryCount)"
-                                } else {
-                                    stringResource(R.string.ai_history_entry)
+                        DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.merge_entry_btn)) },
+                                leadingIcon = { Icon(Icons.Rounded.CallMerge, contentDescription = null) },
+                                onClick = {
+                                    moreOpen = false
+                                    isMergeMode = true
+                                    selectedMergeIds = emptySet()
+                                    if (filterMode == ActivityMode.KARTING) filterMode = null
+                                    onEnterMergeMode()
                                 },
-                                style = MaterialTheme.typography.labelLarge,
-                                maxLines = 1
+                                modifier = Modifier.testTag("btn_enter_merge_mode")
+                            )
+                            val historyLabel = stringResource(R.string.ai_history_entry)
+                            DropdownMenuItem(
+                                text = { Text(if (aiHistoryCount > 0) "$historyLabel ($aiHistoryCount)" else historyLabel) },
+                                leadingIcon = { Icon(Icons.Rounded.History, contentDescription = null) },
+                                onClick = {
+                                    moreOpen = false
+                                    onOpenAiHistory()
+                                },
+                                modifier = Modifier.testTag("btn_open_ai_history")
                             )
                         }
                     }
@@ -439,27 +434,33 @@ fun TrackHistoryScreen(
                             null
                         }
 
-                        TrackSessionCard(
-                            session = session,
-                            speedUnit = speedUnit,
-                            isMergeMode = isMergeMode,
-                            isSelectedForMerge = isSelected,
-                            isEligibleForMerge = isEligible,
-                            connectionGapMeters = connectionGapM,
-                            onClick = {
-                                if (isMergeMode) {
-                                    if (isEligible) {
-                                        selectedMergeIds = if (isSelected) {
-                                            selectedMergeIds - session.id
-                                        } else {
-                                            selectedMergeIds + session.id
+                        SwipeTrackSession(
+                            enabled = !isMergeMode && onDeleteSession != null,
+                            onDelete = { pendingDelete = session.id },
+                            sessionId = session.id
+                        ) {
+                            TrackSessionCard(
+                                session = session,
+                                speedUnit = speedUnit,
+                                isMergeMode = isMergeMode,
+                                isSelectedForMerge = isSelected,
+                                isEligibleForMerge = isEligible,
+                                connectionGapMeters = connectionGapM,
+                                onClick = {
+                                    if (isMergeMode) {
+                                        if (isEligible) {
+                                            selectedMergeIds = if (isSelected) {
+                                                selectedMergeIds - session.id
+                                            } else {
+                                                selectedMergeIds + session.id
+                                            }
                                         }
+                                    } else {
+                                        onSelectSession(session.id)
                                     }
-                                } else {
-                                    onSelectSession(session.id)
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }
@@ -583,6 +584,40 @@ fun TrackHistoryScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+internal fun SwipeTrackSession(enabled: Boolean, onDelete: () -> Unit, sessionId: Long, content: @Composable () -> Unit) {
+    if (!enabled) {
+        content()
+        return
+    }
+    val state = rememberSwipeToDismissBoxState(positionalThreshold = { width -> width * 0.4f })
+    val cs = MaterialTheme.colorScheme
+    LaunchedEffect(state.currentValue) {
+        if (state.currentValue != SwipeToDismissBoxValue.Settled) {
+            onDelete()
+            state.reset()
+        }
+    }
+    SwipeToDismissBox(
+        state = state,
+        modifier = Modifier.testTag("swipe_track_$sessionId"),
+        backgroundContent = {
+            if (state.dismissDirection != SwipeToDismissBoxValue.Settled) {
+                Box(
+                    Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
+                        .background(cs.errorContainer).padding(horizontal = 20.dp),
+                    contentAlignment = if (state.dismissDirection == SwipeToDismissBoxValue.StartToEnd)
+                        Alignment.CenterStart else Alignment.CenterEnd
+                ) {
+                    Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = cs.onErrorContainer)
+                }
+            }
+        }
+    ) {
+        content()
     }
 }
 

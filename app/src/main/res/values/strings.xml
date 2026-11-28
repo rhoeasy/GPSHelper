@@ -246,6 +246,7 @@
     <string name="detail_export_gpx">导出 GPX</string>
     <string name="detail_make_social_card">制作社交图</string>
     <string name="detail_delete">删除</string>
+    <string name="tracks_more_actions">更多轨迹操作</string>
     <string name="detail_delete_title">删除轨迹记录</string>
     <string name="detail_delete_confirm">确定要删除这条轨迹吗？删除后无法恢复。</string>
     <string name="detail_cancel">取消</string>
@@ -485,11 +486,11 @@
     <string name="notification_title_recording">轨迹录制中（后台定位保活）</string>
     <string name="notification_title_both">悬浮仪表 · 轨迹录制中</string>
     <string name="notification_waiting_fix">正在搜索卫星信号…</string>
+    <string name="notification_gps_locked">GPS 已定位</string>
+    <string name="notification_gps_stale">定位中断（%1$d 秒未收到新数据）</string>
 
     <!-- Telemetry Detail Screens (Altitude / Compass / Satellites) -->
     <string name="detail_back_dashboard_cd">返回仪表盘</string>
-    <string name="notification_gps_locked">GPS 已定位</string>
-    <string name="notification_gps_stale">定位中断（%1$d 秒未收到新数据）</string>
     <string name="alt_detail_title">海拔与气压</string>
     <string name="alt_unit_m">米 (m)</string>
     <string name="alt_unit_ft">英尺 (ft)</string>
@@ -581,10 +582,10 @@
     <string name="ai_coach_go_settings">前往设置配置网关</string>
     <string name="ai_coach_ready_desc">自动整合本次轨迹遥测数据与专业教练提示词，流式生成中文复盘并缓存在本地数据库。</string>
     <string name="ai_coach_start">生成 AI 教练复盘</string>
+    <string name="ai_coach_can_leave">可离开此页面，完成后报告会自动写入这条轨迹。</string>
     <string name="ai_coach_regenerate">重新分析</string>
     <string name="ai_coach_stop">取消分析</string>
     <string name="ai_coach_retry">重试</string>
-    <string name="ai_coach_can_leave">可离开此页面，完成后报告会自动写入这条轨迹。</string>
     <string name="ai_coach_copy">复制报告</string>
     <string name="ai_coach_waiting_token">正在连接模型并分析轨迹遥测数据…</string>
     <string name="ai_coach_meta_model">模型：%s</string>
