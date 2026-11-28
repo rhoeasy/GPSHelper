@@ -48,6 +48,8 @@ import com.example.ui.BleDevicePickerDialog
 import com.example.ui.FocusModeDialog
 import com.example.ui.GpsDashboardViewModel
 import com.example.ui.GpsHudAppShell
+import com.example.ui.GpsPageAssistantHost
+import com.example.ui.gpsAssistantPage
 import com.example.ui.MainTab
 import com.example.ui.MergeTracksConfirmDialog
 import com.example.ui.SettingsSubPage
@@ -281,6 +283,31 @@ class MainActivity : ComponentActivity() {
                     GpsRepository.startTracking(applicationContext, ACTIVITY_CLIENT_ID)
                 }
 
+                GpsPageAssistantHost(
+                    assistant = viewModel.pageAssistant,
+                    gatewayConfigured = aiGatewayConfig.isConfigured,
+                    currentPage = {
+                        gpsAssistantPage(
+                            activeTab, selectedTelemetryDetail, selectedSettingsSubPage, selectedSessionDetail,
+                            aiAnalysisHistory.size.takeIf { showAiAnalysisHistory }, showTrackRecorderSheet,
+                            gpsData, altitudeTelemetry, accuracyTelemetry, environmentTelemetry, gForceData,
+                            heartRateState, recordingSnapshot, savedSessions, speedUnit, dashboardSpeedStyle,
+                            themeMode, overlayConfig, isOverlayRunning, safetyAlertConfig, aiGatewayConfig.isConfigured
+                        )
+                    },
+                    openGatewaySettings = {
+                        viewModel.closeSessionDetail()
+                        selectedTelemetryDetail = null
+                        showAiAnalysisHistory = false
+                        showTrackRecorderSheet = false
+                        if (showBleDialog) viewModel.stopBleScan()
+                        showBleDialog = false
+                        showFocusDialog = false
+                        viewModel.dismissMergePreview()
+                        activeTab = MainTab.SETTINGS
+                        selectedSettingsSubPage = SettingsSubPage.AI_GATEWAY
+                    }
+                ) {
                 GpsHudAppShell(
                     activeTab = activeTab,
                     onSelectTab = { nextTab ->
@@ -721,6 +748,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onDismiss = { viewModel.dismissMergePreview() }
                     )
+                }
                 }
             }
         }

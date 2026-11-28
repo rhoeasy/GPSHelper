@@ -554,12 +554,15 @@ fun TrackHistoryScreen(
                     .padding(bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = stringResource(R.string.tracks_recorder_sheet_title),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = cs.onSurface,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.tracks_recorder_sheet_title),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = cs.onSurface,
+                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+                    )
+                    PageAssistantIcon()
+                }
 
                 TrackRecorderCard(
                     snapshot = recordingSnapshot,

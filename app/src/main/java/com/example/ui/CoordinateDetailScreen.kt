@@ -121,6 +121,13 @@ internal fun CoordinateDetailScreen(
         } ?: stringResource(R.string.coordinate_same_position)
         stringResource(R.string.coordinate_direct_distance, TrackFormatters.formatDistance(value.distanceMeters.toDouble()), bearing)
     }
+    ProvideAssistantSubpage {
+        AssistantPageKind.COORDINATES.snapshot(
+            if (current == null) "暂无定位" else "当前有定位；未附上精确经纬度",
+            relationLabel.orEmpty(),
+            if (invalidTarget) "输入的目标坐标格式无效" else ""
+        )
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("coordinate_detail_screen"),

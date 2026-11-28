@@ -396,6 +396,12 @@ fun BleDevicePickerDialog(
                 it.source == BleDeviceSource.CONNECTED_LOCAL
         }
     }
+    ProvideAssistantSubpage {
+        AssistantPageKind.BLUETOOTH.snapshot(
+            "正在扫描：$isScanning；心率已连接：${hrState.isConnected}；自动重连：$autoReconnectEnabled",
+            "本机设备：${filteredLocal.size}；附近列表：${filteredNearby.size}"
+        )
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -438,6 +444,7 @@ fun BleDevicePickerDialog(
                             color = cs.onSurface
                         )
                     }
+                    PageAssistantIcon()
                     if (isScanning) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),

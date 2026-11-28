@@ -134,6 +134,7 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     val isMergingTracks: StateFlow<Boolean> = _isMergingTracks.asStateFlow()
 
     val aiGatewayConfig = gatewayWork.config
+    internal val pageAssistant = gatewayWork.assistant
     val aiFetchedModels = gatewayWork.models
     val aiConnectionState = combine(gatewayWork.status, gatewayWork.modelTestResult) { jobs, result ->
         when (val job = jobs[GatewayTaskKey.Models]) {

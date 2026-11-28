@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -56,6 +57,12 @@ internal fun KartingTimingDialog(
     var pan by remember { mutableStateOf(Offset.Zero) }
     val projection = remember(points) { TimingMapProjection(points) }
     val cs = MaterialTheme.colorScheme
+    ProvideAssistantSubpage {
+        AssistantPageKind.TIMING_LINE.snapshot(
+            "起终线已设置：${finish != null}；检查线已设置：${checkpoint != null}；使用 GPS 采样时钟：$hasGpsClock",
+            if (invalidLine) "计时线宽度无效" else ""
+        )
+    }
 
     fun setLine(line: KartingTimingLine?) {
         if (editingCheckpoint) checkpoint = line else finish = line
@@ -65,7 +72,12 @@ internal fun KartingTimingDialog(
 
     AlertDialog(
         onDismissRequest = { if (!saving) onClose() },
-        title = { Text(stringResource(R.string.kart_edit_timing)) },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.kart_edit_timing), Modifier.weight(1f))
+                PageAssistantIcon()
+            }
+        },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(stringResource(R.string.kart_timing_select_ends))

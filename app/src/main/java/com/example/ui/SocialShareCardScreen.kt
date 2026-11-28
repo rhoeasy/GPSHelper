@@ -144,6 +144,15 @@ fun SocialShareCardScreen(
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isExporting by remember { mutableStateOf(false) }
 
+    ProvideAssistantSubpage {
+        AssistantPageKind.SOCIAL_POSTER.snapshot(
+            "背景：${if (config.useImportedPhoto && importedPhoto != null) "导入照片" else config.bgPreset.labelZh}",
+            "轨迹：${if (config.showRoute) "显示" else "隐藏"}；标题：${if (config.showTitle) "显示" else "隐藏"}",
+            "已选数据：" + SocialCardBitmapRenderer.buildSelectedStats(detail, speedUnit, config).joinToString("、") { it.label },
+            trackAssistantSummary(detail.session, speedUnit, compact = true)
+        )
+    }
+
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->

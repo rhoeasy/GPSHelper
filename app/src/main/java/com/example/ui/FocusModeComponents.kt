@@ -119,6 +119,11 @@ fun FocusModeDialog(
     onDismiss: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
+    ProvideAssistantSubpage {
+        AssistantPageKind.FOCUS.snapshot(
+            "专注锁定：$isFocusLockActive；启动时自动进入：$autoFocusOnLaunch；勿扰权限：$hasDndPolicyAccess"
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -133,11 +138,15 @@ fun FocusModeDialog(
             )
         },
         title = {
-            Text(
-                text = stringResource(R.string.focus_mode_title),
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                color = cs.onSurface
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.focus_mode_title),
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = cs.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                PageAssistantIcon()
+            }
         },
         text = {
             Column(

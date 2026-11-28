@@ -13,6 +13,7 @@ internal sealed interface GatewayTaskKey {
     data class Coach(val sessionId: Long) : GatewayTaskKey
     data object Coordinates : GatewayTaskKey
     data object Models : GatewayTaskKey
+    data object PageAssistant : GatewayTaskKey
 }
 
 enum class GatewayStage { QUEUED, CONNECTING, WAITING_FOR_OUTPUT, RECEIVING, SAVING }

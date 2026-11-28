@@ -37,7 +37,8 @@ internal data class CoordinateAnswer(
 internal class AiGatewayWork(context: Context) {
     private val storage = AiGatewaySecureStorage(context.applicationContext)
     private val tracks = TrackRepository(context.applicationContext)
-    private val queue = AiGatewayQueue(CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val queue = AiGatewayQueue(scope)
     val status = queue.status
 
     private val _config = MutableStateFlow(storage.loadConfig())
@@ -49,6 +50,7 @@ internal class AiGatewayWork(context: Context) {
     private val _coordinateAnswer = MutableStateFlow<CoordinateAnswer?>(null)
     val coordinateAnswer = _coordinateAnswer.asStateFlow()
     val coordinateStatus = status.map { it[GatewayTaskKey.Coordinates] }.distinctUntilChanged()
+    val assistant = GpsPageAssistant(context.applicationContext, scope, queue, { _config.value }, ::stream)
 
     fun saveConfig(baseUrl: String, apiKey: String, modelId: String): Result<AiGatewayConfig> {
         val normalized = if (baseUrl.isBlank()) Result.success("") else OpenAiGatewayClient.normalizeAndValidateBaseUrl(baseUrl)
@@ -140,7 +142,8 @@ internal class AiGatewayWork(context: Context) {
         config: AiGatewayConfig,
         system: String,
         prompt: String,
-        progress: (GatewayStage, String) -> Unit
+        progress: (GatewayStage, String) -> Unit,
+        maxChars: Int = Int.MAX_VALUE
     ): String {
         val text = StringBuilder()
         var connected = false
@@ -152,8 +155,11 @@ internal class AiGatewayWork(context: Context) {
                         progress(GatewayStage.WAITING_FOR_OUTPUT, "")
                     }
                     is GatewayChatEvent.Text -> {
-                        text.append(event.text)
-                        progress(GatewayStage.RECEIVING, text.toString())
+                        val count = minOf(event.text.length, maxChars - text.length)
+                        if (count > 0) {
+                            text.append(event.text, 0, count)
+                            progress(GatewayStage.RECEIVING, text.toString())
+                        }
                     }
                 }
             }

@@ -60,6 +60,11 @@ fun MergeTracksConfirmDialog(
     val cs = MaterialTheme.colorScheme
     var mergedName by remember(preview) { mutableStateOf(preview.defaultMergedName) }
     var keepOriginals by remember(preview) { mutableStateOf(true) }
+    ProvideAssistantSubpage {
+        AssistantPageKind.MERGE.snapshot(
+            "合并模式：${preview.mode.labelZh}；轨迹数：${preview.orderedSessions.size}；保留原始记录：$keepOriginals"
+        )
+    }
 
     AlertDialog(
         onDismissRequest = { if (!isMerging) onDismiss() },
@@ -80,8 +85,10 @@ fun MergeTracksConfirmDialog(
                         preview.mode.labelZh,
                         preview.orderedSessions.size
                     ),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    modifier = Modifier.weight(1f)
                 )
+                PageAssistantIcon()
             }
         },
         text = {

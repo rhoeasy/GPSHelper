@@ -58,6 +58,9 @@ internal fun CollapsibleCoachReport(text: String, identity: Long) {
         Text(stringResource(if (expanded) R.string.ai_report_collapse else R.string.ai_report_expand))
     }
     if (expanded) {
+        ProvideAssistantSubpage {
+            AssistantPageKind.AI_REPORT.snapshot(text)
+        }
         SelectionContainer {
             FormattedCoachReportText(text, Modifier.testTag("expanded_ai_report"))
         }

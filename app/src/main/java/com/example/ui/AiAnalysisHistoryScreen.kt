@@ -692,6 +692,12 @@ private fun AiHistoryDetailContent(
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
+    ProvideAssistantSubpage {
+        AssistantPageKind.AI_HISTORY.snapshot(
+            "当前报告：${record.sessionName.take(100)}；原记录：${if (hasLinkedSession) "可打开" else "不可用"}",
+            record.summaryMetrics
+        )
+    }
     val (badgeBg, badgeFg) = when (record.mode) {
         ActivityMode.KARTING -> cs.tertiaryContainer to cs.onTertiaryContainer
         ActivityMode.HIKING -> cs.secondaryContainer to cs.onSecondaryContainer
