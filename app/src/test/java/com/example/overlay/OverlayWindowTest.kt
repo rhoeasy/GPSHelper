@@ -75,6 +75,25 @@ class OverlayWindowTest {
         composeRule.onNodeWithText("00:10:05", useUnmergedTree = true).assertDoesNotExist()
     }
 
+    @Test
+    fun sixthMarkReplacesTheWholeDotRowWithElapsedTime() {
+        val elapsed = mutableStateOf(1_799_999L)
+        composeRule.setContent {
+            OverlayWindow(
+                gForceData = GForceData(), gpsData = GpsData(), speedUnit = SpeedUnit.KMH,
+                heartRateState = HeartRateState(), config = OverlayDisplayConfig(showRideElapsedTime = false),
+                themeMode = ThemeMode.LIGHT, isMiniMode = true, onToggleMiniMode = {}, previewRideElapsedMs = elapsed.value
+            )
+        }
+
+        composeRule.onNodeWithContentDescription("\u7d2f\u8ba1 5 \u4e2a\u65f6\u95f4\u70b9", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("00:29:59", useUnmergedTree = true).assertDoesNotExist()
+        composeRule.runOnIdle { elapsed.value = 1_800_000L }
+        composeRule.onNodeWithText("00:30:00", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("\u7d2f\u8ba1 6 \u4e2a\u65f6\u95f4\u70b9", useUnmergedTree = true).assertDoesNotExist()
+        composeRule.onNodeWithText("+1", useUnmergedTree = true).assertDoesNotExist()
+    }
+
     private fun assertGpsStatus(description: String) {
         composeRule.onNodeWithTag("overlay_gps_status", useUnmergedTree = true)
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, description))

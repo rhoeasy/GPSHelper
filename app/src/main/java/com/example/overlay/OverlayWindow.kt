@@ -546,12 +546,11 @@ private fun OverlayRideTimer(intervalMinutes: Int, showElapsedTime: Boolean, pre
     val elapsedMs = if (previewElapsedMs != null) {
         previewElapsedMs
     } else {
-        val refreshPeriodMs = if (showElapsedTime) 1_000L else intervalMinutes * 60_000L
-        val elapsed by produceState(appRideClock.elapsedMs(SystemClock.elapsedRealtime()), refreshPeriodMs) {
+        val elapsed by produceState(appRideClock.elapsedMs(SystemClock.elapsedRealtime()), intervalMinutes, showElapsedTime) {
             while (true) {
                 val now = appRideClock.elapsedMs(SystemClock.elapsedRealtime())
                 value = now
-                delay(if (now == null) 1_000L else refreshPeriodMs - now % refreshPeriodMs)
+                delay(rideTimerRefreshDelayMs(now, intervalMinutes, showElapsedTime))
             }
         }
         elapsed
@@ -564,7 +563,7 @@ private fun OverlayRideTimer(intervalMinutes: Int, showElapsedTime: Boolean, pre
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy((5f * scale).dp)
     ) {
-        if (showElapsedTime) {
+        if (showElapsedTime || readout.showTimeOnly) {
             Text(
                 text = readout.elapsedText,
                 style = MaterialTheme.typography.labelMedium.copy(
