@@ -575,25 +575,19 @@ private fun OverlayRideTimer(intervalMinutes: Int, showElapsedTime: Boolean, pre
                 maxLines = 1
             )
         }
-        Row(
-            modifier = Modifier.semantics { contentDescription = markSummary },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy((2f * scale).dp)
-        ) {
-            repeat(5) { index ->
-                Box(
-                    Modifier
-                        .size((4.5f * scale).dp)
-                        .background(if (index < readout.visibleMarks) cs.primary else Color.Transparent, CircleShape)
-                )
-            }
-            if (readout.extraMarks > 0L) {
-                Text(
-                    text = "+${readout.extraMarks}",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = (10f * fontScale).sp),
-                    color = cs.primary,
-                    maxLines = 1
-                )
+        if (!readout.showTimeOnly) {
+            Row(
+                modifier = Modifier.semantics { contentDescription = markSummary },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy((2f * scale).dp)
+            ) {
+                repeat(MAX_RIDE_MARKS) { index ->
+                    Box(
+                        Modifier
+                            .size((4.5f * scale).dp)
+                            .background(if (index < readout.visibleMarks) cs.primary else Color.Transparent, CircleShape)
+                    )
+                }
             }
         }
     }
