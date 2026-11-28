@@ -28,8 +28,18 @@ class OverlayTelemetryTest {
 
         val longRide = rideTimerReadout(4_500_000L, 5)
         assertEquals("01:15:00", longRide.elapsedText)
-        assertEquals(5, longRide.visibleMarks)
-        assertEquals(10L, longRide.extraMarks)
+        assertEquals(0, longRide.visibleMarks)
+        assertEquals(true, longRide.showTimeOnly)
+    }
+
+    @Test
+    fun timerRefreshesEverySecondAfterMarkSixEvenWhenTimeIsTurnedOff() {
+        assertEquals(5, rideTimerReadout(1_799_999L, 5).visibleMarks)
+        assertEquals(false, rideTimerReadout(1_799_999L, 5).showTimeOnly)
+        assertEquals(1L, rideTimerRefreshDelayMs(1_799_999L, 5, false))
+        assertEquals(1_000L, rideTimerRefreshDelayMs(1_800_000L, 5, false))
+        assertEquals(1_000L, rideTimerRefreshDelayMs(600_000L, 5, true))
+        assertEquals(299_000L, rideTimerRefreshDelayMs(601_000L, 5, false))
     }
 
     @Test

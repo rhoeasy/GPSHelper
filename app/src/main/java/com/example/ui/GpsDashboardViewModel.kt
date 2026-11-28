@@ -23,6 +23,7 @@ import com.example.ble.HeartRateRepository
 import com.example.ble.HeartRateState
 import com.example.ble.SavedBleDevice
 import com.example.gps.AccuracyTelemetry
+import com.example.gps.DashboardSpeedStyle
 import com.example.gps.AltitudeTelemetry
 import com.example.gps.GnssSatelliteInfo
 import com.example.gps.GpsData
@@ -37,6 +38,7 @@ import com.example.sensor.MotionSensorManager
 import com.example.track.ActivityMode
 import com.example.track.AiAnalysisRecordEntity
 import com.example.track.GpxExporter
+import com.example.track.KartingTimingCourse
 import com.example.track.RecordingSnapshot
 import com.example.track.TelemetryJsonExporter
 import com.example.track.TrackEndpoints
@@ -87,6 +89,7 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     val environmentTelemetry: StateFlow<EnvironmentTelemetry> = EnvironmentSensorManager.telemetry
     val gForceData: StateFlow<GForceData> = MotionSensorManager.gForceData
     val speedUnit: StateFlow<SpeedUnit> = GpsRepository.speedUnit
+    val dashboardSpeedStyle = GpsRepository.dashboardSpeedStyle
     val keepScreenOn: StateFlow<Boolean> = GpsRepository.keepScreenOn
     val themeMode: StateFlow<ThemeMode> = GpsRepository.themeMode
     val themePalette: StateFlow<AppThemePalette> = GpsRepository.themePalette
@@ -188,6 +191,8 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     fun setThemeMode(mode: ThemeMode) {
         GpsRepository.setThemeMode(getApplication(), mode)
     }
+
+    fun setDashboardSpeedStyle(style: DashboardSpeedStyle) = GpsRepository.setDashboardSpeedStyle(getApplication(), style)
 
     fun setThemePalette(palette: AppThemePalette) {
         GpsRepository.setThemePalette(getApplication(), palette)
@@ -313,7 +318,25 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun setKartingStartGate(): Boolean {
-        return TrackRecorder.setStartFinishGateToCurrentPosition()
+        if (recordingSnapshot.value.hasStartGate) return TrackRecorder.setKartingCourse(null)
+        val saved = trackRepository.lastKartingCourse() ?: return false
+        return TrackRecorder.setKartingCourse(saved)
+    }
+
+    fun recalculateKartingTiming(sessionId: Long, course: KartingTimingCourse, onCompleted: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val result = try {
+                withContext(Dispatchers.IO) { trackRepository.recalculateKartingTiming(sessionId, course) }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                android.util.Log.w("GpsDashboardViewModel", "Failed to recalculate karting timing", e)
+                null
+            }
+            if (result != null && _selectedSessionDetail.value?.session?.id == sessionId) {
+                _selectedSessionDetail.value = result
+            }
+            onCompleted(result != null)
+        }
     }
 
     fun finishAndSaveRecording(onCompleted: (savedSessionId: Long?) -> Unit) {

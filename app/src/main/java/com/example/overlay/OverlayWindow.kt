@@ -15,6 +15,7 @@ import android.widget.FrameLayout
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,6 +63,8 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.R
+import com.example.track.TrackRecorder
+import com.example.ui.motorcycleLeanText
 import com.example.alert.SafetyAlertMonitor
 import com.example.alert.SafetyAlertState
 import com.example.ble.HeartRateState
@@ -104,6 +106,8 @@ fun OverlayWindow(
     isMiniMode: Boolean,
     onToggleMiniMode: () -> Unit,
     previewRideElapsedMs: Long? = null,
+    showMotorcycleLean: Boolean = false,
+    motorcycleLeanDegrees: Float? = null,
     modifier: Modifier = Modifier
 ) {
     GpsHudTheme(themeMode = themeMode, themePalette = themePalette) {
@@ -147,18 +151,21 @@ fun OverlayWindow(
             config.showCoordinates ||
             config.showGForce
 
-        Surface(
+        val shape = RoundedCornerShape((22f * s).dp)
+        // Keep the translucent fill in one clipped layer over the app below it.
+        Box(
             modifier = modifier
-                .clip(RoundedCornerShape((22f * s).dp))
+                .clip(shape)
+                .background(containerColor)
+                .border(BorderStroke(if (alertState.isAnyAlert) 1.6.dp else 1.dp, borderColor), shape)
                 .clickable(onClick = onToggleMiniMode)
-                .testTag("overlay_window_root"),
-            shape = RoundedCornerShape((22f * s).dp),
-            color = containerColor,
-            border = BorderStroke(if (alertState.isAnyAlert) 1.6.dp else 1.dp, borderColor),
-            shadowElevation = 6.dp
+                .testTag("overlay_window_root")
         ) {
             Column(modifier = Modifier.padding(horizontal = (11f * s).dp, vertical = (8f * s).dp)) {
-                OverlayStatusRow(gpsData, config, previewRideElapsedMs, s, fs.coerceAtMost(1.7f))
+                OverlayStatusRow(
+                    gpsData, config, previewRideElapsedMs, s, fs.coerceAtMost(1.7f),
+                    showMotorcycleLean, motorcycleLeanDegrees
+                )
                 Row(
                     modifier = Modifier.padding(top = if (hasRightColumn) (5f * s).dp else 0.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -483,7 +490,9 @@ private fun OverlayStatusRow(
     config: OverlayDisplayConfig,
     previewRideElapsedMs: Long?,
     scale: Float,
-    fontScale: Float
+    fontScale: Float,
+    showMotorcycleLean: Boolean,
+    motorcycleLeanDegrees: Float?
 ) {
     val cs = MaterialTheme.colorScheme
     val signal = overlayGpsSignal(gpsData)
@@ -538,6 +547,15 @@ private fun OverlayStatusRow(
         if (config.showRideTimer) {
             OverlayRideTimer(config.rideMarkerIntervalMinutes, config.showRideElapsedTime, previewRideElapsedMs, scale, fontScale)
         }
+        if (showMotorcycleLean) {
+            Text(
+                text = stringResource(R.string.overlay_moto_lean, motorcycleLeanText(motorcycleLeanDegrees)),
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = (11f * fontScale).sp),
+                color = cs.onSurface,
+                maxLines = 1,
+                modifier = Modifier.testTag("overlay_motorcycle_lean")
+            )
+        }
     }
 }
 
@@ -546,12 +564,11 @@ private fun OverlayRideTimer(intervalMinutes: Int, showElapsedTime: Boolean, pre
     val elapsedMs = if (previewElapsedMs != null) {
         previewElapsedMs
     } else {
-        val refreshPeriodMs = if (showElapsedTime) 1_000L else intervalMinutes * 60_000L
-        val elapsed by produceState(appRideClock.elapsedMs(SystemClock.elapsedRealtime()), refreshPeriodMs) {
+        val elapsed by produceState(appRideClock.elapsedMs(SystemClock.elapsedRealtime()), intervalMinutes, showElapsedTime) {
             while (true) {
                 val now = appRideClock.elapsedMs(SystemClock.elapsedRealtime())
                 value = now
-                delay(if (now == null) 1_000L else refreshPeriodMs - now % refreshPeriodMs)
+                delay(rideTimerRefreshDelayMs(now, intervalMinutes, showElapsedTime))
             }
         }
         elapsed
@@ -564,7 +581,7 @@ private fun OverlayRideTimer(intervalMinutes: Int, showElapsedTime: Boolean, pre
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy((5f * scale).dp)
     ) {
-        if (showElapsedTime) {
+        if (showElapsedTime || readout.showTimeOnly) {
             Text(
                 text = readout.elapsedText,
                 style = MaterialTheme.typography.labelMedium.copy(
@@ -576,25 +593,19 @@ private fun OverlayRideTimer(intervalMinutes: Int, showElapsedTime: Boolean, pre
                 maxLines = 1
             )
         }
-        Row(
-            modifier = Modifier.semantics { contentDescription = markSummary },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy((2f * scale).dp)
-        ) {
-            repeat(5) { index ->
-                Box(
-                    Modifier
-                        .size((4.5f * scale).dp)
-                        .background(if (index < readout.visibleMarks) cs.primary else Color.Transparent, CircleShape)
-                )
-            }
-            if (readout.extraMarks > 0L) {
-                Text(
-                    text = "+${readout.extraMarks}",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = (10f * fontScale).sp),
-                    color = cs.primary,
-                    maxLines = 1
-                )
+        if (!readout.showTimeOnly) {
+            Row(
+                modifier = Modifier.semantics { contentDescription = markSummary },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy((2f * scale).dp)
+            ) {
+                repeat(MAX_RIDE_MARKS) { index ->
+                    Box(
+                        Modifier
+                            .size((4.5f * scale).dp)
+                            .background(if (index < readout.visibleMarks) cs.primary else Color.Transparent, CircleShape)
+                    )
+                }
             }
         }
     }
@@ -768,12 +779,14 @@ class OverlayWindowController(
                 GpsRepository.saveOverlayPosition(context, params.x, params.y)
             }
         ).apply {
+            background = null
             setViewTreeLifecycleOwner(this@OverlayWindowController)
             setViewTreeSavedStateRegistryOwner(this@OverlayWindowController)
             setViewTreeViewModelStoreOwner(this@OverlayWindowController)
         }
 
         val composeView = ComposeView(context).apply {
+            background = null
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
             setContent {
                 val gForce by gForceFlow.collectAsStateWithLifecycle()
@@ -784,6 +797,7 @@ class OverlayWindowController(
                 val safetyAlertConfig by safetyAlertConfigFlow.collectAsStateWithLifecycle()
                 val themeMode by themeModeFlow.collectAsStateWithLifecycle()
                 val themePalette by themePaletteFlow.collectAsStateWithLifecycle()
+                val recording by TrackRecorder.snapshot.collectAsStateWithLifecycle()
 
                 val alertState = SafetyAlertMonitor.evaluate(gps, heartRate, safetyAlertConfig)
 
@@ -806,7 +820,9 @@ class OverlayWindowController(
                     themeMode = themeMode,
                     themePalette = themePalette,
                     isMiniMode = isMiniMode,
-                    onToggleMiniMode = { isMiniMode = !isMiniMode }
+                    onToggleMiniMode = { isMiniMode = !isMiniMode },
+                    showMotorcycleLean = recording.showMotorcycleLean,
+                    motorcycleLeanDegrees = recording.motorcycleLean.degrees
                 )
             }
         }
@@ -818,6 +834,15 @@ class OverlayWindowController(
                 FrameLayout.LayoutParams.WRAP_CONTENT
             )
         )
+        container.addOnLayoutChangeListener { view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left == oldRight - oldLeft && bottom - top == oldBottom - oldTop) return@addOnLayoutChangeListener
+            val x = params.x
+            val y = params.y
+            clampPosition(params, view)
+            if (params.x != x || params.y != y) {
+                view.post { if (isAttached) runCatching { windowManager.updateViewLayout(view, params) } }
+            }
+        }
 
         return try {
             windowManager.addView(container, params)

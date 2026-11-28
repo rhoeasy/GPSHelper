@@ -225,7 +225,7 @@ object TelemetryJsonExporter {
                     put("lon", round6(pt.longitude))
                     pt.altitudeMeters?.let { put("alt_m", round1(it)) }
                     pt.altitudeFromBarometer?.let { put("altitude_source", if (it) "barometer" else "gps") }
-                    put("speed_kmh", round2(pt.speedMps * 3.6))
+                    pt.measuredSpeedMps?.let { put("speed_kmh", round2(it * 3.6)) }
                     pt.bearingDegrees?.let { put("bearing_deg", round1(it.toDouble())) }
                     pt.accuracyMeters?.let { put("accuracy_m", round1(it.toDouble())) }
                     pt.heartRateBpm?.let { put("hr_bpm", it) }

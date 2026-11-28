@@ -210,7 +210,7 @@ object TrackMergeEngine {
         var lastTimestamp = Long.MIN_VALUE
 
         ordered.forEach { seg ->
-            seg.points.forEach { pt ->
+            seg.points.forEachIndexed { pointIndex, pt ->
                 val safeTs = if (lastTimestamp != Long.MIN_VALUE && pt.timestampMs <= lastTimestamp) {
                     lastTimestamp + 1L
                 } else {
@@ -222,7 +222,9 @@ object TrackMergeEngine {
                         id = 0L,
                         sessionId = 0L,
                         timestampMs = safeTs,
-                        lapNumber = 0
+                        lapNumber = 0,
+                        fixElapsedMs = null,
+                        timingBreakBefore = if (pointIndex == 0) true else pt.timingBreakBefore
                     )
                 )
             }

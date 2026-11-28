@@ -234,11 +234,12 @@ object KartingSectorEngine {
             val sectors = sectorRanges.mapIndexed { sIdx, r ->
                 val distM = (lapCumDist[r.last] - lapCumDist[r.first]).coerceAtLeast(0.0)
                 val segPts = slice.subList(r.first, r.last + 1)
-                val maxSpd = segPts.maxOfOrNull { it.speedMps } ?: 0f
+                val measuredSpeeds = segPts.mapNotNull { it.measuredSpeedMps }
+                val maxSpd = measuredSpeeds.maxOrNull() ?: 0f
                 val avgSpd = if (scaledDurations[sIdx] > 0L && distM > 1.0) {
                     (distM / (scaledDurations[sIdx] / 1000.0)).toFloat()
                 } else {
-                    segPts.map { it.speedMps }.average().toFloat()
+                    measuredSpeeds.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f
                 }
                 val peakLatG = segPts.maxOfOrNull { abs(it.lateralG) } ?: 0f
                 RawSector(
@@ -439,7 +440,9 @@ object KartingSectorEngine {
         }
         val avgSpeeds = sectorRanges.mapIndexed { sIdx, r ->
             val d = (cumDist[r.last] - cumDist[r.first]).coerceAtLeast(0.0)
-            if (d > 1.0) (d / (rawDurations[sIdx] / 1000.0)).toFloat() else points.subList(r.first, r.last + 1).map { it.speedMps }.average().toFloat()
+            if (d > 1.0) (d / (rawDurations[sIdx] / 1000.0)).toFloat()
+            else points.subList(r.first, r.last + 1).mapNotNull { it.measuredSpeedMps }
+                .takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: 0f
         }
         val maxAvg = avgSpeeds.maxOrNull() ?: 0f
         val minAvg = avgSpeeds.minOrNull() ?: 0f
@@ -457,7 +460,7 @@ object KartingSectorEngine {
                 deltaToBestMs = 0L,
                 distanceMeters = (cumDist[r.last] - cumDist[r.first]).coerceAtLeast(0.0),
                 avgSpeedMps = avgSpeeds[sIdx],
-                maxSpeedMps = slice.maxOfOrNull { it.speedMps } ?: 0f,
+                maxSpeedMps = slice.mapNotNull { it.measuredSpeedMps }.maxOrNull() ?: 0f,
                 peakLateralG = slice.maxOfOrNull { abs(it.lateralG) } ?: 0f,
                 status = status
             )

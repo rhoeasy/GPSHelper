@@ -31,6 +31,27 @@ class TrackRepository(context: Context) {
         dao.deleteSessionById(sessionId)
     }
 
+    internal fun lastKartingCourse(): KartingTimingCourse? =
+        decodeKartingCourse(kartingPrefs().getString("last_course", null))
+
+    internal suspend fun recalculateKartingTiming(sessionId: Long, course: KartingTimingCourse): TrackSessionDetail? {
+        if (!course.finish.isUsable() || course.checkpoint?.isUsable() == false) return null
+        val detail = loadSessionDetail(sessionId) ?: return null
+        if (detail.session.activityMode != ActivityMode.KARTING || detail.points.size < 2) return null
+        val timing = timeKartingTrack(course, detail.points)
+        val labels = timing.lapNumbers(detail.points.size)
+        val groups = mutableMapOf<Int, MutableList<Long>>()
+        detail.points.forEachIndexed { index, point ->
+            if (labels[index] > 0) groups.getOrPut(labels[index]) { mutableListOf() }.add(point.id)
+        }
+        val courseJson = course.encode()
+        if (!dao.replaceKartingTiming(sessionId, courseJson, timing.laps, groups)) return null
+        kartingPrefs().edit().putString("last_course", courseJson).apply()
+        return loadSessionDetail(sessionId)
+    }
+
+    private fun kartingPrefs() = appContext.getSharedPreferences("karting_timing", Context.MODE_PRIVATE)
+
     suspend fun loadSessionEndpoints(sessionIds: List<Long>): Map<Long, TrackEndpoints> {
         val result = HashMap<Long, TrackEndpoints>(sessionIds.size)
         for (id in sessionIds) {

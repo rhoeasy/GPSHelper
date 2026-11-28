@@ -42,7 +42,8 @@ data class TrackSessionEntity(
     val pointCount: Int,
     val peakTotalG: Float = 0f,
     val peakLateralG: Float = 0f,
-    val stepCount: Int? = null
+    val stepCount: Int? = null,
+    val kartingCourseJson: String? = null
 ) {
     val activityMode: ActivityMode
         get() = ActivityMode.fromName(mode)
@@ -76,8 +77,14 @@ data class TrackPointEntity(
     val longitudinalG: Float = 0f,
     val totalG: Float = 0f,
     val altitudeFromBarometer: Boolean? = null,
-    val verticalVibrationG: Float? = null
-)
+    val verticalVibrationG: Float? = null,
+    val fixElapsedMs: Long? = null,
+    val timingBreakBefore: Boolean? = null,
+    val speedUsable: Boolean? = null
+) {
+    val measuredSpeedMps: Float?
+        get() = speedMps.takeIf { speedUsable != false && it.isFinite() && it >= 0f }
+}
 
 @Entity(
     tableName = "track_laps",

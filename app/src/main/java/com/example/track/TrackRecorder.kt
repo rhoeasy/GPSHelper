@@ -10,6 +10,8 @@ import com.example.sensor.EnvironmentSensorManager
 import com.example.sensor.GForceRepository
 import com.example.sensor.HikingStepSensor
 import com.example.sensor.MotionSensorManager
+import com.example.sensor.MotorcycleLeanReadout
+import com.example.sensor.MotorcycleLeanSensor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,15 +38,6 @@ enum class RecordingStatus {
     SAVING
 }
 
-data class RecordedLap(
-    val lapNumber: Int,
-    val durationMs: Long,
-    val distanceMeters: Double,
-    val maxSpeedMps: Float,
-    val avgHeartRate: Int?,
-    val peakG: Float
-)
-
 data class RecordingSnapshot(
     val status: RecordingStatus = RecordingStatus.IDLE,
     val mode: ActivityMode = ActivityMode.KARTING,
@@ -57,10 +50,9 @@ data class RecordingSnapshot(
     val minAltitudeMeters: Double? = null,
     val maxAltitudeMeters: Double? = null,
     val currentLapNumber: Int = 1,
-    val currentLapElapsedMs: Long = 0L,
+    val currentLapElapsedMs: Long? = null,
     val bestLapMs: Long? = null,
     val lastLapMs: Long? = null,
-    val completedLaps: List<RecordedLap> = emptyList(),
     val hasStartGate: Boolean = false,
     val currentHeartRate: Int? = null,
     val avgHeartRate: Int? = null,
@@ -68,10 +60,14 @@ data class RecordingSnapshot(
     val peakTotalG: Float = 0f,
     val peakLateralG: Float = 0f,
     val pointCount: Int = 0,
-    val stepCount: Int? = null
+    val stepCount: Int? = null,
+    val motorcycleLean: MotorcycleLeanReadout = MotorcycleLeanReadout()
 ) {
     val isActive: Boolean
         get() = status != RecordingStatus.IDLE
+
+    val showMotorcycleLean: Boolean
+        get() = status == RecordingStatus.RECORDING && mode == ActivityMode.OFFROAD_CROSSING
 }
 
 /**
@@ -84,10 +80,6 @@ object TrackRecorder {
     private const val MAX_ACCURACY_METERS = 35f
     private const val BAROMETER_CALIBRATION_VERTICAL_ACCURACY_M = 20f
     private const val MIN_STEP_DISTANCE_M = 1.5
-    private const val MIN_ARM_DISTANCE_M = 25.0
-    private const val GATE_RADIUS_M = 18.0
-    private const val GATE_APEX_IMMEDIATE_M = 6.0
-    private const val MIN_LAP_DURATION_MS = 15_000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lock = Any()
@@ -99,10 +91,10 @@ object TrackRecorder {
     private var timerJob: Job? = null
 
     private val recordedPoints = mutableListOf<TrackPointEntity>()
-    private val recordedLaps = mutableListOf<RecordedLap>()
     private var elevation = TrackElevation()
 
     private var sessionStartWallMs: Long = 0L
+    private var sessionStartElapsedMs: Long = 0L
     private var accumulatedActiveMs: Long = 0L
     private var activeSegmentStartElapsedMs: Long = 0L
 
@@ -120,26 +112,14 @@ object TrackRecorder {
     private var peakTotalG: Float = 0f
     private var peakLateralG: Float = 0f
 
-    // Karting lap detection state
-    private var startGateLat: Double? = null
-    private var startGateLng: Double? = null
-    private var currentLapNumber: Int = 1
-    private var lapStartActiveMs: Long = 0L
-    private var lapDistanceM: Double = 0.0
-    private var lapMaxSpeedMps: Float = 0f
-    private var lapHrSum: Long = 0L
-    private var lapHrCount: Int = 0
-    private var lapPeakG: Float = 0f
-    private var armedForLap: Boolean = false
-    private var enteringGate: Boolean = false
-    private var minGateDistanceM: Double = Double.MAX_VALUE
-    private var bestLapMs: Long? = null
-    private var lastLapMs: Long? = null
+    private var selectedKartingCourse: KartingTimingCourse? = null
+    private var kartingTiming: KartingTrackTiming? = null
+    private var kartingBreakBeforeNext = true
 
     fun selectMode(mode: ActivityMode) {
         synchronized(lock) {
             if (_snapshot.value.status == RecordingStatus.IDLE) {
-                _snapshot.update { it.copy(mode = mode) }
+                _snapshot.update { it.copy(mode = mode, hasStartGate = mode == ActivityMode.KARTING && selectedKartingCourse != null) }
             }
         }
     }
@@ -149,12 +129,18 @@ object TrackRecorder {
             if (_snapshot.value.status != RecordingStatus.IDLE) return
             resetStateLocked()
             sessionStartWallMs = System.currentTimeMillis()
-            activeSegmentStartElapsedMs = SystemClock.elapsedRealtime()
+            sessionStartElapsedMs = SystemClock.elapsedRealtime()
+            activeSegmentStartElapsedMs = sessionStartElapsedMs
+            val course = selectedKartingCourse.takeIf { mode == ActivityMode.KARTING }
+            kartingTiming = course?.let { KartingTrackTiming(it) }
             if (mode == ActivityMode.HIKING) HikingStepSensor.start(context.applicationContext)
+            if (mode == ActivityMode.OFFROAD_CROSSING) MotorcycleLeanSensor.start(context.applicationContext)
             _snapshot.value = RecordingSnapshot(
                 status = RecordingStatus.RECORDING,
                 mode = mode,
-                stepCount = HikingStepSensor.currentCount()
+                hasStartGate = course != null,
+                stepCount = HikingStepSensor.currentCount(),
+                motorcycleLean = if (mode == ActivityMode.OFFROAD_CROSSING) MotorcycleLeanSensor.current() else MotorcycleLeanReadout()
             )
         }
 
@@ -180,7 +166,6 @@ object TrackRecorder {
                         val g = GForceRepository.gForceData.value
                         if (g.totalG > peakTotalG) peakTotalG = g.totalG
                         if (abs(g.lateralG) > peakLateralG) peakLateralG = abs(g.lateralG)
-                        if (g.totalG > lapPeakG) lapPeakG = g.totalG
                         publishSnapshotLocked()
                     }
                 }
@@ -196,6 +181,7 @@ object TrackRecorder {
             activeSegmentStartElapsedMs = 0L
             elevation.breakInterval()
             lastTrackPointFixElapsedMs = 0L
+            breakKartingTimingLocked()
             MotionSensorManager.setTrackVibrationCapture(false)
             HikingStepSensor.pause()
             _snapshot.update { it.copy(status = RecordingStatus.PAUSED) }
@@ -214,27 +200,20 @@ object TrackRecorder {
         }
     }
 
-    fun setStartFinishGateToCurrentPosition(): Boolean {
-        val currentGps = GpsRepository.gpsData.value
-        val lat = currentGps.latitude
-        val lng = currentGps.longitude
-        if (!currentGps.hasFix || lat == null || lng == null) return false
-
+    fun setKartingCourse(course: KartingTimingCourse?): Boolean {
         synchronized(lock) {
-            if (!_snapshot.value.isActive) return false
-            startGateLat = lat
-            startGateLng = lng
-            armedForLap = false
-            enteringGate = false
-            minGateDistanceM = Double.MAX_VALUE
-            lapStartActiveMs = computeActiveElapsedMsLocked()
-            lapDistanceM = 0.0
-            lapMaxSpeedMps = 0f
-            lapHrSum = 0L
-            lapHrCount = 0
-            lapPeakG = 0f
+            if (_snapshot.value.status != RecordingStatus.IDLE || _snapshot.value.mode != ActivityMode.KARTING) return false
+            selectedKartingCourse = course
             publishSnapshotLocked()
             return true
+        }
+    }
+
+    fun zeroMotorcycleLean() {
+        synchronized(lock) {
+            if (!_snapshot.value.showMotorcycleLean) return
+            MotorcycleLeanSensor.zero()
+            publishSnapshotLocked()
         }
     }
 
@@ -250,8 +229,9 @@ object TrackRecorder {
             mode = snapshot.mode
             HikingStepSensor.pause()
             _snapshot.value = snapshot.copy(status = RecordingStatus.SAVING, elapsedMs = totalDurationMs)
-            val pointsCopy = recordedPoints.toList()
-            val lapsCopy = recordedLaps.toList()
+            val timing = kartingTiming
+            val pointsCopy = timing?.labelPoints(recordedPoints) ?: recordedPoints.toList()
+            val lapsCopy = timing?.laps?.toList().orEmpty()
 
             val endWallMs = System.currentTimeMillis()
             val avgSpeed = if (totalDurationMs > 1_000L) {
@@ -276,25 +256,15 @@ object TrackRecorder {
                     minAltitudeMeters = elevation.minMeters,
                     maxAltitudeMeters = elevation.maxMeters,
                     lapCount = lapsCopy.size,
-                    bestLapMs = bestLapMs,
+                    bestLapMs = lapsCopy.minOfOrNull { it.lapDurationMs },
                     avgHeartRate = avgHr,
                     maxHeartRate = maxHr,
                     pointCount = pointsCopy.size,
                     peakTotalG = peakTotalG,
-                    peakLateralG = peakLateralG
+                    peakLateralG = peakLateralG,
+                    kartingCourseJson = selectedKartingCourse?.takeIf { timing != null }?.encode()
                 )
-                val lapEntities = lapsCopy.map { lap ->
-                    TrackLapEntity(
-                        sessionId = 0L,
-                        lapNumber = lap.lapNumber,
-                        lapDurationMs = lap.durationMs,
-                        lapDistanceMeters = lap.distanceMeters,
-                        maxSpeedMps = lap.maxSpeedMps,
-                        avgHeartRate = lap.avgHeartRate,
-                        peakG = lap.peakG
-                    )
-                }
-                Triple(session, pointsCopy, lapEntities)
+                Triple(session, pointsCopy, lapsCopy)
             } else {
                 null
             }
@@ -320,9 +290,11 @@ object TrackRecorder {
             }
         } finally {
             HikingStepSensor.stop()
+            if (mode == ActivityMode.OFFROAD_CROSSING) MotorcycleLeanSensor.stop()
             FloatingGpsService.stopRecordingKeepAlive(context.applicationContext)
             synchronized(lock) {
                 resetStateLocked()
+                selectedKartingCourse = null
                 _snapshot.value = RecordingSnapshot(mode = mode)
             }
         }
@@ -331,16 +303,20 @@ object TrackRecorder {
     private fun onGpsSample(data: GpsData) {
         synchronized(lock) {
             if (_snapshot.value.status != RecordingStatus.RECORDING) return
+            val isKart = _snapshot.value.mode == ActivityMode.KARTING
             if (!data.hasFix) {
                 elevation.breakInterval()
+                if (isKart) breakKartingTimingLocked()
                 return
             }
             val lat = data.latitude ?: return
             val lng = data.longitude ?: return
             if (data.lastUpdateElapsedRealtimeMs <= lastFixElapsedMs && lastFixElapsedMs != 0L) return
+            if (isKart && data.lastUpdateElapsedRealtimeMs < activeSegmentStartElapsedMs) return
 
             val accuracy = data.accuracyMeters
             if (accuracy != null && accuracy > MAX_ACCURACY_METERS && recordedPoints.isNotEmpty()) {
+                if (isKart) breakKartingTimingLocked()
                 return
             }
 
@@ -348,6 +324,7 @@ object TrackRecorder {
                 data.lastUpdateElapsedRealtimeMs - lastFixElapsedMs >= GpsRepository.GPS_FRESHNESS_WINDOW_MS
             ) {
                 elevation.breakInterval()
+                if (isKart) breakKartingTimingLocked()
             }
             lastFixElapsedMs = data.lastUpdateElapsedRealtimeMs
             val speed = (data.speedMps ?: 0f).coerceAtLeast(0f)
@@ -360,17 +337,15 @@ object TrackRecorder {
                 0.0
             }
 
-            if (prevLat != null && stepMeters < MIN_STEP_DISTANCE_M && speed < 0.4f) {
+            if (!isKart && prevLat != null && stepMeters < MIN_STEP_DISTANCE_M && speed < 0.4f) {
                 return
             }
 
             lastLat = lat
             lastLng = lng
-            totalDistanceM += stepMeters
-            lapDistanceM += stepMeters
+            if (!isKart || !kartingBreakBeforeNext) totalDistanceM += stepMeters
 
             if (speed > maxSpeedMps) maxSpeedMps = speed
-            if (speed > lapMaxSpeedMps) lapMaxSpeedMps = speed
 
             val legDurationMs = data.lastUpdateElapsedRealtimeMs - lastTrackPointFixElapsedMs
             val isContinuous = lastTrackPointFixElapsedMs != 0L && legDurationMs in 1L..MAX_CONTINUOUS_TRACK_INTERVAL_MS
@@ -392,25 +367,17 @@ object TrackRecorder {
                 hrSum += currentBpm
                 hrCount++
                 maxHr = maxHr?.let { maxOf(it, currentBpm) } ?: currentBpm
-                lapHrSum += currentBpm
-                lapHrCount++
             }
 
             // Fuse live hardware G-Force directly with this motion sample
             val gState = GForceRepository.gForceData.value
             if (gState.totalG > peakTotalG) peakTotalG = gState.totalG
             if (abs(gState.lateralG) > peakLateralG) peakLateralG = abs(gState.lateralG)
-            if (gState.totalG > lapPeakG) lapPeakG = gState.totalG
-
-            val activeMs = computeActiveElapsedMsLocked()
-            if (_snapshot.value.mode == ActivityMode.KARTING) {
-                processKartingLapLocked(lat, lng, activeMs)
-            }
-
-            recordedPoints.add(
+            val point =
                 TrackPointEntity(
                     sessionId = 0L,
-                    timestampMs = System.currentTimeMillis(),
+                    timestampMs = if (isKart) sessionStartWallMs + data.lastUpdateElapsedRealtimeMs - sessionStartElapsedMs
+                        else System.currentTimeMillis(),
                     latitude = lat,
                     longitude = lng,
                     altitudeMeters = altitude?.meters,
@@ -418,75 +385,29 @@ object TrackRecorder {
                     accuracyMeters = accuracy,
                     bearingDegrees = data.bearingDegrees,
                     heartRateBpm = currentBpm,
-                    lapNumber = currentLapNumber,
+                    lapNumber = if (isKart) 0 else 1,
                     lateralG = gState.lateralG,
                     longitudinalG = gState.longitudinalG,
                     totalG = gState.totalG,
                     altitudeFromBarometer = altitude?.fromBarometer,
-                    verticalVibrationG = vibrationG
+                    verticalVibrationG = vibrationG,
+                    fixElapsedMs = data.lastUpdateElapsedRealtimeMs.takeIf { isKart },
+                    timingBreakBefore = kartingBreakBeforeNext.takeIf { isKart },
+                    speedUsable = data.speedMps != null
                 )
-            )
+            if (isKart) {
+                kartingTiming?.addPoint(recordedPoints.size, point)
+                kartingBreakBeforeNext = false
+            }
+            recordedPoints.add(point)
 
             publishSnapshotLocked()
         }
     }
 
-    private fun processKartingLapLocked(lat: Double, lng: Double, activeMs: Long) {
-        val gateLat = startGateLat
-        val gateLng = startGateLng
-        if (gateLat == null || gateLng == null) {
-            startGateLat = lat
-            startGateLng = lng
-            lapStartActiveMs = activeMs
-            return
-        }
-
-        val distToGate = haversineMeters(lat, lng, gateLat, gateLng)
-        if (!armedForLap && distToGate >= MIN_ARM_DISTANCE_M) {
-            armedForLap = true
-        }
-
-        val currentLapDuration = activeMs - lapStartActiveMs
-        if (armedForLap && currentLapDuration >= MIN_LAP_DURATION_MS) {
-            if (distToGate <= GATE_RADIUS_M) {
-                enteringGate = true
-                if (distToGate < minGateDistanceM) {
-                    minGateDistanceM = distToGate
-                }
-                if (distToGate <= GATE_APEX_IMMEDIATE_M) {
-                    completeLapLocked(activeMs)
-                }
-            } else if (enteringGate) {
-                completeLapLocked(activeMs)
-            }
-        }
-    }
-
-    private fun completeLapLocked(activeMs: Long) {
-        val duration = (activeMs - lapStartActiveMs).coerceAtLeast(1_000L)
-        val lapAvgHr = if (lapHrCount > 0) (lapHrSum / lapHrCount).toInt() else null
-        val lap = RecordedLap(
-            lapNumber = currentLapNumber,
-            durationMs = duration,
-            distanceMeters = lapDistanceM,
-            maxSpeedMps = lapMaxSpeedMps,
-            avgHeartRate = lapAvgHr,
-            peakG = lapPeakG
-        )
-        recordedLaps.add(lap)
-        lastLapMs = duration
-        bestLapMs = bestLapMs?.let { minOf(it, duration) } ?: duration
-
-        currentLapNumber++
-        lapStartActiveMs = activeMs
-        lapDistanceM = 0.0
-        lapMaxSpeedMps = 0f
-        lapHrSum = 0L
-        lapHrCount = 0
-        lapPeakG = 0f
-        armedForLap = false
-        enteringGate = false
-        minGateDistanceM = Double.MAX_VALUE
+    private fun breakKartingTimingLocked() {
+        kartingTiming?.interrupt()
+        kartingBreakBeforeNext = true
     }
 
     private fun computeActiveElapsedMsLocked(): Long {
@@ -509,6 +430,7 @@ object TrackRecorder {
         }
         val avgHr = if (hrCount > 0) (hrSum / hrCount).toInt() else null
         val liveHr = HeartRateRepository.heartRateState.value.let { if (it.isConnected) it.bpm else null }
+        val laps = kartingTiming?.laps.orEmpty()
 
         _snapshot.value = RecordingSnapshot(
             status = _snapshot.value.status,
@@ -521,27 +443,27 @@ object TrackRecorder {
             elevationLossMeters = elevation.lossMeters,
             minAltitudeMeters = elevation.minMeters,
             maxAltitudeMeters = elevation.maxMeters,
-            currentLapNumber = currentLapNumber,
-            currentLapElapsedMs = (elapsed - lapStartActiveMs).coerceAtLeast(0L),
-            bestLapMs = bestLapMs,
-            lastLapMs = lastLapMs,
-            completedLaps = recordedLaps.toList(),
-            hasStartGate = startGateLat != null,
+            currentLapNumber = laps.size + 1,
+            currentLapElapsedMs = kartingTiming?.startedAtMs?.let { (SystemClock.elapsedRealtime() - it).coerceAtLeast(0L) },
+            bestLapMs = laps.minOfOrNull { it.lapDurationMs },
+            lastLapMs = laps.lastOrNull()?.lapDurationMs,
+            hasStartGate = _snapshot.value.mode == ActivityMode.KARTING && selectedKartingCourse != null,
             currentHeartRate = liveHr,
             avgHeartRate = avgHr,
             maxHeartRate = maxHr,
             peakTotalG = peakTotalG,
             peakLateralG = peakLateralG,
             pointCount = recordedPoints.size,
-            stepCount = HikingStepSensor.currentCount()
+            stepCount = HikingStepSensor.currentCount(),
+            motorcycleLean = if (_snapshot.value.showMotorcycleLean) MotorcycleLeanSensor.current() else MotorcycleLeanReadout()
         )
     }
 
     private fun resetStateLocked() {
         recordedPoints.clear()
-        recordedLaps.clear()
         elevation = TrackElevation()
         sessionStartWallMs = 0L
+        sessionStartElapsedMs = 0L
         accumulatedActiveMs = 0L
         activeSegmentStartElapsedMs = 0L
         lastLat = null
@@ -555,20 +477,8 @@ object TrackRecorder {
         maxHr = null
         peakTotalG = 0f
         peakLateralG = 0f
-        startGateLat = null
-        startGateLng = null
-        currentLapNumber = 1
-        lapStartActiveMs = 0L
-        lapDistanceM = 0.0
-        lapMaxSpeedMps = 0f
-        lapHrSum = 0L
-        lapHrCount = 0
-        lapPeakG = 0f
-        armedForLap = false
-        enteringGate = false
-        minGateDistanceM = Double.MAX_VALUE
-        bestLapMs = null
-        lastLapMs = null
+        kartingTiming = null
+        kartingBreakBeforeNext = true
     }
 
     fun haversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {

@@ -64,6 +64,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,6 +81,7 @@ import com.example.alert.SafetyAlertState
 import com.example.ble.HeartRateState
 import com.example.ble.SavedBleDevice
 import com.example.gps.AccuracyTelemetry
+import com.example.gps.DashboardSpeedStyle
 import com.example.gps.AltitudeTelemetry
 import com.example.gps.GnssSatelliteInfo
 import com.example.gps.GpsData
@@ -90,6 +92,7 @@ import com.example.sensor.EnvironmentTelemetry
 import com.example.sensor.GForceData
 import com.example.track.ActivityMode
 import com.example.track.AiAnalysisRecordEntity
+import com.example.track.KartingTimingCourse
 import com.example.track.RecordingSnapshot
 import com.example.track.RecordingStatus
 import com.example.track.TrackEndpoints
@@ -148,6 +151,8 @@ fun GpsHudAppShell(
     sessionEndpoints: Map<Long, TrackEndpoints>,
     mergeCompletedSignal: Int,
     onSelectSpeedUnit: (SpeedUnit) -> Unit,
+    dashboardSpeedStyle: DashboardSpeedStyle,
+    onSelectDashboardSpeedStyle: (DashboardSpeedStyle) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
     onSelectThemeMode: (ThemeMode) -> Unit,
     onSelectThemePalette: (AppThemePalette) -> Unit,
@@ -158,6 +163,7 @@ fun GpsHudAppShell(
     onOpenFocusDialog: () -> Unit,
     onExitFocusLock: () -> Unit,
     onCalibrateGForceZero: () -> Unit,
+    onZeroMotorcycleLean: () -> Unit,
     onResetGForcePeak: () -> Unit,
     onOpenTelemetryDetail: (TelemetryDetailPage) -> Unit,
     onCloseTelemetryDetail: () -> Unit,
@@ -180,6 +186,7 @@ fun GpsHudAppShell(
     onResumeRecording: () -> Unit,
     onFinishRecording: () -> Unit,
     onSetStartGate: () -> Unit,
+    onRecalculateKarting: (Long, KartingTimingCourse, (Boolean) -> Unit) -> Unit,
     onSelectSession: (Long) -> Unit,
     onCloseSessionDetail: () -> Unit,
     onEnterMergeMode: () -> Unit,
@@ -210,6 +217,7 @@ fun GpsHudAppShell(
     onClearAiHistory: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
+    var gForceExplanationExpanded by rememberSaveable { mutableStateOf(false) }
 
     if (selectedSessionDetail != null) {
         TrackDetailScreen(
@@ -225,6 +233,9 @@ fun GpsHudAppShell(
             onExportGpx = { onExportGpx(selectedSessionDetail) },
             onShareSocialImage = { uri -> onShareSocialImage(uri, selectedSessionDetail.session.name) },
             onDeleteSession = { onDeleteSession(selectedSessionDetail.session.id) },
+            onRecalculateKarting = { course, completed ->
+                onRecalculateKarting(selectedSessionDetail.session.id, course, completed)
+            },
             onStartAiAnalysis = { onStartAiAnalysis(selectedSessionDetail) },
             onStopAiAnalysis = onStopAiAnalysis,
             onCopyAiReport = onCopyAiReport,
@@ -579,6 +590,8 @@ fun GpsHudAppShell(
                                         )
                                     }
 
+                                    MotorcycleLeanRow(recordingSnapshot, onZeroMotorcycleLean)
+
                                     // Hero Instrument Cluster: Maximized Speedometer (left) + Enlarged G-Force Radar (right)
                                     Row(
                                         modifier = Modifier
@@ -589,6 +602,7 @@ fun GpsHudAppShell(
                                     ) {
                                         PrimarySpeedCard(
                                             gpsData = gpsData,
+                                            style = dashboardSpeedStyle,
                                             speedUnit = speedUnit,
                                             onSelectUnit = onSelectSpeedUnit,
                                             onOpenLocationSettings = onOpenLocationSettings,
@@ -601,6 +615,8 @@ fun GpsHudAppShell(
 
                                         GForceTelemetryCard(
                                             gForceData = gForceData,
+                                            explanationExpanded = gForceExplanationExpanded,
+                                            onExplanationExpandedChange = { gForceExplanationExpanded = it },
                                             showPeakOnDial = overlayConfig.showGForcePeakOnDial,
                                             peakHoldSeconds = overlayConfig.gForcePeakHoldSeconds,
                                             onCalibrateZero = onCalibrateGForceZero,
@@ -707,8 +723,11 @@ fun GpsHudAppShell(
                                         )
                                     }
 
+                                    MotorcycleLeanRow(recordingSnapshot, onZeroMotorcycleLean)
+
                                     PrimarySpeedCard(
                                         gpsData = gpsData,
+                                        style = dashboardSpeedStyle,
                                         speedUnit = speedUnit,
                                         onSelectUnit = onSelectSpeedUnit,
                                         onOpenLocationSettings = onOpenLocationSettings,
@@ -725,6 +744,8 @@ fun GpsHudAppShell(
 
                                     GForceTelemetryCard(
                                         gForceData = gForceData,
+                                        explanationExpanded = gForceExplanationExpanded,
+                                        onExplanationExpandedChange = { gForceExplanationExpanded = it },
                                         showPeakOnDial = overlayConfig.showGForcePeakOnDial,
                                         peakHoldSeconds = overlayConfig.gForcePeakHoldSeconds,
                                         onCalibrateZero = onCalibrateGForceZero,
@@ -822,6 +843,8 @@ fun GpsHudAppShell(
                                     onResetOverlayConfig = onResetOverlayConfig,
                                     onUpdateSafetyAlertConfig = onUpdateSafetyAlertConfig,
                                     onSelectSpeedUnit = onSelectSpeedUnit,
+                                    dashboardSpeedStyle = dashboardSpeedStyle,
+                                    onSelectDashboardSpeedStyle = onSelectDashboardSpeedStyle,
                                     onSelectThemeMode = onSelectThemeMode,
                                     onSelectThemePalette = onSelectThemePalette,
                                     onToggleKeepScreenOn = onToggleKeepScreenOn,

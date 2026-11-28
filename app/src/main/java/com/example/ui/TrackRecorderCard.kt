@@ -195,6 +195,14 @@ fun TrackRecorderCard(
                     onOpenBlePicker = onOpenBlePicker
                 )
 
+                if (snapshot.mode == ActivityMode.KARTING) {
+                    FilledTonalButton(onClick = onSetStartGate, modifier = Modifier.testTag("btn_set_start_gate")) {
+                        Icon(Icons.Rounded.Flag, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(if (snapshot.hasStartGate) R.string.record_clear_gate else R.string.record_set_gate))
+                    }
+                }
+
                 Button(
                     onClick = onStartRecording,
                     modifier = Modifier
@@ -289,7 +297,11 @@ fun TrackRecorderCard(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "${stringResource(R.string.metric_current_lap)} L${snapshot.currentLapNumber}",
+                                text = when {
+                                    !snapshot.hasStartGate -> stringResource(R.string.kart_no_timing_line)
+                                    snapshot.currentLapElapsedMs == null -> stringResource(R.string.kart_waiting_line)
+                                    else -> "${stringResource(R.string.metric_current_lap)} L${snapshot.currentLapNumber}"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = cs.onTertiaryContainer
                             )
@@ -303,27 +315,6 @@ fun TrackRecorderCard(
                             )
                         }
 
-                        FilledTonalButton(
-                            onClick = onSetStartGate,
-                            modifier = Modifier.testTag("btn_set_start_gate"),
-                            shape = RoundedCornerShape(50),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = cs.surfaceContainerLow,
-                                contentColor = cs.onTertiaryContainer
-                            )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Flag,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = stringResource(R.string.record_set_gate),
-                                style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.sp)
-                            )
-                        }
                     }
                 } else {
                     Row(

@@ -43,6 +43,7 @@ import com.example.overlay.appRideClock
 import com.example.sensor.HikingStepSensor
 import com.example.sensor.MotionSensorManager
 import com.example.track.ActivityMode
+import com.example.track.TrackRecorder
 import com.example.ui.BleDevicePickerDialog
 import com.example.ui.FocusModeDialog
 import com.example.ui.GpsDashboardViewModel
@@ -105,6 +106,7 @@ class MainActivity : ComponentActivity() {
                 val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
                 val autoFocusOnLaunch by viewModel.autoFocusOnLaunch.collectAsStateWithLifecycle()
                 val overlayConfig by viewModel.overlayConfig.collectAsStateWithLifecycle()
+                val dashboardSpeedStyle by viewModel.dashboardSpeedStyle.collectAsStateWithLifecycle()
                 val safetyAlertConfig by viewModel.safetyAlertConfig.collectAsStateWithLifecycle()
                 val hasDndPolicyAccess by viewModel.hasDndPolicyAccess.collectAsStateWithLifecycle()
                 val isOverlayRunning by viewModel.isOverlayRunning.collectAsStateWithLifecycle()
@@ -317,6 +319,8 @@ class MainActivity : ComponentActivity() {
                     sessionEndpoints = sessionEndpoints,
                     mergeCompletedSignal = mergeCompletedSignal,
                     onSelectSpeedUnit = { unit -> viewModel.setSpeedUnit(unit) },
+                    dashboardSpeedStyle = dashboardSpeedStyle,
+                    onSelectDashboardSpeedStyle = viewModel::setDashboardSpeedStyle,
                     onToggleKeepScreenOn = { enabled -> viewModel.setKeepScreenOn(enabled) },
                     onSelectThemeMode = { mode -> viewModel.setThemeMode(mode) },
                     onSelectThemePalette = { palette -> viewModel.setThemePalette(palette) },
@@ -352,6 +356,7 @@ class MainActivity : ComponentActivity() {
                             Toast.LENGTH_SHORT
                         ).show()
                     },
+                    onZeroMotorcycleLean = TrackRecorder::zeroMotorcycleLean,
                     onResetGForcePeak = {
                         viewModel.resetGForcePeak()
                     },
@@ -501,7 +506,8 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(
                             this,
                             getString(
-                                if (updated) R.string.toast_gate_updated else R.string.toast_gate_waiting_gps
+                                if (updated && viewModel.recordingSnapshot.value.hasStartGate) R.string.toast_gate_updated
+                                else if (updated) R.string.toast_gate_removed else R.string.toast_gate_waiting_gps
                             ),
                             Toast.LENGTH_SHORT
                         ).show()
@@ -509,6 +515,7 @@ class MainActivity : ComponentActivity() {
                     onSelectSession = { sessionId ->
                         viewModel.loadSessionDetail(sessionId)
                     },
+                    onRecalculateKarting = viewModel::recalculateKartingTiming,
                     onCloseSessionDetail = {
                         viewModel.closeSessionDetail()
                     },

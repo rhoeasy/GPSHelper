@@ -24,6 +24,11 @@ enum class GpsFixStatus {
     LOCKED
 }
 
+enum class DashboardSpeedStyle { NUMERIC, DIAL, LOW_SPEED_DIAL }
+
+internal fun usableGpsSpeed(speedMps: Float?, accuracyMps: Float?): Float? =
+    speedMps?.takeIf { it.isFinite() && it >= 0f && (accuracyMps == null || accuracyMps in 0f..1.5f) }
+
 data class GpsData(
     val hasFix: Boolean = false,
     val latitude: Double? = null,

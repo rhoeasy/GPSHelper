@@ -388,18 +388,26 @@ fun VectorTrackCanvasCard(
                                 )
                             }
                         } else {
-                            val metrics: List<Double> = if (mode == ActivityMode.KARTING) {
-                                points.map { speedUnit.convertFromMps(it.speedMps).toDouble() }
+                            val metrics: List<Double?> = if (mode == ActivityMode.KARTING) {
+                                points.map { it.measuredSpeedMps?.let(speedUnit::convertFromMps)?.toDouble() }
                             } else {
                                 points.map { it.altitudeMeters ?: 0.0 }
                             }
-                            val minMetric = metrics.minOrNull() ?: 0.0
-                            val maxMetric = metrics.maxOrNull() ?: 1.0
+                            val knownMetrics = metrics.filterNotNull()
+                            val minMetric = knownMetrics.minOrNull() ?: 0.0
+                            val maxMetric = knownMetrics.maxOrNull() ?: 1.0
                             val metricSpan = (maxMetric - minMetric).coerceAtLeast(1.0)
 
                             val strokePx = 3.5.dp.toPx()
                             for (i in 0 until screenPoints.lastIndex) {
-                                val ratio = (((metrics[i] + metrics[i + 1]) / 2.0 - minMetric) / metricSpan)
+                                if (points[i + 1].timingBreakBefore == true) continue
+                                val from = metrics[i]
+                                val to = metrics[i + 1]
+                                if (from == null || to == null) {
+                                    drawLine(cs.outline, screenPoints[i], screenPoints[i + 1], strokePx, StrokeCap.Round)
+                                    continue
+                                }
+                                val ratio = (((from + to) / 2.0 - minMetric) / metricSpan)
                                     .toFloat()
                                     .coerceIn(0f, 1f)
                                 val segColor = if (mode == ActivityMode.KARTING) {
@@ -605,7 +613,7 @@ fun TelemetryProfileChartCard(
                         title = speedLabel,
                         unit = speedUnit.label,
                         color = cs.primary,
-                        values = points.map { speedUnit.convertFromMps(it.speedMps) },
+                        values = points.map { it.measuredSpeedMps?.let(speedUnit::convertFromMps) },
                         formatValue = { v -> String.format(Locale.US, "%.1f %s", v, speedUnit.label) }
                     )
                 )
@@ -687,7 +695,7 @@ fun TelemetryProfileChartCard(
                         title = speedLabel,
                         unit = speedUnit.label,
                         color = cs.primary,
-                        values = points.map { speedUnit.convertFromMps(it.speedMps) },
+                        values = points.map { it.measuredSpeedMps?.let(speedUnit::convertFromMps) },
                         formatValue = { v -> String.format(Locale.US, "%.1f %s", v, speedUnit.label) }
                     )
                 )
@@ -790,7 +798,7 @@ fun TelemetryProfileChartCard(
                         if (isKart) {
                             ScrubMetricChip(
                                 label = speedLabel,
-                                value = TrackFormatters.formatSpeed(selectedPoint.speedMps, speedUnit),
+                                value = TrackFormatters.formatSpeed(selectedPoint.measuredSpeedMps, speedUnit),
                                 accent = cs.primary
                             )
                             ScrubMetricChip(
@@ -823,7 +831,7 @@ fun TelemetryProfileChartCard(
                             }
                             ScrubMetricChip(
                                 label = speedLabel,
-                                value = TrackFormatters.formatSpeed(selectedPoint.speedMps, speedUnit),
+                                value = TrackFormatters.formatSpeed(selectedPoint.measuredSpeedMps, speedUnit),
                                 accent = cs.primary
                             )
                             if (hasHeartRate) {
@@ -921,6 +929,8 @@ fun TelemetryProfileChartCard(
                                 Text(
                                     text = if (currentBandVal != null) {
                                         band.formatValue(currentBandVal)
+                                    } else if (selectedPointIndex != null || nonNullValues.isEmpty()) {
+                                        "--"
                                     } else {
                                         "${band.formatValue(minVal)} – ${band.formatValue(maxVal)}"
                                     },
@@ -962,8 +972,19 @@ fun TelemetryProfileChartCard(
                                 val padY = 5.dp.toPx()
                                 val plotH = (size.height - padY * 2f).coerceAtLeast(1f)
 
+                                fun closeFillSegment() {
+                                    if (!started) return
+                                    fillPath.lineTo(lastX, size.height)
+                                    fillPath.close()
+                                    started = false
+                                }
                                 for (i in points.indices) {
-                                    val v = band.values[i] ?: continue
+                                    if (points[i].timingBreakBefore == true) closeFillSegment()
+                                    val v = band.values[i]
+                                    if (v == null) {
+                                        closeFillSegment()
+                                        continue
+                                    }
                                     val fracX = if (totalDurationMs > 0L) {
                                         (activeElapsedMs[i].toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
                                     } else {
@@ -983,9 +1004,8 @@ fun TelemetryProfileChartCard(
                                     }
                                     lastX = x
                                 }
-                                if (started) {
-                                    fillPath.lineTo(lastX, size.height)
-                                    fillPath.close()
+                                closeFillSegment()
+                                if (nonNullValues.isNotEmpty()) {
                                     drawPath(
                                         path = fillPath,
                                         brush = Brush.verticalGradient(

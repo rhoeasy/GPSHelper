@@ -16,9 +16,11 @@ internal class AppRideClock {
 
 internal val appRideClock = AppRideClock()
 
+internal const val MAX_RIDE_MARKS = 5
+
 internal data class RideTimerReadout(val elapsedText: String, val completedMarks: Long) {
-    val visibleMarks: Int get() = completedMarks.coerceAtMost(5L).toInt()
-    val extraMarks: Long get() = completedMarks - visibleMarks
+    val showTimeOnly: Boolean get() = completedMarks > MAX_RIDE_MARKS
+    val visibleMarks: Int get() = if (showTimeOnly) 0 else completedMarks.toInt()
 }
 
 internal fun rideTimerReadout(elapsedMs: Long?, intervalMinutes: Int): RideTimerReadout {
@@ -28,6 +30,13 @@ internal fun rideTimerReadout(elapsedMs: Long?, intervalMinutes: Int): RideTimer
         elapsedText = String.format(Locale.US, "%02d:%02d:%02d", seconds / 3_600L, seconds / 60L % 60L, seconds % 60L),
         completedMarks = elapsedMs / (intervalMinutes * 60_000L)
     )
+}
+
+internal fun rideTimerRefreshDelayMs(elapsedMs: Long?, intervalMinutes: Int, showElapsedTime: Boolean): Long {
+    if (elapsedMs == null) return 1_000L
+    val intervalMs = intervalMinutes * 60_000L
+    val period = if (showElapsedTime || elapsedMs / intervalMs > MAX_RIDE_MARKS) 1_000L else intervalMs
+    return period - elapsedMs % period
 }
 
 internal enum class OverlayGpsSignal(val bars: Int = 0) {

@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TrackAiReportEntity::class,
         AiAnalysisRecordEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class TrackDatabase : RoomDatabase() {
@@ -111,6 +111,15 @@ abstract class TrackDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE track_sessions ADD COLUMN kartingCourseJson TEXT")
+                db.execSQL("ALTER TABLE track_points ADD COLUMN fixElapsedMs INTEGER")
+                db.execSQL("ALTER TABLE track_points ADD COLUMN timingBreakBefore INTEGER")
+                db.execSQL("ALTER TABLE track_points ADD COLUMN speedUsable INTEGER")
+            }
+        }
+
         fun getInstance(context: Context): TrackDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -118,7 +127,7 @@ abstract class TrackDatabase : RoomDatabase() {
                     TrackDatabase::class.java,
                     "gps_hud_tracks.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                     .also { INSTANCE = it }
             }

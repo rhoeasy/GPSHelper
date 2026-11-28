@@ -86,6 +86,7 @@ object GpsRepository {
     private const val TAG = "GpsRepository"
     private const val PREFS_NAME = "gps_hud_prefs"
     private const val KEY_SPEED_UNIT = "speed_unit"
+    private const val KEY_DASHBOARD_SPEED_STYLE = "dashboard_speed_style"
     private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
     private const val KEY_THEME_MODE = "theme_mode"
     private const val KEY_THEME_PALETTE = "theme_palette"
@@ -141,6 +142,9 @@ object GpsRepository {
     private val _speedUnit = MutableStateFlow(SpeedUnit.KMH)
     val speedUnit: StateFlow<SpeedUnit> = _speedUnit.asStateFlow()
 
+    private val _dashboardSpeedStyle = MutableStateFlow(DashboardSpeedStyle.NUMERIC)
+    val dashboardSpeedStyle: StateFlow<DashboardSpeedStyle> = _dashboardSpeedStyle.asStateFlow()
+
     private val _keepScreenOn = MutableStateFlow(true)
     val keepScreenOn: StateFlow<Boolean> = _keepScreenOn.asStateFlow()
 
@@ -185,6 +189,8 @@ object GpsRepository {
             val savedUnit = prefs.getString(KEY_SPEED_UNIT, SpeedUnit.KMH.name)
             _speedUnit.value = runCatching { SpeedUnit.valueOf(savedUnit ?: SpeedUnit.KMH.name) }
                 .getOrDefault(SpeedUnit.KMH)
+            val speedStyle = prefs.getString(KEY_DASHBOARD_SPEED_STYLE, null)
+            _dashboardSpeedStyle.value = DashboardSpeedStyle.entries.firstOrNull { it.name == speedStyle } ?: DashboardSpeedStyle.NUMERIC
             _keepScreenOn.value = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true)
             val savedTheme = prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name)
             _themeMode.value = runCatching { ThemeMode.valueOf(savedTheme ?: ThemeMode.AUTO.name) }
@@ -262,6 +268,13 @@ object GpsRepository {
             .edit()
             .putString(KEY_THEME_MODE, mode.name)
             .apply()
+    }
+
+    fun setDashboardSpeedStyle(context: Context, style: DashboardSpeedStyle) {
+        ensurePrefsLoaded(context)
+        _dashboardSpeedStyle.value = style
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_DASHBOARD_SPEED_STYLE, style.name).apply()
     }
 
     fun setThemePalette(context: Context, palette: AppThemePalette) {
@@ -687,7 +700,12 @@ object GpsRepository {
     }
 
     private fun applyLocationLocked(location: Location, isGpsPrimary: Boolean, fixElapsedMs: Long) {
-        val newSpeed = if (location.hasSpeed()) location.speed else null
+        val spdAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasSpeedAccuracy()) {
+            location.speedAccuracyMetersPerSecond
+        } else {
+            null
+        }
+        val newSpeed = usableGpsSpeed(if (location.hasSpeed()) location.speed else null, spdAcc)
         val newAltitude = if (location.hasAltitude()) location.altitude.takeIf { it.isFinite() } else null
         val vAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasVerticalAccuracy()) {
             location.verticalAccuracyMeters
@@ -696,7 +714,7 @@ object GpsRepository {
         }
         val altitude = liveAltitudeFilter.update(newAltitude, vAcc, isGpsPrimary, fixElapsedMs)
         _gpsData.update { current ->
-            val newAccuracy = if (location.hasAccuracy()) location.accuracy else current.accuracyMeters
+            val newAccuracy = if (location.hasAccuracy()) location.accuracy else null
             val newBearing = when {
                 location.hasBearing() && (location.bearing != 0f || (newSpeed ?: 0f) > 0.5f) -> location.bearing
                 location.hasBearing() && current.bearingDegrees == null -> location.bearing
@@ -720,11 +738,6 @@ object GpsRepository {
             )
         }
 
-        val spdAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasSpeedAccuracy()) {
-            location.speedAccuracyMetersPerSecond
-        } else {
-            null
-        }
         val brgAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasBearingAccuracy()) {
             location.bearingAccuracyDegrees
         } else {
