@@ -12,7 +12,8 @@ import kotlin.math.hypot
 data class MotorcycleLeanReadout(
     val sensorAvailable: Boolean = false,
     val canZero: Boolean = false,
-    val degrees: Float? = null
+    val degrees: Float? = null,
+    val calibrated: Boolean = false
 )
 
 internal class MotorcycleLeanMeasure {
@@ -20,16 +21,17 @@ internal class MotorcycleLeanMeasure {
     private var smoothed: Float? = null
     private var sampledAtMs: Long = Long.MIN_VALUE
 
-    fun update(upX: Float, upZ: Float, timestampMs: Long) {
+    fun update(upX: Float, upY: Float, upZ: Float, timestampMs: Long) {
         if (timestampMs <= sampledAtMs) return
         val previous = freshRoll(timestampMs)
         sampledAtMs = timestampMs
-        // Device +Y must face forward. Project world up onto the plane across the bike.
-        if (!upX.isFinite() || !upZ.isFinite() || hypot(upX, upZ) < 0.35f) {
+        // Device X runs across the bike; Y and Z can both carry gravity on an inclined mount.
+        val upright = hypot(upY, upZ)
+        if (!upX.isFinite() || !upright.isFinite() || hypot(upX, upright) < 0.35f) {
             smoothed = null
             return
         }
-        val roll = Math.toDegrees(atan2(-upX.toDouble(), upZ.toDouble())).toFloat()
+        val roll = Math.toDegrees(atan2(-upX.toDouble(), upright.toDouble())).toFloat()
         smoothed = if (previous == null) roll else previous + 0.22f * CompassMath.shortestAngleDelta(previous, roll)
     }
 
@@ -40,8 +42,8 @@ internal class MotorcycleLeanMeasure {
     fun read(available: Boolean, nowMs: Long): MotorcycleLeanReadout {
         if (!available) return MotorcycleLeanReadout()
         val roll = freshRoll(nowMs)
-        val degrees = if (roll != null) zeroRoll?.let { CompassMath.shortestAngleDelta(it, roll) } else null
-        return MotorcycleLeanReadout(true, roll != null, degrees)
+        val degrees = roll?.let { CompassMath.shortestAngleDelta(zeroRoll ?: 0f, it) }
+        return MotorcycleLeanReadout(true, roll != null, degrees, zeroRoll != null)
     }
 
     private fun freshRoll(nowMs: Long): Float? =
@@ -58,12 +60,13 @@ internal object MotorcycleLeanSensor : SensorEventListener {
     fun start(context: Context) = synchronized(lock) {
         stop()
         val manager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return@synchronized
-        val rotationSensor = manager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
-            ?: manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-            ?: return@synchronized
-        if (manager.registerListener(this, rotationSensor, SensorManager.SENSOR_DELAY_GAME)) {
-            sensors = manager
-            registeredSensor = rotationSensor
+        for (type in intArrayOf(Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_ROTATION_VECTOR, Sensor.TYPE_GRAVITY, Sensor.TYPE_ACCELEROMETER)) {
+            val sensor = manager.getDefaultSensor(type) ?: continue
+            if (manager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)) {
+                sensors = manager
+                registeredSensor = sensor
+                break
+            }
         }
     }
 
@@ -83,8 +86,18 @@ internal object MotorcycleLeanSensor : SensorEventListener {
     override fun onSensorChanged(event: SensorEvent) {
         synchronized(lock) {
             if (event.sensor != registeredSensor || event.values.size < 3) return
-            SensorManager.getRotationMatrixFromVector(rotation, event.values)
-            measure.update(rotation[6], rotation[8], event.timestamp / 1_000_000L)
+            val timestampMs = event.timestamp / 1_000_000L
+            when (event.sensor.type) {
+                Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_ROTATION_VECTOR -> {
+                    SensorManager.getRotationMatrixFromVector(rotation, event.values)
+                    measure.update(rotation[6], rotation[7], rotation[8], timestampMs)
+                }
+                else -> {
+                    val (x, y, z) = event.values
+                    val magnitude = hypot(x, hypot(y, z))
+                    if (magnitude in 7f..12f) measure.update(x / magnitude, y / magnitude, z / magnitude, timestampMs)
+                }
+            }
         }
     }
 

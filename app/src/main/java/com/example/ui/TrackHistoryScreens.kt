@@ -140,6 +140,7 @@ fun TrackHistoryScreen(
     mergeCompletedSignal: Int = 0,
     onEnterMergeMode: () -> Unit = {},
     onRequestMergePreview: (List<Long>) -> Unit = {},
+    onZeroMotorcycleLean: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
@@ -563,6 +564,7 @@ fun TrackHistoryScreen(
                     )
                     PageAssistantIcon()
                 }
+                MotorcycleLeanRow(recordingSnapshot, onZeroMotorcycleLean)
 
                 TrackRecorderCard(
                     snapshot = recordingSnapshot,

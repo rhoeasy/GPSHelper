@@ -16,9 +16,11 @@ class MotorcycleLeanMeasureTest {
     fun angleIsRelativeToUprightMountAndDistinguishesBothDirections() {
         val measure = MotorcycleLeanMeasure()
         sample(measure, 12.0, 1_000)
-        assertNull(measure.read(true, 1_000).degrees)
+        assertEquals(12f, requireNotNull(measure.read(true, 1_000).degrees), 0.01f)
+        assertFalse(measure.read(true, 1_000).calibrated)
         assertTrue(measure.read(true, 1_000).canZero)
         measure.zero(1_000)
+        assertTrue(measure.read(true, 1_000).calibrated)
         assertEquals(0f, requireNotNull(measure.read(true, 1_000).degrees), 0.01f)
 
         sample(measure, 42.0, 1_600)
@@ -27,7 +29,7 @@ class MotorcycleLeanMeasureTest {
         assertEquals(-20f, requireNotNull(measure.read(true, 2_200).degrees), 0.01f)
         assertNull(measure.read(true, 2_701).degrees)
 
-        measure.update(0.02f, 0.02f, 2_800)
+        measure.update(0.02f, 0.02f, 0.02f, 2_800)
         assertFalse(measure.read(true, 2_800).canZero)
         assertNull(measure.read(true, 2_800).degrees)
     }
@@ -46,6 +48,6 @@ class MotorcycleLeanMeasureTest {
 
     private fun sample(measure: MotorcycleLeanMeasure, roll: Double, timeMs: Long) {
         val angle = Math.toRadians(roll)
-        measure.update((-sin(angle) * 0.8).toFloat(), (cos(angle) * 0.8).toFloat(), timeMs)
+        measure.update(-sin(angle).toFloat(), cos(angle).toFloat(), 0f, timeMs)
     }
 }

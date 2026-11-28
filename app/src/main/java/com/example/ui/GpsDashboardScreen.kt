@@ -801,6 +801,7 @@ fun GpsHudAppShell(
                                     onResumeRecording = onResumeRecording,
                                     onFinishRecording = onFinishRecording,
                                     onSetStartGate = onSetStartGate,
+                                    onZeroMotorcycleLean = onZeroMotorcycleLean,
                                     sessionEndpoints = sessionEndpoints,
                                     mergeCompletedSignal = mergeCompletedSignal,
                                     onEnterMergeMode = onEnterMergeMode,

@@ -203,6 +203,8 @@
     <string name="moto_lean">车身倾角</string>
     <string name="moto_lean_zero">直立归零</string>
     <string name="moto_lean_sensor_missing">姿态传感器不可用</string>
+    <string name="moto_lean_waiting">等待姿态数据</string>
+    <string name="moto_lean_uncalibrated">%1$s（未归零）</string>
     <string name="moto_lean_left">左 %1$d°</string>
     <string name="moto_lean_right">右 %1$d°</string>
     <string name="overlay_moto_lean">倾角 %1$s</string>

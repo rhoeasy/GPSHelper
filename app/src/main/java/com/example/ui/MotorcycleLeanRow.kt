@@ -45,8 +45,12 @@ internal fun MotorcycleLeanRow(snapshot: RecordingSnapshot, onZero: () -> Unit) 
         Column(Modifier.weight(1f)) {
             Text(stringResource(R.string.moto_lean), style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
             Text(
-                if (reading.sensorAvailable) motorcycleLeanText(reading.degrees)
-                else stringResource(R.string.moto_lean_sensor_missing),
+                when {
+                    !reading.sensorAvailable -> stringResource(R.string.moto_lean_sensor_missing)
+                    reading.degrees == null -> stringResource(R.string.moto_lean_waiting)
+                    !reading.calibrated -> stringResource(R.string.moto_lean_uncalibrated, motorcycleLeanText(reading.degrees))
+                    else -> motorcycleLeanText(reading.degrees)
+                },
                 style = MaterialTheme.typography.titleMedium.copy(fontFamily = JetBrainsMonoFontFamily),
                 color = cs.onSurface
             )
