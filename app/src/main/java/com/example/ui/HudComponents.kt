@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.gps.GpsData
+import com.example.gps.DashboardSpeedStyle
 import com.example.gps.GpsFixStatus
 import com.example.gps.SpeedUnit
 import com.example.ui.theme.CoordinatesMonoStyle
@@ -288,17 +289,11 @@ fun PrimarySpeedCard(
     onOpenLocationSettings: () -> Unit,
     isAlertActive: Boolean = false,
     isLandscape: Boolean = false,
+    style: DashboardSpeedStyle = DashboardSpeedStyle.NUMERIC,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
-    val speedVal = gpsData.speedInUnit(speedUnit) ?: 0f
-    val maxScale = if (speedUnit == SpeedUnit.KMH) 160f else 100f
-    val targetFraction = (speedVal / maxScale).coerceIn(0f, 1f)
-    val animatedFraction by animateFloatAsState(
-        targetValue = if (gpsData.hasFix) targetFraction else 0f,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 200f),
-        label = "speed_bar_progress"
-    )
+    val speedVal = gpsData.speedInUnit(speedUnit)?.takeIf { it.isFinite() }
     val cardBg by animateColorAsState(
         targetValue = if (isAlertActive) cs.errorContainer else cs.surfaceContainerLow,
         label = "speed_card_bg"
@@ -392,41 +387,48 @@ fun PrimarySpeedCard(
                 )
             }
 
-            // Giant clean tabular speed figure (maximized for wide landscape cockpit legibility)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = if (isLandscape) 8.dp else 4.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = gpsData.formattedSpeedValue(speedUnit),
-                    style = MaterialTheme.typography.displayLarge.copy(
-                        fontSize = if (isLandscape) 92.sp else 76.sp,
-                        lineHeight = if (isLandscape) 94.sp else 78.sp,
-                        fontWeight = if (isLandscape) FontWeight.Bold else FontWeight.SemiBold,
-                        letterSpacing = if (isLandscape) (-3.0).sp else (-2.5).sp
-                    ),
-                    color = when {
-                        isAlertActive -> cs.error
-                        gpsData.hasFix -> cs.onSurface
-                        else -> cs.outline
-                    },
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
-                    modifier = Modifier.testTag("speed_readout_text")
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = speedUnit.label,
-                    style = (if (isLandscape) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium).copy(
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    color = if (isAlertActive) cs.onErrorContainer else cs.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = if (isLandscape) 15.dp else 12.dp)
+            if (style == DashboardSpeedStyle.NUMERIC) {
+                // Giant clean tabular speed figure (maximized for wide landscape cockpit legibility)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = if (isLandscape) 8.dp else 4.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = gpsData.formattedSpeedValue(speedUnit),
+                        style = MaterialTheme.typography.displayLarge.copy(
+                            fontSize = if (isLandscape) 92.sp else 76.sp,
+                            lineHeight = if (isLandscape) 94.sp else 78.sp,
+                            fontWeight = if (isLandscape) FontWeight.Bold else FontWeight.SemiBold,
+                            letterSpacing = if (isLandscape) (-3.0).sp else (-2.5).sp
+                        ),
+                        color = when {
+                            isAlertActive -> cs.error
+                            gpsData.hasFix -> cs.onSurface
+                            else -> cs.outline
+                        },
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier.testTag("speed_readout_text")
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = speedUnit.label,
+                        style = (if (isLandscape) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium).copy(
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = if (isAlertActive) cs.onErrorContainer else cs.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = if (isLandscape) 15.dp else 12.dp)
+                    )
+                }
+            } else {
+                DashboardSpeedDial(
+                    speedVal, gpsData.formattedSpeedValue(speedUnit), speedUnit, style,
+                    accent = if (isAlertActive) cs.error else cs.primary
                 )
             }
 
@@ -434,38 +436,46 @@ fun PrimarySpeedCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(if (isLandscape) 10.dp else 12.dp)
             ) {
-                // Rounded M3 speed bar (thicker & graduated with quarter markers in landscape)
-                val trackColor = if (isAlertActive) cs.error.copy(alpha = 0.22f) else cs.surfaceContainerHighest
-                val fillColor = if (isAlertActive) cs.error else cs.primary
-                val tickColor = cs.surfaceContainerLow.copy(alpha = 0.72f)
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(if (isLandscape) 10.dp else 6.dp)
-                ) {
-                    val radius = CornerRadius(size.height / 2f, size.height / 2f)
-                    drawRoundRect(
-                        color = trackColor,
-                        size = size,
-                        cornerRadius = radius
+                if (style == DashboardSpeedStyle.NUMERIC) {
+                    val maxScale = if (speedUnit == SpeedUnit.KMH) 160f else 100f
+                    val animatedFraction by animateFloatAsState(
+                        targetValue = ((speedVal ?: 0f) / maxScale).coerceIn(0f, 1f),
+                        animationSpec = spring(dampingRatio = 0.85f, stiffness = 200f),
+                        label = "speed_bar_progress"
                     )
-                    if (animatedFraction > 0.005f) {
+                    // Rounded M3 speed bar (thicker & graduated with quarter markers in landscape)
+                    val trackColor = if (isAlertActive) cs.error.copy(alpha = 0.22f) else cs.surfaceContainerHighest
+                    val fillColor = if (isAlertActive) cs.error else cs.primary
+                    val tickColor = cs.surfaceContainerLow.copy(alpha = 0.72f)
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(if (isLandscape) 10.dp else 6.dp)
+                    ) {
+                        val radius = CornerRadius(size.height / 2f, size.height / 2f)
                         drawRoundRect(
-                            color = fillColor,
-                            size = Size(size.width * animatedFraction, size.height),
+                            color = trackColor,
+                            size = size,
                             cornerRadius = radius
                         )
-                    }
-                    if (isLandscape) {
-                        val tickWidth = 2.dp.toPx()
-                        listOf(0.25f, 0.5f, 0.75f).forEach { frac ->
-                            val x = size.width * frac
-                            drawLine(
-                                color = tickColor,
-                                start = androidx.compose.ui.geometry.Offset(x, 0f),
-                                end = androidx.compose.ui.geometry.Offset(x, size.height),
-                                strokeWidth = tickWidth
+                        if (animatedFraction > 0.005f) {
+                            drawRoundRect(
+                                color = fillColor,
+                                size = Size(size.width * animatedFraction, size.height),
+                                cornerRadius = radius
                             )
+                        }
+                        if (isLandscape) {
+                            val tickWidth = 2.dp.toPx()
+                            listOf(0.25f, 0.5f, 0.75f).forEach { frac ->
+                                val x = size.width * frac
+                                drawLine(
+                                    color = tickColor,
+                                    start = androidx.compose.ui.geometry.Offset(x, 0f),
+                                    end = androidx.compose.ui.geometry.Offset(x, size.height),
+                                    strokeWidth = tickWidth
+                                )
+                            }
                         }
                     }
                 }

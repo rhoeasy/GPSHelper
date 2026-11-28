@@ -2,6 +2,7 @@ package com.example.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Sensors
 import androidx.compose.material3.ButtonDefaults
@@ -23,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -55,6 +58,8 @@ fun GForceTelemetryCard(
     peakHoldSeconds: Int,
     onCalibrateZero: () -> Unit,
     onResetPeak: () -> Unit,
+    explanationExpanded: Boolean,
+    onExplanationExpandedChange: (Boolean) -> Unit,
     isLandscape: Boolean = false,
     radarSize: Dp = if (isLandscape) 148.dp else 92.dp,
     modifier: Modifier = Modifier
@@ -105,6 +110,11 @@ fun GForceTelemetryCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClickLabel = stringResource(R.string.gforce_explanation_title)) { onExplanationExpandedChange(true) }
+                        .padding(vertical = 4.dp)
+                        .testTag("gforce_explanation_open"),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -122,6 +132,7 @@ fun GForceTelemetryCard(
                         color = cs.onSurface,
                         maxLines = 1
                     )
+                    Icon(Icons.AutoMirrored.Rounded.HelpOutline, null, Modifier.size(17.dp), tint = cs.onSurfaceVariant)
                 }
 
                 Row(
@@ -175,6 +186,31 @@ fun GForceTelemetryCard(
                 }
             }
 
+            if (explanationExpanded) {
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(cs.surfaceContainer)
+                        .padding(12.dp).testTag("gforce_explanation"),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(stringResource(R.string.gforce_explanation_title), style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.gforce_explanation_chart), style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.gforce_explanation_axes), style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        if (gForceData.isAvailable) {
+                            stringResource(R.string.gforce_explanation_live, gForceData.totalG, gForceData.lateralG, gForceData.longitudinalG)
+                        } else {
+                            stringResource(R.string.gforce_badge_unavailable)
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = cs.primary
+                    )
+                    TextButton(
+                        onClick = { onExplanationExpandedChange(false) },
+                        modifier = Modifier.align(Alignment.End).testTag("gforce_explanation_close")
+                    ) { Text(stringResource(R.string.gforce_explanation_close)) }
+                }
+            }
+
             if (isLandscape) {
                 // Maximized Landscape Cockpit Layout: Enlarged G-Force Radar + High-Contrast Metrics & Actions
                 Row(
@@ -191,6 +227,7 @@ fun GForceTelemetryCard(
                         showScaleLabels = true,
                         modifier = Modifier
                             .size(radarSize)
+                            .clickable(onClickLabel = stringResource(R.string.gforce_explanation_title)) { onExplanationExpandedChange(true) }
                             .testTag("gforce_radar_canvas")
                     )
 
@@ -312,6 +349,7 @@ fun GForceTelemetryCard(
                         showScaleLabels = false,
                         modifier = Modifier
                             .size(radarSize)
+                            .clickable(onClickLabel = stringResource(R.string.gforce_explanation_title)) { onExplanationExpandedChange(true) }
                             .testTag("gforce_radar_canvas")
                     )
 

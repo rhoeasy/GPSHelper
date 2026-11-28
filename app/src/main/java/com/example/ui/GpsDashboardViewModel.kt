@@ -23,6 +23,7 @@ import com.example.ble.HeartRateRepository
 import com.example.ble.HeartRateState
 import com.example.ble.SavedBleDevice
 import com.example.gps.AccuracyTelemetry
+import com.example.gps.DashboardSpeedStyle
 import com.example.gps.AltitudeTelemetry
 import com.example.gps.GnssSatelliteInfo
 import com.example.gps.GpsData
@@ -87,6 +88,7 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     val environmentTelemetry: StateFlow<EnvironmentTelemetry> = EnvironmentSensorManager.telemetry
     val gForceData: StateFlow<GForceData> = MotionSensorManager.gForceData
     val speedUnit: StateFlow<SpeedUnit> = GpsRepository.speedUnit
+    val dashboardSpeedStyle = GpsRepository.dashboardSpeedStyle
     val keepScreenOn: StateFlow<Boolean> = GpsRepository.keepScreenOn
     val themeMode: StateFlow<ThemeMode> = GpsRepository.themeMode
     val themePalette: StateFlow<AppThemePalette> = GpsRepository.themePalette
@@ -188,6 +190,8 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     fun setThemeMode(mode: ThemeMode) {
         GpsRepository.setThemeMode(getApplication(), mode)
     }
+
+    fun setDashboardSpeedStyle(style: DashboardSpeedStyle) = GpsRepository.setDashboardSpeedStyle(getApplication(), style)
 
     fun setThemePalette(palette: AppThemePalette) {
         GpsRepository.setThemePalette(getApplication(), palette)

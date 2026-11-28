@@ -78,6 +78,7 @@ import com.example.ai.AiGatewayConfig
 import com.example.alert.SafetyAlertState
 import com.example.ble.HeartRateState
 import com.example.gps.GpsData
+import com.example.gps.DashboardSpeedStyle
 import com.example.gps.GpsFixStatus
 import com.example.gps.OverlayDisplayConfig
 import com.example.gps.OverlayScale
@@ -124,6 +125,8 @@ fun SettingsScreen(
     onResetOverlayConfig: () -> Unit,
     onUpdateSafetyAlertConfig: ((SafetyAlertConfig) -> SafetyAlertConfig) -> Unit,
     onSelectSpeedUnit: (SpeedUnit) -> Unit,
+    dashboardSpeedStyle: DashboardSpeedStyle,
+    onSelectDashboardSpeedStyle: (DashboardSpeedStyle) -> Unit,
     onSelectThemeMode: (ThemeMode) -> Unit,
     onSelectThemePalette: (AppThemePalette) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
@@ -237,6 +240,8 @@ fun SettingsScreen(
                                 onSelectThemePalette = onSelectThemePalette,
                                 onSelectThemeMode = onSelectThemeMode,
                                 onSelectSpeedUnit = onSelectSpeedUnit,
+                                dashboardSpeedStyle = dashboardSpeedStyle,
+                                onSelectDashboardSpeedStyle = onSelectDashboardSpeedStyle,
                                 onToggleKeepScreenOn = onToggleKeepScreenOn,
                                 onToggleAutoFocusOnLaunch = onToggleAutoFocusOnLaunch
                             )

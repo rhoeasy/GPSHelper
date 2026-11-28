@@ -24,6 +24,8 @@ enum class GpsFixStatus {
     LOCKED
 }
 
+enum class DashboardSpeedStyle { NUMERIC, DIAL, LOW_SPEED_DIAL }
+
 data class GpsData(
     val hasFix: Boolean = false,
     val latitude: Double? = null,

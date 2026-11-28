@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.Icon
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.gps.SpeedUnit
+import com.example.gps.DashboardSpeedStyle
 import com.example.ui.theme.AppThemePalette
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalHudDarkTheme
@@ -62,6 +64,8 @@ internal fun SettingsAppearanceContent(
     onSelectThemePalette: (AppThemePalette) -> Unit,
     onSelectThemeMode: (ThemeMode) -> Unit,
     onSelectSpeedUnit: (SpeedUnit) -> Unit,
+    dashboardSpeedStyle: DashboardSpeedStyle,
+    onSelectDashboardSpeedStyle: (DashboardSpeedStyle) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
     onToggleAutoFocusOnLaunch: (Boolean) -> Unit
 ) {
@@ -248,6 +252,29 @@ internal fun SettingsAppearanceContent(
                                 color = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant
                             )
                         }
+                    }
+                }
+            }
+
+            SettingsRowDivider()
+
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(stringResource(R.string.settings_dashboard_speed_style), style = MaterialTheme.typography.bodyLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        DashboardSpeedStyle.NUMERIC to R.string.dashboard_speed_numeric,
+                        DashboardSpeedStyle.DIAL to R.string.dashboard_speed_dial,
+                        DashboardSpeedStyle.LOW_SPEED_DIAL to R.string.dashboard_speed_low_dial
+                    ).forEach { (style, label) ->
+                        FilterChip(
+                            selected = dashboardSpeedStyle == style,
+                            onClick = { onSelectDashboardSpeedStyle(style) },
+                            label = { Text(stringResource(label)) },
+                            modifier = Modifier.testTag("dashboard_speed_style_${style.name.lowercase()}")
+                        )
                     }
                 }
             }

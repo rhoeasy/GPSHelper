@@ -86,6 +86,7 @@ object GpsRepository {
     private const val TAG = "GpsRepository"
     private const val PREFS_NAME = "gps_hud_prefs"
     private const val KEY_SPEED_UNIT = "speed_unit"
+    private const val KEY_DASHBOARD_SPEED_STYLE = "dashboard_speed_style"
     private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
     private const val KEY_THEME_MODE = "theme_mode"
     private const val KEY_THEME_PALETTE = "theme_palette"
@@ -141,6 +142,9 @@ object GpsRepository {
     private val _speedUnit = MutableStateFlow(SpeedUnit.KMH)
     val speedUnit: StateFlow<SpeedUnit> = _speedUnit.asStateFlow()
 
+    private val _dashboardSpeedStyle = MutableStateFlow(DashboardSpeedStyle.NUMERIC)
+    val dashboardSpeedStyle: StateFlow<DashboardSpeedStyle> = _dashboardSpeedStyle.asStateFlow()
+
     private val _keepScreenOn = MutableStateFlow(true)
     val keepScreenOn: StateFlow<Boolean> = _keepScreenOn.asStateFlow()
 
@@ -185,6 +189,8 @@ object GpsRepository {
             val savedUnit = prefs.getString(KEY_SPEED_UNIT, SpeedUnit.KMH.name)
             _speedUnit.value = runCatching { SpeedUnit.valueOf(savedUnit ?: SpeedUnit.KMH.name) }
                 .getOrDefault(SpeedUnit.KMH)
+            val speedStyle = prefs.getString(KEY_DASHBOARD_SPEED_STYLE, null)
+            _dashboardSpeedStyle.value = DashboardSpeedStyle.entries.firstOrNull { it.name == speedStyle } ?: DashboardSpeedStyle.NUMERIC
             _keepScreenOn.value = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true)
             val savedTheme = prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name)
             _themeMode.value = runCatching { ThemeMode.valueOf(savedTheme ?: ThemeMode.AUTO.name) }
@@ -262,6 +268,13 @@ object GpsRepository {
             .edit()
             .putString(KEY_THEME_MODE, mode.name)
             .apply()
+    }
+
+    fun setDashboardSpeedStyle(context: Context, style: DashboardSpeedStyle) {
+        ensurePrefsLoaded(context)
+        _dashboardSpeedStyle.value = style
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_DASHBOARD_SPEED_STYLE, style.name).apply()
     }
 
     fun setThemePalette(context: Context, palette: AppThemePalette) {

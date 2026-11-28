@@ -52,7 +52,11 @@
     <string name="theme_mode_dark_full">夜间模式</string>
     <string name="theme_mode_ambient">光感</string>
     <string name="theme_mode_ambient_full">随环境光切换</string>
-    <string name="speed_label">实时车速</string>
+    <string name="speed_label">当前速度</string>
+    <string name="settings_dashboard_speed_style">速度卡片样式</string>
+    <string name="dashboard_speed_numeric">数字</string>
+    <string name="dashboard_speed_dial">指针</string>
+    <string name="dashboard_speed_low_dial">低速指针</string>
     <string name="unit_kmh">km/h</string>
     <string name="unit_mph">mph</string>
     <string name="provider_gps_native">GNSS 原生卫星定位</string>
@@ -106,6 +110,11 @@
 
     <!-- Live G-Force IMU Card -->
     <string name="gforce_card_title">实时 G 力</string>
+    <string name="gforce_explanation_title">怎样读 G 力图</string>
+    <string name="gforce_explanation_chart">亮点是此刻的水平加速度，离圆心越远，合成值越大。拖尾表示近期变化；外圈峰值线是各方向达到过的最大值，并不代表现在的读数。</string>
+    <string name="gforce_explanation_axes">手机固定并对准前向后，横向为左右加速度，纵向为加速或减速。这里的 G 不是阻力，也不是车身倾角。</string>
+    <string name="gforce_explanation_live">当前：合成 %1$.2f G · 横向 %2$+.2f G · 纵向 %3$+.2f G</string>
+    <string name="gforce_explanation_close">收起说明</string>
     <string name="gforce_badge_gyro_fused">加速度计 + 陀螺仪融合</string>
     <string name="gforce_badge_accel_only">加速度计模式</string>
     <string name="gforce_badge_unavailable">无传感器</string>
