@@ -29,7 +29,7 @@ data class GpsData(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val speedMps: Float? = null,
-    val altitudeMeters: Double? = null,
+    val altitudeMeters: Double? = null, // Raw provider reading; use acceptedAltitudeMeters for recording.
     val accuracyMeters: Float? = null,
     val bearingDegrees: Float? = null,
     val satellitesUsed: Int = 0,
@@ -39,10 +39,11 @@ data class GpsData(
     val fixStatus: GpsFixStatus = GpsFixStatus.SEARCHING,
     val lastUpdateElapsedRealtimeMs: Long = 0L,
     val smoothedAltitudeMeters: Double? = null,
-    val verticalAccuracyMeters: Float? = null
+    val verticalAccuracyMeters: Float? = null,
+    val acceptedAltitudeMeters: Double? = altitudeMeters
 ) {
     val displayAltitudeMeters: Double?
-        get() = if (hasFix) altitudeMeters?.takeIf { it.isFinite() }?.let { smoothedAltitudeMeters ?: it } else null
+        get() = if (hasFix) (smoothedAltitudeMeters ?: acceptedAltitudeMeters)?.takeIf { it.isFinite() } else null
 
     fun speedInUnit(unit: SpeedUnit): Float? {
         val mps = speedMps ?: return null

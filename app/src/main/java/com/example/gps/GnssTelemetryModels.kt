@@ -88,13 +88,17 @@ class AltitudeSessionTracker {
     fun reset() {
         minAlt = null
         maxAlt = null
+        breakInterval()
+        gainM = 0.0
+        lossM = 0.0
+        history.clear()
+    }
+
+    internal fun breakInterval() {
         lastCountedAlt = null
         lastSampleAlt = null
         lastSampleMs = 0L
-        gainM = 0.0
-        lossM = 0.0
         smoothedVSpeedMps = 0f
-        history.clear()
     }
 
     fun onAltitudeSample(

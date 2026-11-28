@@ -378,7 +378,7 @@ object TrackRecorder {
             val pressure = EnvironmentSensorManager.telemetry.value.freshPressureHpa(SystemClock.elapsedRealtime())
             val horizontalAccuracyGood = accuracy?.let { it in 0f..MAX_ACCURACY_METERS }
             val verticalAccuracyGood = data.verticalAccuracyMeters?.let { it in 0f..BAROMETER_CALIBRATION_VERTICAL_ACCURACY_M }
-            val gpsAltitude = data.altitudeMeters.takeUnless {
+            val gpsAltitude = data.acceptedAltitudeMeters.takeUnless {
                 pressure != null && (horizontalAccuracyGood == false || verticalAccuracyGood == false)
             }
             val altitude = elevation.record(gpsAltitude, pressure, horizontalAccuracyGood == true && verticalAccuracyGood == true)

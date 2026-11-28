@@ -393,12 +393,13 @@ object GpsRepository {
     fun resetAltitudeSession() {
         synchronized(lock) {
             altitudeTracker.reset()
-            val curAlt = _gpsData.value.altitudeMeters
-            _altitudeTelemetry.value = if (curAlt != null && _gpsData.value.hasFix) {
+            val gps = _gpsData.value
+            val curAlt = gps.displayAltitudeMeters.takeIf { gps.acceptedAltitudeMeters != null }
+            _altitudeTelemetry.value = if (curAlt != null) {
                 altitudeTracker.onAltitudeSample(
                     altitudeM = curAlt,
-                    verticalAccuracyM = _altitudeTelemetry.value.verticalAccuracyM,
-                    horizontalSpeedMps = _gpsData.value.speedMps,
+                    verticalAccuracyM = gps.verticalAccuracyMeters,
+                    horizontalSpeedMps = gps.speedMps,
                     elapsedMs = SystemClock.elapsedRealtime()
                 )
             } else {
@@ -527,6 +528,7 @@ object GpsRepository {
                 longitude = null,
                 speedMps = null,
                 altitudeMeters = null,
+                acceptedAltitudeMeters = null,
                 smoothedAltitudeMeters = null,
                 verticalAccuracyMeters = null,
                 accuracyMeters = null,
@@ -688,7 +690,7 @@ object GpsRepository {
         } else {
             null
         }
-        val displayAltitude = liveAltitudeFilter.update(newAltitude, vAcc, fixElapsedMs)
+        val altitude = liveAltitudeFilter.update(newAltitude, vAcc, isGpsPrimary, fixElapsedMs)
         _gpsData.update { current ->
             val newAccuracy = if (location.hasAccuracy()) location.accuracy else current.accuracyMeters
             val newBearing = when {
@@ -703,7 +705,8 @@ object GpsRepository {
                 longitude = location.longitude,
                 speedMps = newSpeed,
                 altitudeMeters = newAltitude,
-                smoothedAltitudeMeters = displayAltitude,
+                acceptedAltitudeMeters = altitude.acceptedMeters,
+                smoothedAltitudeMeters = altitude.displayMeters,
                 verticalAccuracyMeters = vAcc,
                 accuracyMeters = newAccuracy,
                 bearingDegrees = newBearing,
@@ -734,9 +737,10 @@ object GpsRepository {
             )
         }
 
-        if (newAltitude != null) {
+        if (altitude.acceptedMeters != null && altitude.displayMeters != null) {
+            if (altitude.startsNewInterval) altitudeTracker.breakInterval()
             _altitudeTelemetry.value = altitudeTracker.onAltitudeSample(
-                altitudeM = newAltitude,
+                altitudeM = altitude.displayMeters,
                 verticalAccuracyM = vAcc,
                 horizontalSpeedMps = newSpeed,
                 elapsedMs = fixElapsedMs

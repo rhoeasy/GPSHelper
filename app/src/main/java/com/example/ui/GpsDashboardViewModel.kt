@@ -244,7 +244,9 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun calibrateBarometerToGps(): Boolean {
-        val gpsAlt = altitudeTelemetry.value.currentAltitudeM ?: gpsData.value.altitudeMeters ?: return false
+        val gps = gpsData.value
+        if (gps.acceptedAltitudeMeters == null) return false
+        val gpsAlt = gps.displayAltitudeMeters ?: return false
         return EnvironmentSensorManager.calibrateBarometerToAltitude(gpsAlt)
     }
 

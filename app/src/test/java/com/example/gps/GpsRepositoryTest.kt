@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -42,6 +43,7 @@ class GpsRepositoryTest {
         GpsRepository.startTracking(app, "overlay")
         GpsRepository.stopTracking("activity")
         advanceSeconds(1)
+        GpsRepository.resetAltitudeSession()
     }
 
     @After
@@ -86,7 +88,7 @@ class GpsRepositoryTest {
         publish(speedMps = 5f, altitudeM = 120.0, ageMs = 8_000L)
         assertReadings("--", "--")
 
-        publish(provider = LocationManager.FUSED_PROVIDER, speedMps = 8f, altitudeM = 135.0)
+        publish(provider = LocationManager.FUSED_PROVIDER, speedMps = 8f, altitudeM = 135.0, verticalAccuracyM = 9f)
         assertEquals(GpsFixStatus.FUSED_FALLBACK, GpsRepository.gpsData.value.fixStatus)
         assertReadings("28.8", "135 m")
     }
@@ -114,11 +116,76 @@ class GpsRepositoryTest {
         assertTrue(displayAltitude in 128.0..130.0)
     }
 
+    @Test
+    fun `poor vertical accuracy never becomes live altitude or a recorded trend`() {
+        publish(speedMps = 6f, altitudeM = 300.0, verticalAccuracyM = 80f)
+        assertReadings("21.6", "--")
+        assertNull(GpsRepository.altitudeTelemetry.value.maxAltitudeM)
+
+        advanceSeconds(1)
+        publish(speedMps = 6f, altitudeM = 120.0, verticalAccuracyM = 6f)
+        assertReadings("21.6", "120 m")
+        repeat(4) {
+            advanceSeconds(1)
+            publish(speedMps = 6f, altitudeM = 180.0, verticalAccuracyM = 70f)
+        }
+        assertReadings("21.6", "--")
+        assertEquals(120.0, requireNotNull(GpsRepository.altitudeTelemetry.value.maxAltitudeM), 0.1)
+    }
+
+    @Test
+    fun `two abrupt high accuracy spikes cannot move the live reading or trend`() {
+        publish(altitudeM = 120.0, verticalAccuracyM = 6f)
+
+        advanceSeconds(1)
+        publish(altitudeM = 160.0, verticalAccuracyM = 6f)
+        advanceSeconds(1)
+        publish(altitudeM = 161.0, verticalAccuracyM = 6f)
+
+        assertReadings("--", "120 m")
+        assertEquals(120.0, requireNotNull(GpsRepository.altitudeTelemetry.value.maxAltitudeM), 0.1)
+
+        advanceSeconds(1)
+        publish(altitudeM = 160.0, verticalAccuracyM = 6f)
+        assertReadings("--", "--")
+
+        advanceSeconds(1)
+        publish(altitudeM = 122.0, verticalAccuracyM = 6f)
+        assertTrue(requireNotNull(GpsRepository.gpsData.value.displayAltitudeMeters) in 119.0..123.0)
+    }
+
+    @Test
+    fun `fused coordinates stay usable without advertising an unqualified altitude`() {
+        publish(provider = LocationManager.FUSED_PROVIDER, speedMps = 8f, altitudeM = 250.0)
+        assertEquals(GpsFixStatus.FUSED_FALLBACK, GpsRepository.gpsData.value.fixStatus)
+        assertReadings("28.8", "--")
+
+        advanceSeconds(1)
+        publish(provider = LocationManager.FUSED_PROVIDER, speedMps = 8f, altitudeM = 135.0, verticalAccuracyM = 8f)
+        assertReadings("28.8", "135 m")
+    }
+
+    @Test
+    fun `altitude recovery after a gap does not invent a climb`() {
+        publish(altitudeM = 120.0, verticalAccuracyM = 6f)
+        repeat(8) {
+            advanceSeconds(1)
+            publish(altitudeM = 180.0, verticalAccuracyM = 70f)
+        }
+        assertReadings("--", "--")
+
+        advanceSeconds(1)
+        publish(altitudeM = 140.0, verticalAccuracyM = 6f)
+        assertReadings("--", "140 m")
+        assertEquals(0.0, GpsRepository.altitudeTelemetry.value.elevationGainM, 0.1)
+    }
+
     private fun publish(
         provider: String = LocationManager.GPS_PROVIDER,
         speedMps: Float? = null,
         altitudeM: Double? = null,
-        ageMs: Long = 0L
+        ageMs: Long = 0L,
+        verticalAccuracyM: Float? = null
     ) {
         val location = Location(provider).apply {
             latitude = 31.23
@@ -128,6 +195,7 @@ class GpsRepositoryTest {
             elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos() - TimeUnit.MILLISECONDS.toNanos(ageMs)
             if (speedMps != null) speed = speedMps
             if (altitudeM != null) altitude = altitudeM
+            if (verticalAccuracyM != null) verticalAccuracyMeters = verticalAccuracyM
         }
         locationManager.simulateLocation(location)
         shadowOf(Looper.getMainLooper()).idle()

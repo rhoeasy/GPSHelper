@@ -268,7 +268,7 @@ fun AltitudeDetailScreen(
                             valueColor = cs.onSurface
                         )
 
-                        val vAccStr = altitudeTelemetry.verticalAccuracyM?.let {
+                        val vAccStr = gpsData.verticalAccuracyMeters?.takeIf { it.isFinite() && it >= 0f }?.let {
                             String.format(Locale.US, "±%.1f m", it)
                         } ?: "--"
                         AltInlineMetric(

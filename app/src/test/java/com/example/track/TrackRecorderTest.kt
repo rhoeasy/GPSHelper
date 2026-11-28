@@ -78,6 +78,21 @@ class TrackRecorderTest {
     }
 
     @Test
+    fun `recording preserves the route point without saving its unreliable GPS altitude`() {
+        TrackRecorder.startRecording(app, ActivityMode.HIKING)
+        recordFix(point = 0, waitSeconds = 1, altitudeM = 120.0)
+        recordFix(point = 1, waitSeconds = 1, altitudeM = 250.0, verticalAccuracyM = 80f)
+        recordFix(point = 2, waitSeconds = 1, altitudeM = 122.0)
+
+        val saved = runBlocking {
+            val id = requireNotNull(TrackRecorder.stopAndSave(app))
+            requireNotNull(TrackRepository(app).loadSessionDetail(id))
+        }
+        assertEquals(listOf(120.0, null, 122.0), saved.points.map { it.altitudeMeters })
+        assertEquals(122.0, requireNotNull(saved.session.maxAltitudeMeters), 0.1)
+    }
+
+    @Test
     fun `saving includes delayed steps before finish and excludes steps after finish`() = runTest {
         shadowOf(app).grantPermissions(Manifest.permission.ACTIVITY_RECOGNITION)
         val stepDetector = ShadowSensor.newInstance(Sensor.TYPE_STEP_DETECTOR)
