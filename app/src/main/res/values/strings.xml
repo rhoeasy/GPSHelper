@@ -375,6 +375,7 @@
     <string name="settings_item_coords_desc">显示 6 位小数经纬度位置信息</string>
     <string name="settings_overlay_ride_timer_title">骑行计时</string>
     <string name="settings_overlay_ride_timer_desc">从打开 App 起计时</string>
+    <string name="settings_overlay_ride_elapsed_title">显示具体时长</string>
     <string name="settings_overlay_ride_marker_interval">打点间隔</string>
     <string name="settings_overlay_ride_marker_minutes">%1$d 分钟</string>
     <string name="settings_section_general">通用与显示</string>
@@ -420,6 +421,7 @@
     <string name="overlay_running_hint">悬浮窗运行中 · 可在「设置」自由自定义显示内容，单击切换精简尺寸</string>
     <string name="overlay_ready_hint">在导航或其他应用上方悬浮显示自定义仪表数据</string>
     <string name="overlay_searching">搜索卫星中…</string>
+    <string name="overlay_gps_label">GPS</string>
     <string name="overlay_gps_no_permission">GPS 未授权</string>
     <string name="overlay_gps_disabled">GPS 关闭</string>
     <string name="overlay_gps_searching">GPS 搜星</string>

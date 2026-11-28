@@ -750,6 +750,15 @@ private fun SettingsOverlaySubContent(
                 onCheckedChange = { checked -> onUpdateOverlayConfig { it.copy(showRideTimer = checked) } }
             )
             if (overlayConfig.showRideTimer) {
+                SettingsRowDivider()
+                SettingsToggleRow(
+                    icon = Icons.Rounded.Timer,
+                    title = stringResource(R.string.settings_overlay_ride_elapsed_title),
+                    subtitle = null,
+                    checked = overlayConfig.showRideElapsedTime,
+                    testTag = "switch_overlay_ride_elapsed",
+                    onCheckedChange = { checked -> onUpdateOverlayConfig { it.copy(showRideElapsedTime = checked) } }
+                )
                 SettingsSliderRow(
                     icon = Icons.Rounded.Timer,
                     title = stringResource(R.string.settings_overlay_ride_marker_interval),

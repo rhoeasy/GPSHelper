@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -486,7 +487,7 @@ private fun OverlayStatusRow(
 ) {
     val cs = MaterialTheme.colorScheme
     val signal = overlayGpsSignal(gpsData)
-    val label = when (signal) {
+    val statusLabel = when (signal) {
         OverlayGpsSignal.NO_PERMISSION -> R.string.overlay_gps_no_permission
         OverlayGpsSignal.DISABLED -> R.string.overlay_gps_disabled
         OverlayGpsSignal.SEARCHING -> R.string.overlay_gps_searching
@@ -496,6 +497,7 @@ private fun OverlayStatusRow(
         OverlayGpsSignal.FAIR -> R.string.overlay_gps_fair
         OverlayGpsSignal.GOOD -> R.string.overlay_gps_good
     }
+    val signalDescription = stringResource(statusLabel)
     val signalColor = when (signal) {
         OverlayGpsSignal.GOOD, OverlayGpsSignal.LOCKED -> cs.secondary
         OverlayGpsSignal.FAIR, OverlayGpsSignal.FUSED -> cs.primary
@@ -508,7 +510,9 @@ private fun OverlayStatusRow(
         horizontalArrangement = Arrangement.spacedBy((10f * scale).dp)
     ) {
         Row(
-            modifier = Modifier.testTag("overlay_gps_status"),
+            modifier = Modifier
+                .testTag("overlay_gps_status")
+                .semantics(mergeDescendants = true) { stateDescription = signalDescription },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy((4f * scale).dp)
         ) {
@@ -525,28 +529,29 @@ private fun OverlayStatusRow(
                 }
             }
             Text(
-                text = stringResource(label),
+                text = stringResource(R.string.overlay_gps_label),
                 style = MaterialTheme.typography.labelMedium.copy(fontSize = (11f * fontScale).sp),
                 color = signalColor,
                 maxLines = 1
             )
         }
         if (config.showRideTimer) {
-            OverlayRideTimer(config.rideMarkerIntervalMinutes, previewRideElapsedMs, scale, fontScale)
+            OverlayRideTimer(config.rideMarkerIntervalMinutes, config.showRideElapsedTime, previewRideElapsedMs, scale, fontScale)
         }
     }
 }
 
 @Composable
-private fun OverlayRideTimer(intervalMinutes: Int, previewElapsedMs: Long?, scale: Float, fontScale: Float) {
+private fun OverlayRideTimer(intervalMinutes: Int, showElapsedTime: Boolean, previewElapsedMs: Long?, scale: Float, fontScale: Float) {
     val elapsedMs = if (previewElapsedMs != null) {
         previewElapsedMs
     } else {
-        val elapsed by produceState(appRideClock.elapsedMs(SystemClock.elapsedRealtime())) {
+        val refreshPeriodMs = if (showElapsedTime) 1_000L else intervalMinutes * 60_000L
+        val elapsed by produceState(appRideClock.elapsedMs(SystemClock.elapsedRealtime()), refreshPeriodMs) {
             while (true) {
                 val now = appRideClock.elapsedMs(SystemClock.elapsedRealtime())
                 value = now
-                delay(1_000L - (now ?: 0L) % 1_000L)
+                delay(if (now == null) 1_000L else refreshPeriodMs - now % refreshPeriodMs)
             }
         }
         elapsed
@@ -559,16 +564,18 @@ private fun OverlayRideTimer(intervalMinutes: Int, previewElapsedMs: Long?, scal
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy((5f * scale).dp)
     ) {
-        Text(
-            text = readout.elapsedText,
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontFamily = JetBrainsMonoFontFamily,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = (11.5f * fontScale).sp
-            ),
-            color = cs.onSurface,
-            maxLines = 1
-        )
+        if (showElapsedTime) {
+            Text(
+                text = readout.elapsedText,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = (11.5f * fontScale).sp
+                ),
+                color = cs.onSurface,
+                maxLines = 1
+            )
+        }
         Row(
             modifier = Modifier.semantics { contentDescription = markSummary },
             verticalAlignment = Alignment.CenterVertically,

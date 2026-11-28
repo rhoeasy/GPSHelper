@@ -1,6 +1,9 @@
 package com.example.overlay
 
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -31,13 +34,14 @@ class OverlayWindowTest {
     fun compactModeKeepsGpsAndRideTimingWithoutAddingACloseButton() {
         val mini = mutableStateOf(false)
         val gps = mutableStateOf(GpsData(hasFix = true, fixStatus = GpsFixStatus.LOCKED, accuracyMeters = 6f))
+        val config = mutableStateOf(OverlayDisplayConfig())
         composeRule.setContent {
             OverlayWindow(
                 gForceData = GForceData(),
                 gpsData = gps.value,
                 speedUnit = SpeedUnit.KMH,
                 heartRateState = HeartRateState(),
-                config = OverlayDisplayConfig(),
+                config = config.value,
                 themeMode = ThemeMode.LIGHT,
                 isMiniMode = mini.value,
                 onToggleMiniMode = { mini.value = !mini.value },
@@ -45,19 +49,34 @@ class OverlayWindowTest {
             )
         }
 
-        composeRule.onNodeWithText("GPS \u5f3a", useUnmergedTree = true).assertIsDisplayed()
-        composeRule.onNodeWithText("00:10:05", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("GPS", useUnmergedTree = true).assertIsDisplayed()
+        assertGpsStatus("GPS \u5f3a")
+        composeRule.onNodeWithText("00:10:05", useUnmergedTree = true).assertDoesNotExist()
         composeRule.onNodeWithTag("overlay_close_button", useUnmergedTree = true).assertDoesNotExist()
 
         composeRule.onNodeWithTag("overlay_window_root").performClick()
         composeRule.runOnIdle {
             assertTrue(mini.value)
-            gps.value = GpsData()
+            gps.value = GpsData(hasFix = true, fixStatus = GpsFixStatus.FUSED_FALLBACK)
         }
 
-        composeRule.onNodeWithText("GPS \u641c\u661f", useUnmergedTree = true).assertIsDisplayed()
-        composeRule.onNodeWithText("00:10:05", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("GPS", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("GPS \u878d\u5408\u5b9a\u4f4d", useUnmergedTree = true).assertDoesNotExist()
+        assertGpsStatus("GPS \u878d\u5408\u5b9a\u4f4d")
+        composeRule.onNodeWithText("00:10:05", useUnmergedTree = true).assertDoesNotExist()
         composeRule.onNodeWithContentDescription("\u7d2f\u8ba1 2 \u4e2a\u65f6\u95f4\u70b9", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithTag("overlay_close_button", useUnmergedTree = true).assertDoesNotExist()
+
+        composeRule.runOnIdle { config.value = config.value.copy(showRideElapsedTime = true) }
+        composeRule.onNodeWithText("00:10:05", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("\u7d2f\u8ba1 2 \u4e2a\u65f6\u95f4\u70b9", useUnmergedTree = true).assertIsDisplayed()
+
+        composeRule.runOnIdle { config.value = config.value.copy(showRideElapsedTime = false) }
+        composeRule.onNodeWithText("00:10:05", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    private fun assertGpsStatus(description: String) {
+        composeRule.onNodeWithTag("overlay_gps_status", useUnmergedTree = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, description))
     }
 }

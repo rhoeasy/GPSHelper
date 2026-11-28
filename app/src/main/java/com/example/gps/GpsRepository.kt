@@ -50,7 +50,8 @@ data class OverlayDisplayConfig(
     val showGForcePeakOnDial: Boolean = true,
     val gForcePeakHoldSeconds: Int = 60,
     val showRideTimer: Boolean = true,
-    val rideMarkerIntervalMinutes: Int = 5
+    val rideMarkerIntervalMinutes: Int = 5,
+    val showRideElapsedTime: Boolean = false
 ) {
     val enabledCount: Int
         get() = listOf(
@@ -98,6 +99,7 @@ object GpsRepository {
     private const val KEY_OV_SHOW_COORDS = "overlay_show_coords"
     private const val KEY_OV_SHOW_RIDE_TIMER = "overlay_show_ride_timer"
     private const val KEY_OV_RIDE_MARKER_MINUTES = "overlay_ride_marker_minutes"
+    private const val KEY_OV_SHOW_RIDE_ELAPSED = "overlay_show_ride_elapsed"
     private const val KEY_OV_BG_ALPHA = "overlay_bg_alpha"
     private const val KEY_OV_SCALE = "overlay_scale"
     private const val KEY_OV_FONT_SCALE = "overlay_font_scale"
@@ -209,7 +211,8 @@ object GpsRepository {
                 showGForcePeakOnDial = prefs.getBoolean(KEY_OV_SHOW_PEAK_ON_DIAL, true),
                 gForcePeakHoldSeconds = prefs.getInt(KEY_OV_PEAK_HOLD_SEC, 60),
                 showRideTimer = prefs.getBoolean(KEY_OV_SHOW_RIDE_TIMER, true),
-                rideMarkerIntervalMinutes = prefs.getInt(KEY_OV_RIDE_MARKER_MINUTES, 5).coerceIn(1, 60)
+                rideMarkerIntervalMinutes = prefs.getInt(KEY_OV_RIDE_MARKER_MINUTES, 5).coerceIn(1, 60),
+                showRideElapsedTime = prefs.getBoolean(KEY_OV_SHOW_RIDE_ELAPSED, false)
             )
             val finalOverlay = if (loadedOverlay.enabledCount > 0) loadedOverlay else OverlayDisplayConfig()
             _overlayConfig.value = finalOverlay
@@ -378,6 +381,7 @@ object GpsRepository {
             .putBoolean(KEY_OV_SHOW_COORDS, cfg.showCoordinates)
             .putBoolean(KEY_OV_SHOW_RIDE_TIMER, cfg.showRideTimer)
             .putInt(KEY_OV_RIDE_MARKER_MINUTES, cfg.rideMarkerIntervalMinutes)
+            .putBoolean(KEY_OV_SHOW_RIDE_ELAPSED, cfg.showRideElapsedTime)
             .putFloat(KEY_OV_BG_ALPHA, cfg.backgroundAlpha)
             .putString(KEY_OV_SCALE, cfg.scale.name)
             .putFloat(KEY_OV_FONT_SCALE, cfg.fontScale)

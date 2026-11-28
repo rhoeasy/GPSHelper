@@ -351,6 +351,7 @@ class ExampleRobolectricTest {
         assertTrue(vm.overlayConfig.value.showGForce)
         assertTrue(vm.overlayConfig.value.showAltitude)
         assertTrue(vm.overlayConfig.value.showRideTimer)
+        assertFalse(vm.overlayConfig.value.showRideElapsedTime)
         assertEquals(5, vm.overlayConfig.value.rideMarkerIntervalMinutes)
 
         assertTrue(vm.updateOverlayConfig {
@@ -358,6 +359,8 @@ class ExampleRobolectricTest {
         })
         assertEquals(1, vm.overlayConfig.value.enabledCount)
         assertEquals(60, vm.overlayConfig.value.rideMarkerIntervalMinutes)
+        assertTrue(vm.updateOverlayConfig { it.copy(showRideElapsedTime = true) })
+        assertTrue(app.getSharedPreferences("gps_hud_prefs", Context.MODE_PRIVATE).getBoolean("overlay_show_ride_elapsed", false))
 
         // Attempting to turn off the last remaining item (speed) is rejected
         assertFalse(vm.updateOverlayConfig { it.copy(showSpeed = false) })
@@ -366,6 +369,7 @@ class ExampleRobolectricTest {
         // Reset restores defaults cleanly
         vm.resetOverlayConfig()
         assertEquals(4, vm.overlayConfig.value.enabledCount)
+        assertFalse(vm.overlayConfig.value.showRideElapsedTime)
     }
 
     @Test
