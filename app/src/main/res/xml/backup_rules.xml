@@ -2,4 +2,5 @@
 <full-backup-content>
     <include domain="sharedpref" path="." />
     <exclude domain="sharedpref" path="ai_gateway_prefs.xml" />
+    <exclude domain="sharedpref" path="gps_overlay_session.xml" />
 </full-backup-content>

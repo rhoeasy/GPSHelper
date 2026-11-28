@@ -854,7 +854,9 @@ class MainActivity : ComponentActivity() {
             requestLocation()
             return
         }
-        FloatingGpsService.start(this)
+        if (!FloatingGpsService.start(this)) {
+            Toast.makeText(this, R.string.toast_overlay_start_failed, Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun openOverlayPermissionSettings() {

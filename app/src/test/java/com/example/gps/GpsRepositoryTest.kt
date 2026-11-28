@@ -22,6 +22,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLocationManager
+import org.robolectric.shadows.ShadowSystemClock
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -91,6 +92,20 @@ class GpsRepositoryTest {
     }
 
     @Test
+    fun `returning to the activity after sleep does not display a stale fix`() {
+        publish(speedMps = 5f, altitudeM = 120.0)
+        ShadowSystemClock.simulateDeepSleep(Duration.ofSeconds(10))
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        GpsRepository.startTracking(app, "activity")
+        try {
+            assertFalse(GpsRepository.gpsData.value.hasFix)
+            assertReadings("--", "--")
+        } finally {
+            GpsRepository.stopTracking("activity")
+        }
+    }
+
+    @Test
     fun `delayed GPS fix cannot revive old readings or block a fresh fallback`() {
         publish(speedMps = 5f, altitudeM = 120.0)
         advanceSeconds(9)
@@ -100,6 +115,20 @@ class GpsRepositoryTest {
         publish(provider = LocationManager.FUSED_PROVIDER, speedMps = 8f, altitudeM = 135.0, verticalAccuracyM = 9f)
         assertEquals(GpsFixStatus.FUSED_FALLBACK, GpsRepository.gpsData.value.fixStatus)
         assertReadings("28.8", "135 m")
+    }
+
+    @Test
+    fun `standby fused fix fills the gap after native GPS stops without a blank reading`() {
+        publish(speedMps = 5f, altitudeM = 120.0)
+        advanceSeconds(2)
+        publish(provider = LocationManager.FUSED_PROVIDER, speedMps = 8f, altitudeM = 120.0, verticalAccuracyM = 6f)
+        assertEquals(GpsFixStatus.LOCKED, GpsRepository.gpsData.value.fixStatus)
+        advanceSeconds(1)
+        assertEquals(GpsFixStatus.FUSED_FALLBACK, GpsRepository.gpsData.value.fixStatus)
+        assertReadings("28.8", "120 m")
+        advanceSeconds(1)
+        publish(speedMps = 9f, altitudeM = 120.0)
+        assertEquals(GpsFixStatus.LOCKED, GpsRepository.gpsData.value.fixStatus)
     }
 
     @Test

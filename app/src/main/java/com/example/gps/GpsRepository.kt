@@ -119,6 +119,9 @@ object GpsRepository {
     private const val MIN_TIME_MS = 500L
     private const val MIN_DISTANCE_M = 0f
     internal const val GPS_FRESHNESS_WINDOW_MS = 8_000L
+    private const val GPS_PROVIDER_GRACE_MS = 3_000L
+    private const val RECONNECT_GAP_MS = 20_000L
+    private const val RECONNECT_INTERVAL_MS = 60_000L
 
     private val lock = Any()
     private val activeClients = mutableSetOf<String>()
@@ -127,6 +130,9 @@ object GpsRepository {
     private var locationManager: LocationManager? = null
     private var isListening = false
     private var lastGpsFixElapsedMs: Long = 0L
+    private var pendingFusedFix: Location? = null
+    private var subscriptionStartedMs = 0L
+    private var lastReconnectMs: Long? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -135,7 +141,12 @@ object GpsRepository {
 
     private val expireLocationFix = Runnable {
         synchronized(lock) {
-            if (_gpsData.value.hasFix) clearLocationFixLocked(statusWithoutFixLocked())
+            expireStaleFixLocked()
+        }
+    }
+    private val promoteFusedFix = Runnable {
+        synchronized(lock) {
+            if (isListening) publishPendingFusedFixLocked(SystemClock.elapsedRealtime())
         }
     }
 
@@ -485,10 +496,35 @@ object GpsRepository {
 
     fun stopTracking(clientId: String) {
         synchronized(lock) {
-            activeClients.remove(clientId)
-            if (activeClients.isEmpty() && isListening) {
+            if (!activeClients.remove(clientId)) return
+            if (activeClients.isEmpty()) {
                 unregisterListenersLocked()
             }
+        }
+    }
+
+    /** Called only by the running location foreground service. */
+    internal fun recoverForegroundTracking(context: Context, clientId: String) {
+        synchronized(lock) {
+            if (clientId !in activeClients) return
+            expireStaleFixLocked()
+            if (!hasLocationPermission(context)) {
+                if (isListening) unregisterListenersLocked()
+                _gpsData.update { it.copy(fixStatus = GpsFixStatus.NO_PERMISSION) }
+                return
+            }
+            val lm = locationManager ?: context.getSystemService(LocationManager::class.java) ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !lm.isLocationEnabled) return
+            val now = SystemClock.elapsedRealtime()
+            val lastFixOrRequest = maxOf(subscriptionStartedMs, _gpsData.value.lastUpdateElapsedRealtimeMs)
+            if (now - lastFixOrRequest < RECONNECT_GAP_MS) return
+            if (lastReconnectMs?.let { now - it < RECONNECT_INTERVAL_MS } == true) return
+
+            lastReconnectMs = now
+            Log.w(TAG, "Foreground location has no fresh fixes; renewing provider subscriptions")
+            removeSubscriptionsLocked(lm)
+            isListening = false
+            registerListenersLocked(context)
         }
     }
 
@@ -514,11 +550,22 @@ object GpsRepository {
     }
 
     private fun refreshProviderStatusLocked() {
+        expireStaleFixLocked()
         val status = statusWithoutFixLocked()
         if (status == GpsFixStatus.DISABLED) {
             handleGpsDisabledLocked()
         } else if (!_gpsData.value.hasFix) {
             _gpsData.update { it.copy(fixStatus = status) }
+        }
+    }
+
+    private fun expireStaleFixLocked() {
+        publishPendingFusedFixLocked(SystemClock.elapsedRealtime())
+        val gps = _gpsData.value
+        val ageMs = SystemClock.elapsedRealtime() - gps.lastUpdateElapsedRealtimeMs
+        if (gps.hasFix && ageMs >= GPS_FRESHNESS_WINDOW_MS) {
+            Log.w(TAG, "No fresh location for ${ageMs}ms; active clients: $activeClients")
+            clearLocationFixLocked(statusWithoutFixLocked())
         }
     }
 
@@ -530,6 +577,7 @@ object GpsRepository {
 
     private fun handleGpsDisabledLocked() {
         lastGpsFixElapsedMs = 0L
+        publishPendingFusedFixLocked(SystemClock.elapsedRealtime())
         if (_gpsData.value.fixStatus != GpsFixStatus.FUSED_FALLBACK) {
             clearLocationFixLocked(GpsFixStatus.DISABLED)
         }
@@ -559,6 +607,7 @@ object GpsRepository {
 
     @SuppressLint("MissingPermission")
     private fun registerListenersLocked(context: Context) {
+        subscriptionStartedMs = SystemClock.elapsedRealtime()
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
         if (lm == null) {
             _gpsData.update { it.copy(fixStatus = GpsFixStatus.DISABLED) }
@@ -579,38 +628,21 @@ object GpsRepository {
             )
         }
 
-        try {
-            if (lm.allProviders.contains(LocationManager.GPS_PROVIDER)) {
-                lm.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER,
-                    MIN_TIME_MS,
-                    MIN_DISTANCE_M,
-                    gpsLocationListener,
-                    Looper.getMainLooper()
-                )
-            }
-
-            // Optional native FUSED_PROVIDER fallback on API 31+ (no Play Services required)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                lm.allProviders.contains(LocationManager.FUSED_PROVIDER)
-            ) {
-                lm.requestLocationUpdates(
-                    LocationManager.FUSED_PROVIDER,
-                    1_000L,
-                    MIN_DISTANCE_M,
-                    fusedFallbackListener,
-                    Looper.getMainLooper()
-                )
-            }
-
-            registerGnssCallbackLocked(context, lm)
-            isListening = true
-        } catch (se: SecurityException) {
-            Log.w(TAG, "Missing location permission while registering listeners", se)
-            _gpsData.update { it.copy(fixStatus = GpsFixStatus.NO_PERMISSION) }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register location listeners", e)
+        fun subscribe(provider: String, interval: Long, listener: LocationListener): Boolean {
+            if (provider !in lm.allProviders) return false
+            return runCatching {
+                lm.requestLocationUpdates(provider, interval, MIN_DISTANCE_M, listener, Looper.getMainLooper())
+            }.onFailure { Log.w(TAG, "Failed to subscribe to $provider location", it) }.isSuccess
         }
+        val native = hasFineLocationPermission(context) &&
+            subscribe(LocationManager.GPS_PROVIDER, MIN_TIME_MS, gpsLocationListener)
+        val fallbackProvider = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            LocationManager.FUSED_PROVIDER in lm.allProviders
+        ) LocationManager.FUSED_PROVIDER else LocationManager.NETWORK_PROVIDER
+        val fallback = subscribe(fallbackProvider, 1_000L, fusedFallbackListener)
+        isListening = native || fallback
+        if (native) registerGnssCallbackLocked(context, lm)
+        Log.i(TAG, "Location subscriptions: native=$native fallback=$fallback; clients=$activeClients")
     }
 
     @SuppressLint("MissingPermission")
@@ -631,15 +663,20 @@ object GpsRepository {
     }
 
     private fun unregisterListenersLocked() {
-        val lm = locationManager
-        if (lm != null) {
-            runCatching { lm.removeUpdates(gpsLocationListener) }
-            runCatching { lm.removeUpdates(fusedFallbackListener) }
-            runCatching { lm.unregisterGnssStatusCallback(gnssStatusCallback) }
-        }
+        Log.i(TAG, "Location listeners removed; active clients: $activeClients")
+        locationManager?.let(::removeSubscriptionsLocked)
         isListening = false
         lastGpsFixElapsedMs = 0L
+        pendingFusedFix = null
+        mainHandler.removeCallbacks(promoteFusedFix)
+        lastReconnectMs = null
         clearLocationFixLocked(statusWithoutFixLocked(), resetTimestamp = true)
+    }
+
+    private fun removeSubscriptionsLocked(lm: LocationManager) {
+        runCatching { lm.removeUpdates(gpsLocationListener) }
+        runCatching { lm.removeUpdates(fusedFallbackListener) }
+        runCatching { lm.unregisterGnssStatusCallback(gnssStatusCallback) }
     }
 
     private val gpsLocationListener = object : LocationListener {
@@ -689,14 +726,43 @@ object GpsRepository {
                 ageMs < 0L || ageMs >= GPS_FRESHNESS_WINDOW_MS
             ) return
 
-            val hasFreshGps = lastGpsFixElapsedMs > 0L && now - lastGpsFixElapsedMs < GPS_FRESHNESS_WINDOW_MS
-            if (!isGpsPrimary && hasFreshGps) return
+            val graceRemaining = lastGpsFixElapsedMs + GPS_PROVIDER_GRACE_MS - now
+            if (!isGpsPrimary && lastGpsFixElapsedMs > 0L && graceRemaining > 0L) {
+                if (location.elapsedRealtimeNanos > (pendingFusedFix?.elapsedRealtimeNanos ?: 0L)) {
+                    pendingFusedFix = Location(location)
+                    mainHandler.removeCallbacks(promoteFusedFix)
+                    mainHandler.postDelayed(promoteFusedFix, graceRemaining)
+                }
+                return
+            }
             if (isGpsPrimary) lastGpsFixElapsedMs = fixElapsedMs
-
-            applyLocationLocked(location, isGpsPrimary, fixElapsedMs)
-            mainHandler.removeCallbacks(expireLocationFix)
-            mainHandler.postDelayed(expireLocationFix, GPS_FRESHNESS_WINDOW_MS - ageMs)
+            if (pendingFusedFix?.let { it.elapsedRealtimeNanos <= location.elapsedRealtimeNanos } == true) {
+                pendingFusedFix = null
+            }
+            publishFixLocked(location, isGpsPrimary, fixElapsedMs, ageMs)
         }
+    }
+
+    private fun publishPendingFusedFixLocked(now: Long) {
+        val fallback = pendingFusedFix ?: return
+        val graceRemaining = lastGpsFixElapsedMs + GPS_PROVIDER_GRACE_MS - now
+        if (lastGpsFixElapsedMs > 0L && graceRemaining > 0L) {
+            mainHandler.removeCallbacks(promoteFusedFix)
+            mainHandler.postDelayed(promoteFusedFix, graceRemaining)
+            return
+        }
+        pendingFusedFix = null
+        val elapsed = TimeUnit.NANOSECONDS.toMillis(fallback.elapsedRealtimeNanos)
+        val age = now - elapsed
+        if (elapsed > _gpsData.value.lastUpdateElapsedRealtimeMs && age in 0 until GPS_FRESHNESS_WINDOW_MS) {
+            publishFixLocked(fallback, false, elapsed, age)
+        }
+    }
+
+    private fun publishFixLocked(location: Location, isGpsPrimary: Boolean, elapsed: Long, age: Long) {
+        applyLocationLocked(location, isGpsPrimary, elapsed)
+        mainHandler.removeCallbacks(expireLocationFix)
+        mainHandler.postDelayed(expireLocationFix, GPS_FRESHNESS_WINDOW_MS - age)
     }
 
     private fun applyLocationLocked(location: Location, isGpsPrimary: Boolean, fixElapsedMs: Long) {

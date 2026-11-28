@@ -3,9 +3,11 @@
     <cloud-backup>
         <include domain="sharedpref" path="." />
         <exclude domain="sharedpref" path="ai_gateway_prefs.xml" />
+        <exclude domain="sharedpref" path="gps_overlay_session.xml" />
     </cloud-backup>
     <device-transfer>
         <include domain="sharedpref" path="." />
         <exclude domain="sharedpref" path="ai_gateway_prefs.xml" />
+        <exclude domain="sharedpref" path="gps_overlay_session.xml" />
     </device-transfer>
 </data-extraction-rules>
