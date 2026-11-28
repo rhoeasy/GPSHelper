@@ -126,15 +126,7 @@ class FloatingGpsService : Service() {
                         overlayConfigFlow = GpsRepository.overlayConfig,
                         safetyAlertConfigFlow = GpsRepository.safetyAlertConfig,
                         themeModeFlow = GpsRepository.themeMode,
-                        themePaletteFlow = GpsRepository.themePalette,
-                        onCloseRequested = {
-                            detachOverlay()
-                            if (!isRecordingKeepAlive) {
-                                stopSelf()
-                            } else {
-                                refreshNotificationNow()
-                            }
-                        }
+                        themePaletteFlow = GpsRepository.themePalette
                     )
                     if (controller.attach()) {
                         overlayController = controller
@@ -310,7 +302,7 @@ class FloatingGpsService : Service() {
             "$altStr  ·  $gStr"
         }
 
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_hud_notification)
             .setContentTitle(title)
             .setContentText(contentText)
@@ -320,25 +312,7 @@ class FloatingGpsService : Service() {
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
-
-        if (hasOverlay) {
-            val stopOverlayIntent = Intent(this, FloatingGpsService::class.java).apply {
-                action = ACTION_HIDE_OVERLAY
-            }
-            val stopOverlayPendingIntent = PendingIntent.getService(
-                this,
-                1,
-                stopOverlayIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            builder.addAction(
-                0,
-                getString(R.string.action_stop_overlay),
-                stopOverlayPendingIntent
-            )
-        }
-
-        return builder.build()
+            .build()
     }
 
     companion object {

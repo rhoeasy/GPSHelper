@@ -346,14 +346,18 @@ class ExampleRobolectricTest {
         val vm = GpsDashboardViewModel(app)
         vm.resetOverlayConfig()
 
-        // Default config enables speed, G-Force, and altitude
+        // Default config enables speed, G-Force, altitude, and the ride timer.
         assertTrue(vm.overlayConfig.value.showSpeed)
         assertTrue(vm.overlayConfig.value.showGForce)
         assertTrue(vm.overlayConfig.value.showAltitude)
+        assertTrue(vm.overlayConfig.value.showRideTimer)
+        assertEquals(5, vm.overlayConfig.value.rideMarkerIntervalMinutes)
 
-        // Turning off altitude and G-Force succeeds while speed stays enabled
-        assertTrue(vm.updateOverlayConfig { it.copy(showAltitude = false, showGForce = false) })
+        assertTrue(vm.updateOverlayConfig {
+            it.copy(showAltitude = false, showGForce = false, showRideTimer = false, rideMarkerIntervalMinutes = 90)
+        })
         assertEquals(1, vm.overlayConfig.value.enabledCount)
+        assertEquals(60, vm.overlayConfig.value.rideMarkerIntervalMinutes)
 
         // Attempting to turn off the last remaining item (speed) is rejected
         assertFalse(vm.updateOverlayConfig { it.copy(showSpeed = false) })
@@ -361,7 +365,7 @@ class ExampleRobolectricTest {
 
         // Reset restores defaults cleanly
         vm.resetOverlayConfig()
-        assertEquals(3, vm.overlayConfig.value.enabledCount)
+        assertEquals(4, vm.overlayConfig.value.enabledCount)
     }
 
     @Test

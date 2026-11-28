@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -29,22 +28,18 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.ai.AiAnalysisState
 import com.example.ai.AiGatewayConfig
+import com.example.ai.GatewayStage
 import com.example.track.TrackFormatters
 import com.example.ui.theme.JetBrainsMonoFontFamily
 
@@ -110,7 +105,7 @@ fun TrackAiCoachCard(
                             color = cs.primaryContainer
                         ) {
                             Text(
-                                text = stringResource(R.string.ai_coach_badge_streaming),
+                                text = stringResource(gatewayStageLabel(scopedState.stage)),
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = cs.onPrimaryContainer,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
@@ -221,28 +216,9 @@ fun TrackAiCoachCard(
                             .height(4.dp)
                     )
 
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = cs.surfaceContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        if (scopedState.partialText.isBlank()) {
-                            Text(
-                                text = stringResource(R.string.ai_coach_waiting_token),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = cs.onSurfaceVariant,
-                                modifier = Modifier.padding(14.dp)
-                            )
-                        } else {
-                            FormattedCoachReportText(
-                                rawMarkdown = scopedState.partialText,
-                                modifier = Modifier.padding(14.dp)
-                            )
-                        }
-                    }
-
                     OutlinedButton(
                         onClick = onStopAnalysis,
+                        enabled = scopedState.stage != GatewayStage.SAVING,
                         shape = RoundedCornerShape(50),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -257,6 +233,9 @@ fun TrackAiCoachCard(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(stringResource(R.string.ai_coach_stop))
                     }
+                    if (scopedState.partialText.isNotBlank()) {
+                        CollapsibleCoachReport(scopedState.partialText, scopedState.sessionId)
+                    }
                 }
 
                 is AiAnalysisState.Success -> {
@@ -270,18 +249,7 @@ fun TrackAiCoachCard(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = cs.surfaceContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        SelectionContainer {
-                            FormattedCoachReportText(
-                                rawMarkdown = scopedState.reportText,
-                                modifier = Modifier.padding(14.dp)
-                            )
-                        }
-                    }
+                    CollapsibleCoachReport(scopedState.reportText, scopedState.generatedAtMs)
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -408,100 +376,5 @@ fun TrackAiCoachCard(
                 }
             }
         }
-    }
-}
-
-/**
- * Safely formats basic Markdown headings, bullet items, and **bold** inline spans
- * into a native Jetpack Compose [AnnotatedString] without any raw HTML or WebView rendering.
- */
-@Composable
-internal fun FormattedCoachReportText(
-    rawMarkdown: String,
-    modifier: Modifier = Modifier
-) {
-    val cs = MaterialTheme.colorScheme
-    val headingColor = cs.primary
-    val bodyColor = cs.onSurface
-
-    val formatted = remember(rawMarkdown, headingColor, bodyColor) {
-        buildCoachAnnotatedString(
-            markdown = rawMarkdown,
-            headingColor = headingColor,
-            bodyColor = bodyColor
-        )
-    }
-
-    Text(
-        text = formatted,
-        style = MaterialTheme.typography.bodyMedium.copy(
-            lineHeight = 22.sp,
-            color = bodyColor
-        ),
-        modifier = modifier.fillMaxWidth()
-    )
-}
-
-internal fun buildCoachAnnotatedString(
-    markdown: String,
-    headingColor: androidx.compose.ui.graphics.Color,
-    bodyColor: androidx.compose.ui.graphics.Color
-): AnnotatedString = buildAnnotatedString {
-    val lines = markdown.replace("\r\n", "\n").lines()
-    lines.forEachIndexed { index, rawLine ->
-        val trimmed = rawLine.trimStart()
-        when {
-            trimmed.startsWith("### ") || trimmed.startsWith("## ") || trimmed.startsWith("# ") -> {
-                val headingText = trimmed.trimStart('#').trim()
-                withStyle(
-                    SpanStyle(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = headingColor
-                    )
-                ) {
-                    appendInlineBold(headingText)
-                }
-            }
-            trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
-                withStyle(SpanStyle(color = headingColor, fontWeight = FontWeight.Bold)) {
-                    append("• ")
-                }
-                withStyle(SpanStyle(color = bodyColor)) {
-                    appendInlineBold(trimmed.drop(2))
-                }
-            }
-            else -> {
-                withStyle(SpanStyle(color = bodyColor)) {
-                    appendInlineBold(rawLine)
-                }
-            }
-        }
-        if (index < lines.lastIndex) {
-            append("\n")
-        }
-    }
-}
-
-private fun AnnotatedString.Builder.appendInlineBold(text: String) {
-    var cursor = 0
-    while (cursor < text.length) {
-        val openIdx = text.indexOf("**", cursor)
-        if (openIdx < 0) {
-            append(text.substring(cursor))
-            break
-        }
-        val closeIdx = text.indexOf("**", openIdx + 2)
-        if (closeIdx < 0) {
-            append(text.substring(cursor))
-            break
-        }
-        if (openIdx > cursor) {
-            append(text.substring(cursor, openIdx))
-        }
-        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
-            append(text.substring(openIdx + 2, closeIdx))
-        }
-        cursor = closeIdx + 2
     }
 }

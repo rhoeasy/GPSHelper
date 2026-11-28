@@ -11,6 +11,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.WindowManager
 import android.widget.Toast
@@ -38,6 +39,7 @@ import com.example.alert.SafetyAlertMonitor
 import com.example.ble.HeartRateRepository
 import com.example.gps.GpsRepository
 import com.example.overlay.FloatingGpsService
+import com.example.overlay.appRideClock
 import com.example.sensor.HikingStepSensor
 import com.example.sensor.MotionSensorManager
 import com.example.track.ActivityMode
@@ -60,6 +62,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        appRideClock.markOpened(SystemClock.elapsedRealtime())
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT)
@@ -575,6 +578,7 @@ class MainActivity : ComponentActivity() {
                     onTestAndFetchAiModels = { baseUrl, apiKey, modelId ->
                         viewModel.testAndFetchAiModels(baseUrl, apiKey, modelId)
                     },
+                    onCancelAiModelTest = viewModel::cancelAiModelTest,
                     onSaveAiGatewayConfig = { baseUrl, apiKey, modelId ->
                         val result = viewModel.saveAiGatewayConfig(baseUrl, apiKey, modelId)
                         if (result.isSuccess) {

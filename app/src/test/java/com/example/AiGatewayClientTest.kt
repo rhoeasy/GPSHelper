@@ -12,6 +12,9 @@ import com.example.track.TrackAiReportEntity
 import com.example.track.TrackDatabase
 import com.example.track.TrackSessionEntity
 import com.example.ui.buildCoachAnnotatedString
+import com.example.ui.ReportFormat
+import com.example.ui.formatReportBlocks
+import com.example.track.SampleTrackSeeder
 import com.example.ui.buildPlainPreviewSnippet
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -213,6 +216,59 @@ class AiGatewayClientTest {
         assertTrue(snippet.contains("陡坡配速"))
         assertFalse(snippet.contains("###"))
         assertFalse(snippet.contains("**"))
+    }
+
+    @Test
+    fun `report formats raw JSON YAML and mixed Markdown without changing the YAML values`() {
+        val json = formatReportBlocks("""{"steps":[1,2]}""").single()
+        assertEquals(ReportFormat.JSON, json.format)
+        assertTrue(json.text.contains("\n  \"steps\": ["))
+
+        val yaml = "stats:\n  - steps: 100\n  - notes: |\n      line one\n      line two"
+        assertEquals(ReportFormat.YAML, formatReportBlocks(yaml).single().format)
+        val mixed = formatReportBlocks("## Summary\n\n```yaml\n$yaml\n```\n\n```json\n[1,2]\n```")
+        assertEquals(listOf(ReportFormat.MARKDOWN, ReportFormat.YAML, ReportFormat.JSON), mixed.map { it.format })
+        assertEquals(yaml, mixed[1].text)
+    }
+
+    @Test
+    fun `deleting history clears only the linked track result and does not restore another version`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, TrackDatabase::class.java).build()
+        try {
+            val dao = database.trackDao()
+            val sample = SampleTrackSeeder.buildSampleHikingTrack(1_750_000_000_000L).session
+            val firstTrack = dao.insertSession(sample)
+            val anotherTrack = dao.insertSession(sample.copy(name = "Other trail"))
+            fun record(sessionId: Long, text: String) = AiAnalysisRecordEntity(
+                sessionId = sessionId,
+                sessionName = sample.name,
+                activityMode = sample.mode,
+                modelId = "coach-test",
+                reportText = text,
+                summaryMetrics = "",
+                generatedAtMs = 1_750_000_000_000L
+            )
+            dao.saveAiCoachResult(record(firstTrack, "Older report"))
+            dao.saveAiCoachResult(record(firstTrack, "Current report"))
+            dao.saveAiCoachResult(record(anotherTrack, "Unrelated report"))
+            val history = dao.observeAllAiAnalysisHistory().first().associateBy { it.reportText }
+
+            dao.deleteAiAnalysisWithReport(history.getValue("Older report").id)
+            assertEquals("Current report", dao.observeAiReport(firstTrack).first()?.reportText)
+            dao.saveAiCoachResult(record(firstTrack, "Replacement report"))
+            val replacement = dao.observeAllAiAnalysisHistory().first().first { it.reportText == "Replacement report" }
+            dao.deleteAiAnalysisWithReport(replacement.id)
+            assertNull(dao.observeAiReport(firstTrack).first())
+            assertTrue(dao.observeAllAiAnalysisHistory().first().any { it.reportText == "Current report" })
+            assertEquals("Unrelated report", dao.observeAiReport(anotherTrack).first()?.reportText)
+
+            dao.clearAiHistoryWithReports()
+            assertTrue(dao.observeAllAiAnalysisHistory().first().isEmpty())
+            assertNull(dao.observeAiReport(anotherTrack).first())
+        } finally {
+            database.close()
+        }
     }
 
     @Test

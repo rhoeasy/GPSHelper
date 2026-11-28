@@ -7,6 +7,33 @@
     <string name="tab_tracks">轨迹记录</string>
     <string name="tab_settings">设置</string>
 
+    <!-- Coordinate details -->
+    <string name="coordinate_detail_title">坐标探索</string>
+    <string name="coordinate_current">当前位置</string>
+    <string name="coordinate_waiting">等待定位</string>
+    <string name="coordinate_enable_location">启用定位</string>
+    <string name="coordinate_target_label">目标坐标（WGS84，纬度、经度）</string>
+    <string name="coordinate_invalid_target">请输入有效的十进制度坐标，如 39.9042, 116.4074</string>
+    <string name="coordinate_target_point">目标位置</string>
+    <string name="coordinate_bearing">%1$s · %2$d°</string>
+    <string name="coordinate_same_position">几乎同一位置</string>
+    <string name="coordinate_direct_distance">直线 %1$s · %2$s</string>
+    <string name="coordinate_diagram_title">相对位置图</string>
+    <string name="coordinate_north">↑ 北</string>
+    <string name="coordinate_diagram_scale">最外圈半径：%1$s</string>
+    <string name="coordinate_zoom_out">缩小位置图</string>
+    <string name="coordinate_zoom_in">放大位置图</string>
+    <string name="coordinate_recenter">重置位置图</string>
+    <string name="coordinate_share_image">分享位置图</string>
+    <string name="coordinate_ai_title">AI 位置参考</string>
+    <string name="coordinate_configure_gateway">配置 AI 网关</string>
+    <string name="coordinate_ask_nearby">问 AI 当前位置附近</string>
+    <string name="coordinate_ask_target">问 AI 目标位置</string>
+    <string name="coordinate_stop_analysis">停止分析</string>
+    <string name="coordinate_gateway_disclosure">点击后将坐标发送到已配置的网关。回答不是实时地图数据。</string>
+    <string name="coordinate_ai_empty">模型未返回位置信息</string>
+    <string name="coordinate_ai_error">无法获取位置信息，请检查网关配置</string>
+
     <!-- Status Badges -->
     <string name="status_gps_locked">GPS 已锁定</string>
     <string name="status_fused_fallback">融合定位 (等待GPS)</string>
@@ -245,6 +272,10 @@
     <string name="social_replace_photo">更换照片</string>
     <string name="social_clear_photo">移除照片</string>
     <string name="social_section_background">背景样式</string>
+    <string name="social_layout_title">图片版式</string>
+    <string name="social_layout_photo_top">上图下数据</string>
+    <string name="social_layout_photo_side">左图右数据</string>
+    <string name="social_layout_cover">背景海报</string>
     <string name="social_bg_photo">导入照片</string>
     <string name="social_bg_transparent">透明 PNG</string>
     <string name="social_ink_light">浅色字</string>
@@ -342,6 +373,10 @@
     <string name="settings_item_accuracy_desc">显示当前水平定位误差（如 ±3.5 m）</string>
     <string name="settings_item_coords_title">经纬度坐标</string>
     <string name="settings_item_coords_desc">显示 6 位小数经纬度位置信息</string>
+    <string name="settings_overlay_ride_timer_title">骑行计时</string>
+    <string name="settings_overlay_ride_timer_desc">从打开 App 起计时</string>
+    <string name="settings_overlay_ride_marker_interval">打点间隔</string>
+    <string name="settings_overlay_ride_marker_minutes">%1$d 分钟</string>
     <string name="settings_section_general">通用与显示</string>
     <string name="settings_speed_unit_title">速度单位</string>
     <string name="toast_overlay_min_one_item">悬浮窗至少需保留一项显示内容</string>
@@ -384,8 +419,15 @@
     <string name="action_stop_overlay">关闭悬浮窗</string>
     <string name="overlay_running_hint">悬浮窗运行中 · 可在「设置」自由自定义显示内容，单击切换精简尺寸</string>
     <string name="overlay_ready_hint">在导航或其他应用上方悬浮显示自定义仪表数据</string>
-    <string name="overlay_close_cd">关闭悬浮窗</string>
     <string name="overlay_searching">搜索卫星中…</string>
+    <string name="overlay_gps_no_permission">GPS 未授权</string>
+    <string name="overlay_gps_disabled">GPS 关闭</string>
+    <string name="overlay_gps_searching">GPS 搜星</string>
+    <string name="overlay_gps_fused">GPS 融合定位</string>
+    <string name="overlay_gps_weak">GPS 弱</string>
+    <string name="overlay_gps_fair">GPS 中</string>
+    <string name="overlay_gps_good">GPS 强</string>
+    <string name="overlay_ride_marks_description">累计 %1$d 个时间点</string>
 
     <!-- Notification -->
     <string name="notification_channel_name">GPS 悬浮窗与轨迹保活服务</string>
@@ -461,6 +503,14 @@
     <string name="ai_model_id_placeholder">如 deepseek-chat / gpt-4o-mini</string>
     <string name="ai_action_test_fetch">测试连接并拉取模型</string>
     <string name="ai_action_testing">正在连接网关…</string>
+    <string name="ai_cancel_test">取消网关测试</string>
+    <string name="ai_stage_queued">排队中</string>
+    <string name="ai_stage_connecting">正在连接网关</string>
+    <string name="ai_stage_waiting">等待模型输出</string>
+    <string name="ai_stage_receiving">正在接收结果</string>
+    <string name="ai_stage_saving">正在保存结果</string>
+    <string name="ai_report_expand">展开报告</string>
+    <string name="ai_report_collapse">收起报告</string>
     <string name="ai_action_save">保存配置</string>
     <string name="ai_action_clear">清除配置</string>
     <string name="ai_test_success_format">连接成功，共拉取到 %d 个模型</string>
@@ -481,7 +531,7 @@
     <string name="ai_coach_ready_desc">自动整合本次轨迹遥测数据与专业教练提示词，流式生成中文复盘并缓存在本地数据库。</string>
     <string name="ai_coach_start">生成 AI 教练复盘</string>
     <string name="ai_coach_regenerate">重新分析</string>
-    <string name="ai_coach_stop">停止生成</string>
+    <string name="ai_coach_stop">取消分析</string>
     <string name="ai_coach_retry">重试</string>
     <string name="ai_coach_copy">复制报告</string>
     <string name="ai_coach_waiting_token">正在连接模型并分析轨迹遥测数据…</string>

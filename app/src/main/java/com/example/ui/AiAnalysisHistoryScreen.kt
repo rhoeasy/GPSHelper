@@ -25,7 +25,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -876,18 +875,7 @@ private fun AiHistoryDetailContent(
                     )
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = cs.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    SelectionContainer {
-                        FormattedCoachReportText(
-                            rawMarkdown = record.reportText,
-                            modifier = Modifier.padding(14.dp)
-                        )
-                    }
-                }
+                CollapsibleCoachReport(record.reportText, record.id)
             }
         }
 

@@ -84,6 +84,7 @@ import com.example.track.ActivityMode
 import com.example.track.SocialBgPreset
 import com.example.track.SocialCardBitmapRenderer
 import com.example.track.SocialCardConfig
+import com.example.track.SocialCardLayout
 import com.example.track.SocialOverlayBackdrop
 import com.example.track.TrackSessionDetail
 import kotlinx.coroutines.Dispatchers
@@ -132,7 +133,8 @@ fun SocialShareCardScreen(
                 showSurfaceComplexity = mode.isElevationTrail,
                 showBodyPerformance = mode == ActivityMode.HIKING || mode == ActivityMode.KARTING,
                 showF1Sectors = isKart,
-                showMiniProfile = true
+                showMiniProfile = true,
+                showSteps = mode == ActivityMode.HIKING && detail.session.stepCount != null
             )
         )
     }
@@ -231,6 +233,24 @@ fun SocialShareCardScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                if (config.useImportedPhoto && importedPhoto != null) {
+                    Text(stringResource(R.string.social_layout_title), style = MaterialTheme.typography.titleSmall)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val layouts = listOf(
+                            SocialCardLayout.PHOTO_TOP to R.string.social_layout_photo_top,
+                            SocialCardLayout.PHOTO_SIDE to R.string.social_layout_photo_side,
+                            SocialCardLayout.COVER to R.string.social_layout_cover
+                        )
+                        layouts.forEach { (layout, label) ->
+                            FilterChip(
+                                selected = config.layout == layout,
+                                onClick = { config = config.copy(layout = layout) },
+                                label = { Text(stringResource(label)) },
+                                modifier = Modifier.testTag("social_layout_${layout.name.lowercase()}")
+                            )
+                        }
+                    }
+                }
                 // Live WYSIWYG Preview over checkerboard (reveals true alpha when Transparent PNG is active)
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -239,7 +259,7 @@ fun SocialShareCardScreen(
                 ) {
                     val bmp = previewBitmap
                     val aspect = if (bmp != null && bmp.height > 0) {
-                        (bmp.width.toFloat() / bmp.height.toFloat()).coerceIn(0.68f, 1.35f)
+                        bmp.width.toFloat() / bmp.height.toFloat()
                     } else {
                         0.8f
                     }
@@ -451,7 +471,7 @@ fun SocialShareCardScreen(
                         }
 
                         // Overlay Backdrop Style (Transparent floating / Scrim / Frosted card)
-                        Row(
+                        if (!config.useImportedPhoto || config.layout == SocialCardLayout.COVER) Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -554,6 +574,14 @@ fun SocialShareCardScreen(
                                     selected = config.showHeartRate,
                                     onToggle = { config = config.copy(showHeartRate = !config.showHeartRate) },
                                     tag = "chip_overlay_hr"
+                                )
+                            }
+                            if (mode == ActivityMode.HIKING && detail.session.stepCount != null) {
+                                OverlayDataChip(
+                                    label = stringResource(R.string.metric_step_count),
+                                    selected = config.showSteps,
+                                    onToggle = { config = config.copy(showSteps = !config.showSteps) },
+                                    tag = "chip_overlay_steps"
                                 )
                             }
                             if (detail.session.peakTotalG > 0.05f) {

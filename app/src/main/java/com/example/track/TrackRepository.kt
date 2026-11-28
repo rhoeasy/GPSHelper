@@ -58,27 +58,15 @@ class TrackRepository(context: Context) {
         )
     }
 
-    suspend fun getAiReport(sessionId: Long): TrackAiReportEntity? {
-        return dao.getAiReport(sessionId)
-    }
+    fun observeAiReport(sessionId: Long): Flow<TrackAiReportEntity?> = dao.observeAiReport(sessionId)
 
-    suspend fun saveAiReport(report: TrackAiReportEntity) {
-        dao.upsertAiReport(report)
-    }
-
-    suspend fun deleteAiReport(sessionId: Long) {
-        dao.deleteAiReport(sessionId)
-    }
-
-    suspend fun saveAiAnalysisRecord(record: AiAnalysisRecordEntity): Long {
-        return dao.insertAiAnalysisRecord(record)
-    }
+    suspend fun saveAiCoachResult(record: AiAnalysisRecordEntity) = dao.saveAiCoachResult(record)
 
     suspend fun deleteAiAnalysisRecord(recordId: Long) {
-        dao.deleteAiAnalysisRecord(recordId)
+        dao.deleteAiAnalysisWithReport(recordId)
     }
 
     suspend fun clearAllAiAnalysisHistory() {
-        dao.clearAllAiAnalysisHistory()
+        dao.clearAiHistoryWithReports()
     }
 }

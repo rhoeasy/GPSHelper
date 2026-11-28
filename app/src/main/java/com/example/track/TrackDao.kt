@@ -86,6 +86,9 @@ interface TrackDao {
     @Query("SELECT * FROM track_ai_reports WHERE sessionId = :sessionId LIMIT 1")
     suspend fun getAiReport(sessionId: Long): TrackAiReportEntity?
 
+    @Query("SELECT * FROM track_ai_reports WHERE sessionId = :sessionId LIMIT 1")
+    fun observeAiReport(sessionId: Long): Flow<TrackAiReportEntity?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAiReport(report: TrackAiReportEntity)
 
@@ -98,9 +101,35 @@ interface TrackDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAiAnalysisRecord(record: AiAnalysisRecordEntity): Long
 
+    @Transaction
+    suspend fun saveAiCoachResult(record: AiAnalysisRecordEntity) {
+        val sessionId = requireNotNull(record.sessionId)
+        if (getSessionById(sessionId) == null) return
+        val historyId = insertAiAnalysisRecord(record)
+        upsertAiReport(TrackAiReportEntity(sessionId, record.modelId, record.reportText, record.generatedAtMs, historyId))
+    }
+
+    @Query("DELETE FROM track_ai_reports WHERE historyRecordId = :recordId")
+    suspend fun deleteReportLinkedToHistory(recordId: Long)
+
+    @Query("DELETE FROM track_ai_reports")
+    suspend fun clearAiReports()
+
     @Query("DELETE FROM ai_analysis_history WHERE id = :recordId")
     suspend fun deleteAiAnalysisRecord(recordId: Long)
 
     @Query("DELETE FROM ai_analysis_history")
     suspend fun clearAllAiAnalysisHistory()
+
+    @Transaction
+    suspend fun deleteAiAnalysisWithReport(recordId: Long) {
+        deleteReportLinkedToHistory(recordId)
+        deleteAiAnalysisRecord(recordId)
+    }
+
+    @Transaction
+    suspend fun clearAiHistoryWithReports() {
+        clearAiReports()
+        clearAllAiAnalysisHistory()
+    }
 }

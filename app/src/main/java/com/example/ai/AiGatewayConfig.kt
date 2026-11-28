@@ -30,6 +30,7 @@ data class AiGatewayConfig(
 
 sealed interface AiConnectionState {
     data object Idle : AiConnectionState
+    data object Queued : AiConnectionState
     data object Testing : AiConnectionState
     data class Success(val modelCount: Int) : AiConnectionState
     data class Error(val message: String) : AiConnectionState
@@ -40,7 +41,8 @@ sealed interface AiAnalysisState {
     data class Streaming(
         val sessionId: Long,
         val modelId: String,
-        val partialText: String
+        val partialText: String,
+        val stage: GatewayStage = GatewayStage.RECEIVING
     ) : AiAnalysisState
 
     data class Success(

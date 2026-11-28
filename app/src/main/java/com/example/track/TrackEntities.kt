@@ -117,7 +117,8 @@ data class TrackAiReportEntity(
     @PrimaryKey val sessionId: Long,
     val modelId: String,
     val reportText: String,
-    val generatedAtMs: Long
+    val generatedAtMs: Long,
+    val historyRecordId: Long? = null
 )
 
 @Entity(

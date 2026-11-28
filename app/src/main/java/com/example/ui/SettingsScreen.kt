@@ -129,6 +129,7 @@ fun SettingsScreen(
     onToggleKeepScreenOn: (Boolean) -> Unit,
     onToggleAutoFocusOnLaunch: (Boolean) -> Unit,
     onTestAndFetchAiModels: (baseUrl: String, apiKey: String, currentModelId: String) -> Unit,
+    onCancelAiModelTest: () -> Unit,
     onSaveAiGatewayConfig: (baseUrl: String, apiKey: String, modelId: String) -> Unit,
     onClearAiGatewayConfig: () -> Unit,
     onOpenAiHistory: () -> Unit,
@@ -270,6 +271,7 @@ fun SettingsScreen(
                                 connectionState = aiConnectionState,
                                 aiHistoryCount = aiHistoryCount,
                                 onTestAndFetchModels = onTestAndFetchAiModels,
+                                onCancelTest = onCancelAiModelTest,
                                 onSaveConfig = onSaveAiGatewayConfig,
                                 onClearConfig = onClearAiGatewayConfig,
                                 onOpenAiHistory = onOpenAiHistory
@@ -307,20 +309,9 @@ private fun SettingsRootMenu(
         }
     )
 
-    val enabledOverlayCount = remember(overlayConfig) {
-        listOf(
-            overlayConfig.showSpeed,
-            overlayConfig.showGForce,
-            overlayConfig.showAltitude,
-            overlayConfig.showHeartRate,
-            overlayConfig.showBearing,
-            overlayConfig.showAccuracy,
-            overlayConfig.showCoordinates
-        ).count { it }
-    }
     val overlaySummary = stringResource(
         R.string.settings_summary_overlay_count,
-        enabledOverlayCount,
+        overlayConfig.enabledCount,
         overlayConfig.scale.labelZh
     )
 
@@ -652,8 +643,7 @@ private fun SettingsOverlaySubContent(
                     themePalette = themePalette,
                     isMiniMode = previewMiniMode,
                     onToggleMiniMode = { previewMiniMode = !previewMiniMode },
-                    onClose = {},
-                    showCloseButton = true
+                    previewRideElapsedMs = overlayConfig.rideMarkerIntervalMinutes * 120_000L + 15_000L
                 )
             }
 
@@ -750,6 +740,32 @@ private fun SettingsOverlaySubContent(
                     onUpdateOverlayConfig { it.copy(showCoordinates = checked) }
                 }
             )
+            SettingsRowDivider()
+            SettingsToggleRow(
+                icon = Icons.Rounded.Timer,
+                title = stringResource(R.string.settings_overlay_ride_timer_title),
+                subtitle = stringResource(R.string.settings_overlay_ride_timer_desc),
+                checked = overlayConfig.showRideTimer,
+                testTag = "switch_overlay_ride_timer",
+                onCheckedChange = { checked -> onUpdateOverlayConfig { it.copy(showRideTimer = checked) } }
+            )
+            if (overlayConfig.showRideTimer) {
+                SettingsSliderRow(
+                    icon = Icons.Rounded.Timer,
+                    title = stringResource(R.string.settings_overlay_ride_marker_interval),
+                    valueLabel = stringResource(R.string.settings_overlay_ride_marker_minutes, overlayConfig.rideMarkerIntervalMinutes),
+                    value = overlayConfig.rideMarkerIntervalMinutes.toFloat(),
+                    valueRange = 1f..60f,
+                    steps = 58,
+                    testTag = "slider_overlay_ride_marker_interval",
+                    onValueChange = { raw ->
+                        val minutes = raw.roundToInt()
+                        if (minutes != overlayConfig.rideMarkerIntervalMinutes) {
+                            onUpdateOverlayConfig { it.copy(rideMarkerIntervalMinutes = minutes) }
+                        }
+                    }
+                )
+            }
         }
     }
 

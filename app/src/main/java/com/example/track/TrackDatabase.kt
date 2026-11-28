@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TrackAiReportEntity::class,
         AiAnalysisRecordEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class TrackDatabase : RoomDatabase() {
@@ -91,6 +91,26 @@ abstract class TrackDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE track_ai_reports ADD COLUMN historyRecordId INTEGER")
+                db.execSQL(
+                    """
+                    UPDATE track_ai_reports SET historyRecordId = (
+                        SELECT h.id FROM ai_analysis_history h
+                        WHERE h.sessionId = track_ai_reports.sessionId
+                          AND h.generatedAtMs = track_ai_reports.generatedAtMs
+                          AND h.modelId = track_ai_reports.modelId
+                          AND h.reportText = track_ai_reports.reportText
+                        ORDER BY h.id DESC LIMIT 1
+                    )
+                    """.trimIndent()
+                )
+                // Caches left behind by previous history deletions must not reappear after upgrade.
+                db.execSQL("DELETE FROM track_ai_reports WHERE historyRecordId IS NULL")
+            }
+        }
+
         fun getInstance(context: Context): TrackDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -98,7 +118,7 @@ abstract class TrackDatabase : RoomDatabase() {
                     TrackDatabase::class.java,
                     "gps_hud_tracks.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { INSTANCE = it }
             }

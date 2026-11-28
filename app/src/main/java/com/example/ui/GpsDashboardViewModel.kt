@@ -14,8 +14,10 @@ import androidx.lifecycle.viewModelScope
 import com.example.ai.AiAnalysisState
 import com.example.ai.AiConnectionState
 import com.example.ai.AiGatewayConfig
-import com.example.ai.AiGatewaySecureStorage
-import com.example.ai.OpenAiGatewayClient
+import com.example.ai.AiGatewayWork
+import com.example.ai.GatewayStage
+import com.example.ai.GatewayTaskKey
+import com.example.ai.GatewayTaskStatus
 import com.example.ble.BleHrDevice
 import com.example.ble.HeartRateRepository
 import com.example.ble.HeartRateState
@@ -37,9 +39,7 @@ import com.example.track.AiAnalysisRecordEntity
 import com.example.track.GpxExporter
 import com.example.track.RecordingSnapshot
 import com.example.track.TelemetryJsonExporter
-import com.example.track.TrackAiReportEntity
 import com.example.track.TrackEndpoints
-import com.example.track.TrackFormatters
 import com.example.track.TrackMergeEngine
 import com.example.track.TrackMergePreview
 import com.example.track.TrackRecorder
@@ -48,13 +48,18 @@ import com.example.track.TrackSessionDetail
 import com.example.track.TrackSessionEntity
 import com.example.ui.theme.AppThemePalette
 import com.example.ui.theme.ThemeMode
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,7 +78,7 @@ data class PermissionStatus(
 class GpsDashboardViewModel(application: Application) : AndroidViewModel(application) {
 
     private val trackRepository = TrackRepository(application)
-    private val aiGatewayStorage = AiGatewaySecureStorage(application)
+    private val gatewayWork = AiGatewayWork.get(application)
 
     val gpsData: StateFlow<GpsData> = GpsRepository.gpsData
     val satellites: StateFlow<List<GnssSatelliteInfo>> = GpsRepository.satellites
@@ -125,20 +130,32 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     private val _isMergingTracks = MutableStateFlow(false)
     val isMergingTracks: StateFlow<Boolean> = _isMergingTracks.asStateFlow()
 
-    private val _aiGatewayConfig = MutableStateFlow(aiGatewayStorage.loadConfig())
-    val aiGatewayConfig: StateFlow<AiGatewayConfig> = _aiGatewayConfig.asStateFlow()
+    val aiGatewayConfig = gatewayWork.config
+    val aiFetchedModels = gatewayWork.models
+    val aiConnectionState = combine(gatewayWork.status, gatewayWork.modelTestResult) { jobs, result ->
+        when (val job = jobs[GatewayTaskKey.Models]) {
+            is GatewayTaskStatus.Active -> if (job.stage == GatewayStage.QUEUED) AiConnectionState.Queued else AiConnectionState.Testing
+            is GatewayTaskStatus.Failed -> AiConnectionState.Error(job.message)
+            null -> result
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), AiConnectionState.Idle)
 
-    private val _aiFetchedModels = MutableStateFlow(aiGatewayStorage.loadFetchedModels())
-    val aiFetchedModels: StateFlow<List<String>> = _aiFetchedModels.asStateFlow()
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val aiAnalysisState: StateFlow<AiAnalysisState> = _selectedSessionDetail.map { it?.session?.id }
+        .distinctUntilChanged().flatMapLatest { sessionId ->
+            if (sessionId == null) flowOf(AiAnalysisState.Idle) else {
+                combine(gatewayWork.status, gatewayWork.config, trackRepository.observeAiReport(sessionId)) { jobs, config, report ->
+                    when (val job = jobs[GatewayTaskKey.Coach(sessionId)]) {
+                        is GatewayTaskStatus.Active -> AiAnalysisState.Streaming(sessionId, job.modelId ?: config.modelId, job.partialText, job.stage)
+                        is GatewayTaskStatus.Failed -> AiAnalysisState.Error(sessionId, job.message)
+                        null -> report?.let { AiAnalysisState.Success(sessionId, it.modelId, it.reportText, it.generatedAtMs, true) }
+                            ?: AiAnalysisState.Idle
+                    }
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), AiAnalysisState.Idle)
 
-    private val _aiConnectionState = MutableStateFlow<AiConnectionState>(AiConnectionState.Idle)
-    val aiConnectionState: StateFlow<AiConnectionState> = _aiConnectionState.asStateFlow()
-
-    private val _aiAnalysisState = MutableStateFlow<AiAnalysisState>(AiAnalysisState.Idle)
-    val aiAnalysisState: StateFlow<AiAnalysisState> = _aiAnalysisState.asStateFlow()
-
-    private var aiAnalysisJob: Job? = null
-    private var aiTestJob: Job? = null
+    private var detailLoadJob: Job? = null
 
     private val _permissionStatus = MutableStateFlow(readPermissions())
     val permissionStatus: StateFlow<PermissionStatus> = _permissionStatus.asStateFlow()
@@ -236,8 +253,6 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     }
 
     override fun onCleared() {
-        aiAnalysisJob?.cancel()
-        aiTestJob?.cancel()
         MotionSensorManager.stopListening(VIEWMODEL_SENSOR_CLIENT_ID)
         EnvironmentSensorManager.stopListening(VIEWMODEL_ENV_CLIENT_ID)
         super.onCleared()
@@ -311,46 +326,25 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
 
     // Track history & detail controls
     fun loadSessionDetail(sessionId: Long) {
-        aiAnalysisJob?.cancel()
-        _aiAnalysisState.value = AiAnalysisState.Idle
-        viewModelScope.launch {
-            val (detail, cachedReport) = withContext(Dispatchers.IO) {
-                val loadedDetail = trackRepository.loadSessionDetail(sessionId)
-                val cached = if (loadedDetail != null) {
-                    trackRepository.getAiReport(sessionId)
-                } else {
-                    null
-                }
-                loadedDetail to cached
-            }
-            _selectedSessionDetail.value = detail
-            if (detail != null && cachedReport != null) {
-                _aiAnalysisState.value = AiAnalysisState.Success(
-                    sessionId = cachedReport.sessionId,
-                    modelId = cachedReport.modelId,
-                    reportText = cachedReport.reportText,
-                    generatedAtMs = cachedReport.generatedAtMs,
-                    isFromCache = true
-                )
-            }
+        detailLoadJob?.cancel()
+        detailLoadJob = viewModelScope.launch {
+            _selectedSessionDetail.value = withContext(Dispatchers.IO) { trackRepository.loadSessionDetail(sessionId) }
         }
     }
 
     fun closeSessionDetail() {
-        aiAnalysisJob?.cancel()
-        _aiAnalysisState.value = AiAnalysisState.Idle
+        detailLoadJob?.cancel()
         _selectedSessionDetail.value = null
     }
 
     fun deleteSession(sessionId: Long) {
+        gatewayWork.cancelTrack(sessionId)
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 trackRepository.deleteSession(sessionId)
             }
             if (_selectedSessionDetail.value?.session?.id == sessionId) {
-                aiAnalysisJob?.cancel()
-                _aiAnalysisState.value = AiAnalysisState.Idle
-                _selectedSessionDetail.value = null
+                closeSessionDetail()
             }
         }
     }
@@ -442,238 +436,29 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    // OpenAI-Compatible AI Gateway & Track Coach Analysis
-    fun saveAiGatewayConfig(baseUrl: String, apiKey: String, modelId: String): Result<AiGatewayConfig> {
-        val trimmedUrl = baseUrl.trim()
-        val normalizedUrl = if (trimmedUrl.isNotEmpty()) {
-            OpenAiGatewayClient.normalizeAndValidateBaseUrl(trimmedUrl)
-                .getOrElse { err ->
-                    _aiConnectionState.value = AiConnectionState.Error(err.message ?: "Base URL 无效")
-                    return Result.failure(err)
-                }
-        } else {
-            ""
-        }
-        val updated = AiGatewayConfig(
-            baseUrl = normalizedUrl,
-            apiKey = apiKey.trim(),
-            modelId = modelId.trim()
-        )
-        aiGatewayStorage.saveConfig(updated)
-        _aiGatewayConfig.value = updated
-        if (_aiConnectionState.value is AiConnectionState.Error) {
-            _aiConnectionState.value = AiConnectionState.Idle
-        }
-        return Result.success(updated)
-    }
+    // AI commands enqueue work in the process-owned queue, independently of the selected page.
+    fun saveAiGatewayConfig(baseUrl: String, apiKey: String, modelId: String): Result<AiGatewayConfig> =
+        gatewayWork.saveConfig(baseUrl, apiKey, modelId)
 
-    fun clearAiGatewayConfig() {
-        aiTestJob?.cancel()
-        aiAnalysisJob?.cancel()
-        aiGatewayStorage.clearAll()
-        _aiGatewayConfig.value = AiGatewayConfig()
-        _aiFetchedModels.value = emptyList()
-        _aiConnectionState.value = AiConnectionState.Idle
-    }
+    fun clearAiGatewayConfig() = gatewayWork.clearConfig()
 
-    fun testAndFetchAiModels(baseUrl: String, apiKey: String, currentModelId: String) {
-        aiTestJob?.cancel()
-        val validatedUrl = OpenAiGatewayClient.normalizeAndValidateBaseUrl(baseUrl)
-            .getOrElse { err ->
-                _aiConnectionState.value = AiConnectionState.Error(err.message ?: "Base URL 格式无效")
-                return
-            }
+    fun testAndFetchAiModels(baseUrl: String, apiKey: String, currentModelId: String) =
+        gatewayWork.testModels(baseUrl, apiKey, currentModelId)
 
-        val draftConfig = AiGatewayConfig(
-            baseUrl = validatedUrl,
-            apiKey = apiKey.trim(),
-            modelId = currentModelId.trim()
-        )
-        aiGatewayStorage.saveConfig(draftConfig)
-        _aiGatewayConfig.value = draftConfig
-        _aiConnectionState.value = AiConnectionState.Testing
+    fun cancelAiModelTest() = gatewayWork.cancelModelTest()
 
-        aiTestJob = viewModelScope.launch {
-            val result = OpenAiGatewayClient.fetchModels(draftConfig)
-            result.fold(
-                onSuccess = { models ->
-                    aiGatewayStorage.saveFetchedModels(models)
-                    _aiFetchedModels.value = models
-                    val resolvedModel = draftConfig.modelId.ifBlank { models.firstOrNull().orEmpty() }
-                    val finalConfig = draftConfig.copy(modelId = resolvedModel)
-                    aiGatewayStorage.saveConfig(finalConfig)
-                    _aiGatewayConfig.value = finalConfig
-                    _aiConnectionState.value = AiConnectionState.Success(models.size)
-                },
-                onFailure = { err ->
-                    _aiConnectionState.value = AiConnectionState.Error(
-                        err.message ?: "无法连接 AI 网关，请检查地址与密钥"
-                    )
-                }
-            )
-        }
-    }
-
-    fun generateAiCoachReport(detail: TrackSessionDetail) {
-        val config = _aiGatewayConfig.value
-        val sessionId = detail.session.id
-        if (!config.isConfigured) {
-            _aiAnalysisState.value = AiAnalysisState.Error(
-                sessionId = sessionId,
-                message = "请先在「设置 → AI 网关」填写 Base URL 与模型 ID"
-            )
-            return
-        }
-
-        aiAnalysisJob?.cancel()
-        val activeModel = config.modelId.trim()
-        _aiAnalysisState.value = AiAnalysisState.Streaming(
-            sessionId = sessionId,
-            modelId = activeModel,
-            partialText = ""
-        )
-
-        aiAnalysisJob = viewModelScope.launch {
-            val (systemPrompt, userPrompt) = withContext(Dispatchers.Default) {
-                val modeRole = when (detail.session.activityMode) {
-                    ActivityMode.KARTING -> "你是一位专业的卡丁车赛道遥测数据分析教练，擅长用清晰、结构化的中文给出专业且可落地的复盘建议。"
-                    ActivityMode.OFFROAD_CROSSING -> "你是一位专业的摩托车越野穿越与山路骑行遥测分析教练，擅长用清晰、结构化的中文给出控车、配速与安全建议。"
-                    ActivityMode.HIKING -> "你是一位专业的户外徒步与运动生理分析教练，擅长用清晰、结构化的中文分析爬升节奏、心肺负荷与体能分配。"
-                }
-                val coachPrompt = TelemetryJsonExporter.buildAiAnalysisPrompt(detail.session, detail.laps)
-                val telemetryJson = TelemetryJsonExporter.buildStructuredJson(
-                    session = detail.session,
-                    points = detail.points,
-                    laps = detail.laps,
-                    maxSamples = AI_COACH_MAX_SAMPLES
-                )
-                modeRole to "$coachPrompt\n\n```json\n$telemetryJson\n```"
-            }
-
-            val accumulated = StringBuilder()
-            try {
-                OpenAiGatewayClient.streamChatCompletion(
-                    config = config,
-                    systemPrompt = systemPrompt,
-                    userPrompt = userPrompt
-                ).collect { chunk ->
-                    accumulated.append(chunk)
-                    _aiAnalysisState.value = AiAnalysisState.Streaming(
-                        sessionId = sessionId,
-                        modelId = activeModel,
-                        partialText = accumulated.toString()
-                    )
-                }
-
-                val finalText = accumulated.toString().trim()
-                if (finalText.isEmpty()) {
-                    _aiAnalysisState.value = AiAnalysisState.Error(
-                        sessionId = sessionId,
-                        message = "模型未返回有效复盘内容，请重试"
-                    )
-                    return@launch
-                }
-
-                val generatedAtMs = System.currentTimeMillis()
-                val summaryMetrics = buildAiHistorySummaryMetrics(detail.session, speedUnit.value)
-                withContext(Dispatchers.IO) {
-                    trackRepository.saveAiReport(
-                        TrackAiReportEntity(
-                            sessionId = sessionId,
-                            modelId = activeModel,
-                            reportText = finalText,
-                            generatedAtMs = generatedAtMs
-                        )
-                    )
-                    trackRepository.saveAiAnalysisRecord(
-                        AiAnalysisRecordEntity(
-                            sessionId = sessionId,
-                            sessionName = detail.session.name,
-                            activityMode = detail.session.mode,
-                            modelId = activeModel,
-                            reportText = finalText,
-                            summaryMetrics = summaryMetrics,
-                            generatedAtMs = generatedAtMs
-                        )
-                    )
-                }
-                _aiAnalysisState.value = AiAnalysisState.Success(
-                    sessionId = sessionId,
-                    modelId = activeModel,
-                    reportText = finalText,
-                    generatedAtMs = generatedAtMs,
-                    isFromCache = false
-                )
-            } catch (e: CancellationException) {
-                val partial = accumulated.toString().trim()
-                if (partial.isNotEmpty()) {
-                    _aiAnalysisState.value = AiAnalysisState.Success(
-                        sessionId = sessionId,
-                        modelId = activeModel,
-                        reportText = partial,
-                        generatedAtMs = System.currentTimeMillis(),
-                        isFromCache = false
-                    )
-                } else {
-                    val cached = withContext(Dispatchers.IO) {
-                        trackRepository.getAiReport(sessionId)
-                    }
-                    _aiAnalysisState.value = if (cached != null) {
-                        AiAnalysisState.Success(
-                            sessionId = cached.sessionId,
-                            modelId = cached.modelId,
-                            reportText = cached.reportText,
-                            generatedAtMs = cached.generatedAtMs,
-                            isFromCache = true
-                        )
-                    } else {
-                        AiAnalysisState.Idle
-                    }
-                }
-                throw e
-            } catch (e: Exception) {
-                _aiAnalysisState.value = AiAnalysisState.Error(
-                    sessionId = sessionId,
-                    message = e.message?.takeIf { it.isNotBlank() } ?: "AI 复盘生成失败，请检查网关配置或网络状态"
-                )
-            }
-        }
-    }
+    fun generateAiCoachReport(detail: TrackSessionDetail) = gatewayWork.analyzeTrack(detail, speedUnit.value)
 
     fun stopAiCoachGeneration() {
-        aiAnalysisJob?.cancel()
+        _selectedSessionDetail.value?.session?.id?.let(gatewayWork::cancelTrack)
     }
 
     fun deleteAiAnalysisRecord(recordId: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
-            trackRepository.deleteAiAnalysisRecord(recordId)
-        }
+        viewModelScope.launch(Dispatchers.IO) { trackRepository.deleteAiAnalysisRecord(recordId) }
     }
 
     fun clearAllAiAnalysisHistory() {
-        viewModelScope.launch(Dispatchers.IO) {
-            trackRepository.clearAllAiAnalysisHistory()
-        }
-    }
-
-    private fun buildAiHistorySummaryMetrics(
-        session: TrackSessionEntity,
-        unit: SpeedUnit
-    ): String {
-        val parts = mutableListOf<String>()
-        parts += TrackFormatters.formatDistance(session.distanceMeters)
-        if (session.activityMode == ActivityMode.KARTING) {
-            if (session.lapCount > 0) {
-                parts += "${session.lapCount} 圈"
-            }
-            session.bestLapMs?.let { best ->
-                parts += "最佳 ${TrackFormatters.formatLapTime(best)}"
-            }
-        } else {
-            parts += "爬升 ${TrackFormatters.formatElevationGain(session.elevationGainMeters)}"
-        }
-        parts += "极速 ${TrackFormatters.formatSpeed(session.maxSpeedMps, unit)}"
-        return parts.joinToString(" · ")
+        viewModelScope.launch(Dispatchers.IO) { trackRepository.clearAllAiAnalysisHistory() }
     }
 
     fun exportDetailToGpx(detail: TrackSessionDetail, onResult: (Uri?) -> Unit) {
@@ -768,6 +553,5 @@ class GpsDashboardViewModel(application: Application) : AndroidViewModel(applica
     companion object {
         private const val VIEWMODEL_SENSOR_CLIENT_ID = "gps_dashboard_viewmodel"
         private const val VIEWMODEL_ENV_CLIENT_ID = "gps_dashboard_env_viewmodel"
-        private const val AI_COACH_MAX_SAMPLES = 220
     }
 }

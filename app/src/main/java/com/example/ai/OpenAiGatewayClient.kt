@@ -1,26 +1,34 @@
 package com.example.ai
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.ProducerScope
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
+
+internal sealed interface GatewayChatEvent {
+    data object Headers : GatewayChatEvent
+    data class Text(val text: String) : GatewayChatEvent
+}
 
 /**
  * Standard OpenAI-compatible HTTP client supporting OneAPI, NewAPI, DeepSeek,
@@ -38,17 +46,19 @@ object OpenAiGatewayClient {
 
     private val modelsClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(12, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(12, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.SECONDS)
             .build()
     }
 
     private val streamClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(90, TimeUnit.SECONDS)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(20, TimeUnit.SECONDS)
+            .callTimeout(120, TimeUnit.SECONDS)
             .build()
     }
 
@@ -144,9 +154,9 @@ object OpenAiGatewayClient {
     /**
      * Fetches the available model IDs from `GET {baseUrl}/models`.
      */
-    suspend fun fetchModels(config: AiGatewayConfig): Result<List<String>> = withContext(Dispatchers.IO) {
+    suspend fun fetchModels(config: AiGatewayConfig): Result<List<String>> {
         val normalizedBase = normalizeAndValidateBaseUrl(config.baseUrl)
-            .getOrElse { return@withContext Result.failure(it) }
+            .getOrElse { return Result.failure(it) }
 
         val requestBuilder = Request.Builder()
             .url("$normalizedBase/models")
@@ -158,28 +168,23 @@ object OpenAiGatewayClient {
             requestBuilder.header("Authorization", "Bearer $key")
         }
 
-        val call = modelsClient.newCall(requestBuilder.build())
-        val jobHandle = currentCoroutineContext()[Job]?.invokeOnCompletion { call.cancel() }
-        try {
-            call.execute().use { response ->
-                val bodyText = response.body?.string().orEmpty()
+        return try {
+            val models = responseFlow<List<String>>(modelsClient.newCall(requestBuilder.build())) { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(
-                        IOException(mapHttpError(response.code, bodyText, isModelsEndpoint = true))
-                    )
+                    throw IOException(mapHttpError(response.code, errorBodyIfNeeded(response), isModelsEndpoint = true))
                 }
+                val bodyText = response.body?.string().orEmpty()
                 val models = parseModelsResponse(bodyText)
                 if (models.isEmpty()) {
-                    return@withContext Result.failure(
-                        IOException("连接成功，但网关未返回模型列表，可直接在下方手动输入模型 ID")
-                    )
+                    throw IOException("连接成功，但网关未返回模型列表，可手动输入模型 ID")
                 }
-                Result.success(models)
-            }
+                trySendBlocking(models)
+            }.first()
+            Result.success(models)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Result.failure(IOException(mapNetworkException(e), e))
-        } finally {
-            jobHandle?.dispose()
+            Result.failure(e)
         }
     }
 
@@ -187,11 +192,11 @@ object OpenAiGatewayClient {
      * Streams assistant text chunks from `POST {baseUrl}/chat/completions`.
      * Supports both SSE streaming (`text/event-stream`) and standard JSON fallback.
      */
-    fun streamChatCompletion(
+    internal fun streamChatCompletion(
         config: AiGatewayConfig,
         systemPrompt: String,
         userPrompt: String
-    ): Flow<String> = flow {
+    ): Flow<GatewayChatEvent> {
         val normalizedBase = normalizeAndValidateBaseUrl(config.baseUrl)
             .getOrThrow()
         val modelId = config.modelId.trim()
@@ -232,76 +237,87 @@ object OpenAiGatewayClient {
             requestBuilder.header("Authorization", "Bearer $key")
         }
 
-        val call = streamClient.newCall(requestBuilder.build())
-        val jobHandle = currentCoroutineContext()[Job]?.invokeOnCompletion { call.cancel() }
-        try {
-            call.execute().use { response ->
-                val body = response.body
-                if (!response.isSuccessful) {
-                    val errBody = body?.string().orEmpty()
-                    throw IOException(mapHttpError(response.code, errBody, isModelsEndpoint = false))
-                }
-                if (body == null) {
-                    throw IOException("网关返回空响应，请稍后重试")
-                }
+        return responseFlow(streamClient.newCall(requestBuilder.build())) { response ->
+            val body = response.body
+            if (!response.isSuccessful) {
+                if (trySendBlocking(GatewayChatEvent.Headers).isFailure) return@responseFlow
+                val errBody = errorBodyIfNeeded(response)
+                throw IOException(mapHttpError(response.code, errBody, isModelsEndpoint = false))
+            }
+            if (body == null) {
+                throw IOException("网关返回空响应，请稍后重试")
+            }
+            if (trySendBlocking(GatewayChatEvent.Headers).isFailure) return@responseFlow
 
-                val contentType = response.header("Content-Type").orEmpty().lowercase()
-                if (contentType.contains("application/json")) {
-                    val fullJson = body.string()
-                    val fullText = parseNonStreamingCompletion(fullJson)
-                    if (fullText.isNullOrEmpty()) {
-                        throw IOException("模型返回内容为空，请检查模型 ID 或重试")
+            val contentType = response.header("Content-Type").orEmpty().lowercase()
+            if (contentType.contains("application/json")) {
+                val fullJson = body.string()
+                val fullText = parseNonStreamingCompletion(fullJson)
+                if (fullText.isNullOrEmpty()) {
+                    throw IOException("模型返回内容为空，请检查模型 ID 或重试")
+                }
+                trySendBlocking(GatewayChatEvent.Text(fullText))
+                return@responseFlow
+            }
+
+            val source = body.source()
+            var emittedAny = false
+            val nonSseBuffer = StringBuilder()
+            var sawSsePrefix = false
+
+            while (!source.exhausted()) {
+                val line = source.readUtf8Line() ?: break
+                val trimmed = line.trim()
+                if (trimmed.isEmpty() || trimmed.startsWith(":")) continue
+
+                if (trimmed.startsWith("data:")) {
+                    sawSsePrefix = true
+                    val dataPayload = trimmed.removePrefix("data:").trim()
+                    if (dataPayload == "[DONE]") {
+                        break
                     }
-                    emit(fullText)
-                    return@use
-                }
-
-                val source = body.source()
-                var emittedAny = false
-                val nonSseBuffer = StringBuilder()
-                var sawSsePrefix = false
-
-                while (currentCoroutineContext().isActive && !source.exhausted()) {
-                    val line = source.readUtf8Line() ?: break
-                    val trimmed = line.trim()
-                    if (trimmed.isEmpty() || trimmed.startsWith(":")) continue
-
-                    if (trimmed.startsWith("data:")) {
-                        sawSsePrefix = true
-                        val dataPayload = trimmed.removePrefix("data:").trim()
-                        if (dataPayload == "[DONE]") {
-                            break
-                        }
-                        val delta = parseSseChunkDelta(dataPayload)
-                        if (!delta.isNullOrEmpty()) {
-                            emittedAny = true
-                            emit(delta)
-                        }
-                    } else if (!sawSsePrefix) {
-                        nonSseBuffer.append(trimmed)
-                    }
-                }
-
-                // Fallback for gateways returning plain JSON without application/json Content-Type
-                if (!emittedAny && nonSseBuffer.isNotEmpty()) {
-                    val fallbackText = parseNonStreamingCompletion(nonSseBuffer.toString())
-                    if (!fallbackText.isNullOrEmpty()) {
+                    val delta = parseSseChunkDelta(dataPayload)
+                    if (!delta.isNullOrEmpty()) {
                         emittedAny = true
-                        emit(fallbackText)
+                        if (trySendBlocking(GatewayChatEvent.Text(delta)).isFailure) return@responseFlow
                     }
-                }
-
-                if (!emittedAny && currentCoroutineContext().isActive) {
-                    throw IOException("未收到模型生成的文本内容，请确认所选模型支持对话补全")
+                } else if (!sawSsePrefix) {
+                    nonSseBuffer.append(trimmed)
                 }
             }
-        } catch (e: IOException) {
-            if (!currentCoroutineContext().isActive) throw e
-            throw IOException(mapNetworkException(e), e)
-        } finally {
-            jobHandle?.dispose()
+
+            // Fallback for gateways returning plain JSON without application/json Content-Type
+            if (!emittedAny && nonSseBuffer.isNotEmpty()) {
+                val fallbackText = parseNonStreamingCompletion(nonSseBuffer.toString())
+                if (!fallbackText.isNullOrEmpty()) {
+                    emittedAny = true
+                    trySendBlocking(GatewayChatEvent.Text(fallbackText))
+                }
+            }
+
+            if (!emittedAny) {
+                throw IOException("未收到模型生成的文本内容，请确认所选模型支持对话补全")
+            }
         }
-    }.flowOn(Dispatchers.IO)
+    }
+
+    private fun <T> responseFlow(call: Call, read: ProducerScope<T>.(Response) -> Unit): Flow<T> = callbackFlow {
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                close(IOException(mapNetworkException(e), e))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    response.use { read(it) }
+                    close()
+                } catch (e: Exception) {
+                    close(IOException(mapNetworkException(e), e))
+                }
+            }
+        })
+        awaitClose { call.cancel() }
+    }
 
     internal fun parseModelsResponse(jsonText: String): List<String> {
         val trimmed = jsonText.trim()
@@ -402,6 +418,11 @@ object OpenAiGatewayClient {
         }.getOrNull()
     }
 
+    private fun errorBodyIfNeeded(response: Response): String = when (response.code) {
+        401, 403, 429, in 500..599 -> ""
+        else -> response.peekBody(4_096L).string()
+    }
+
     private fun mapHttpError(code: Int, bodyText: String, isModelsEndpoint: Boolean): String {
         val detail = extractGatewayErrorMessage(bodyText)
         val suffix = if (!detail.isNullOrBlank()) "（$detail）" else ""
@@ -424,6 +445,7 @@ object OpenAiGatewayClient {
             is UnknownHostException -> "无法解析网关域名，请检查网络连接或 Base URL"
             is ConnectException -> "无法连接到网关服务器，请确认地址、端口及局域网状态"
             is SocketTimeoutException -> "连接或响应超时，请稍后重试"
+            is InterruptedIOException -> "网关请求超时，请稍后重试"
             is SSLException -> "HTTPS 安全证书校验失败，请检查网关证书配置"
             else -> e.message?.takeIf { it.isNotBlank() } ?: "网络请求异常，请检查网关配置后重试"
         }

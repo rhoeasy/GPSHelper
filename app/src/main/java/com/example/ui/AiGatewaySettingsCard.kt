@@ -79,6 +79,7 @@ fun AiGatewaySettingsCard(
     connectionState: AiConnectionState,
     aiHistoryCount: Int,
     onTestAndFetchModels: (baseUrl: String, apiKey: String, currentModelId: String) -> Unit,
+    onCancelTest: () -> Unit,
     onSaveConfig: (baseUrl: String, apiKey: String, modelId: String) -> Unit,
     onClearConfig: () -> Unit,
     onOpenAiHistory: () -> Unit,
@@ -245,12 +246,12 @@ fun AiGatewaySettingsCard(
             )
 
             // Test Connection & Fetch Models Action
-            val isTesting = connectionState is AiConnectionState.Testing
+            val isTesting = connectionState == AiConnectionState.Testing || connectionState == AiConnectionState.Queued
             FilledTonalButton(
                 onClick = {
-                    onTestAndFetchModels(baseUrlDraft, apiKeyDraft, modelIdDraft)
+                    if (isTesting) onCancelTest() else onTestAndFetchModels(baseUrlDraft, apiKeyDraft, modelIdDraft)
                 },
-                enabled = !isTesting && baseUrlDraft.isNotBlank(),
+                enabled = isTesting || baseUrlDraft.isNotBlank(),
                 shape = RoundedCornerShape(50),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -263,7 +264,7 @@ fun AiGatewaySettingsCard(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.ai_action_testing))
+                    Text(stringResource(R.string.ai_cancel_test))
                 } else {
                     Icon(
                         imageVector = Icons.Rounded.CloudDone,
@@ -329,8 +330,9 @@ fun AiGatewaySettingsCard(
                     }
                 }
 
-                AiConnectionState.Idle,
-                AiConnectionState.Testing -> Unit
+                AiConnectionState.Queued -> Text(stringResource(R.string.ai_stage_queued), style = MaterialTheme.typography.bodySmall)
+                AiConnectionState.Testing -> Text(stringResource(R.string.ai_action_testing), style = MaterialTheme.typography.bodySmall)
+                AiConnectionState.Idle -> Unit
             }
 
             // Model ID Manual Input (always available as fallback)

@@ -566,6 +566,7 @@ private fun SpeedUnitToggleChip(
 @Composable
 fun CoordinatesCard(
     gpsData: GpsData,
+    onOpenDetails: () -> Unit,
     onCopyCoordinates: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -573,6 +574,7 @@ fun CoordinatesCard(
     val coordsDisplay = gpsData.formattedCoordinates() ?: "-- , --"
 
     Surface(
+        onClick = onOpenDetails,
         modifier = modifier
             .fillMaxWidth()
             .testTag("coordinates_card"),

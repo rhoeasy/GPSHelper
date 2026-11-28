@@ -45,7 +45,6 @@ import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -111,7 +110,8 @@ enum class TelemetryDetailPage {
     ALTITUDE,
     ACCURACY,
     COMPASS,
-    SATELLITES
+    SATELLITES,
+    COORDINATES
 }
 
 @Composable
@@ -196,6 +196,7 @@ fun GpsHudAppShell(
     aiAnalysisHistory: List<AiAnalysisRecordEntity>,
     showAiAnalysisHistory: Boolean,
     onTestAndFetchAiModels: (baseUrl: String, apiKey: String, currentModelId: String) -> Unit,
+    onCancelAiModelTest: () -> Unit,
     onSaveAiGatewayConfig: (baseUrl: String, apiKey: String, modelId: String) -> Unit,
     onClearAiGatewayConfig: () -> Unit,
     onStartAiAnalysis: (TrackSessionDetail) -> Unit,
@@ -310,6 +311,24 @@ fun GpsHudAppShell(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(cs.background)
+                )
+            }
+
+            TelemetryDetailPage.COORDINATES -> {
+                val shareTitle = stringResource(R.string.coordinate_diagram_title)
+                CoordinateDetailScreen(
+                    gpsData = gpsData,
+                    gateway = aiGatewayConfig,
+                    onBack = onCloseTelemetryDetail,
+                    onCopy = onCopyCoordinates,
+                    onRequestLocation = onRequestLocationPermission,
+                    onOpenLocationSettings = onOpenLocationSettings,
+                    onConfigureGateway = {
+                        onCloseTelemetryDetail()
+                        onSelectTab(MainTab.SETTINGS)
+                        onSelectSettingsSubPage(SettingsSubPage.AI_GATEWAY)
+                    },
+                    onShareImage = { uri -> onShareSocialImage(uri, shareTitle) }
                 )
             }
         }
@@ -527,11 +546,9 @@ fun GpsHudAppShell(
                                     GoogleTopHeader(
                                         gpsData = gpsData,
                                         themeMode = themeMode,
-                                        keepScreenOn = keepScreenOn,
                                         isFocusLockActive = isFocusLockActive,
                                         compactLandscape = true,
                                         onSelectThemeMode = onSelectThemeMode,
-                                        onToggleKeepScreenOn = onToggleKeepScreenOn,
                                         onOpenFocusDialog = onOpenFocusDialog
                                     )
 
@@ -630,6 +647,7 @@ fun GpsHudAppShell(
 
                                             CoordinatesCard(
                                                 gpsData = gpsData,
+                                                onOpenDetails = { onOpenTelemetryDetail(TelemetryDetailPage.COORDINATES) },
                                                 onCopyCoordinates = onCopyCoordinates
                                             )
                                         }
@@ -657,10 +675,8 @@ fun GpsHudAppShell(
                                     GoogleTopHeader(
                                         gpsData = gpsData,
                                         themeMode = themeMode,
-                                        keepScreenOn = keepScreenOn,
                                         isFocusLockActive = isFocusLockActive,
                                         onSelectThemeMode = onSelectThemeMode,
-                                        onToggleKeepScreenOn = onToggleKeepScreenOn,
                                         onOpenFocusDialog = onOpenFocusDialog
                                     )
 
@@ -717,6 +733,7 @@ fun GpsHudAppShell(
 
                                     CoordinatesCard(
                                         gpsData = gpsData,
+                                        onOpenDetails = { onOpenTelemetryDetail(TelemetryDetailPage.COORDINATES) },
                                         onCopyCoordinates = onCopyCoordinates
                                     )
 
@@ -810,6 +827,7 @@ fun GpsHudAppShell(
                                     onToggleKeepScreenOn = onToggleKeepScreenOn,
                                     onToggleAutoFocusOnLaunch = onToggleAutoFocusOnLaunch,
                                     onTestAndFetchAiModels = onTestAndFetchAiModels,
+                                    onCancelAiModelTest = onCancelAiModelTest,
                                     onSaveAiGatewayConfig = onSaveAiGatewayConfig,
                                     onClearAiGatewayConfig = onClearAiGatewayConfig,
                                     onOpenAiHistory = onOpenAiHistory,
@@ -894,10 +912,8 @@ private fun DashboardActiveRecordingPill(
 private fun GoogleTopHeader(
     gpsData: GpsData,
     themeMode: ThemeMode,
-    keepScreenOn: Boolean,
     isFocusLockActive: Boolean,
     onSelectThemeMode: (ThemeMode) -> Unit,
-    onToggleKeepScreenOn: (Boolean) -> Unit,
     onOpenFocusDialog: () -> Unit,
     compactLandscape: Boolean = false
 ) {
@@ -982,25 +998,6 @@ private fun GoogleTopHeader(
                             fontSize = 11.5.sp
                         ),
                         color = if (isFocusLockActive) cs.onErrorContainer else cs.onSurface
-                    )
-                }
-            }
-
-            // Keep screen on compact circular icon pill
-            Surface(
-                onClick = { onToggleKeepScreenOn(!keepScreenOn) },
-                modifier = Modifier
-                    .size(36.dp)
-                    .testTag("keep_screen_on_switch"),
-                shape = RoundedCornerShape(50),
-                color = if (keepScreenOn) cs.primaryContainer else cs.surfaceContainer
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Rounded.WbSunny,
-                        contentDescription = stringResource(R.string.keep_screen_on),
-                        tint = if (keepScreenOn) cs.onPrimaryContainer else cs.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
                     )
                 }
             }

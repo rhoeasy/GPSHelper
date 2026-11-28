@@ -48,7 +48,9 @@ data class OverlayDisplayConfig(
     val scale: OverlayScale = OverlayScale.MEDIUM,
     val fontScale: Float = 1.15f,
     val showGForcePeakOnDial: Boolean = true,
-    val gForcePeakHoldSeconds: Int = 60
+    val gForcePeakHoldSeconds: Int = 60,
+    val showRideTimer: Boolean = true,
+    val rideMarkerIntervalMinutes: Int = 5
 ) {
     val enabledCount: Int
         get() = listOf(
@@ -58,7 +60,8 @@ data class OverlayDisplayConfig(
             showHeartRate,
             showBearing,
             showAccuracy,
-            showCoordinates
+            showCoordinates,
+            showRideTimer
         ).count { it }
 }
 
@@ -93,6 +96,8 @@ object GpsRepository {
     private const val KEY_OV_SHOW_BEARING = "overlay_show_bearing"
     private const val KEY_OV_SHOW_ACCURACY = "overlay_show_accuracy"
     private const val KEY_OV_SHOW_COORDS = "overlay_show_coords"
+    private const val KEY_OV_SHOW_RIDE_TIMER = "overlay_show_ride_timer"
+    private const val KEY_OV_RIDE_MARKER_MINUTES = "overlay_ride_marker_minutes"
     private const val KEY_OV_BG_ALPHA = "overlay_bg_alpha"
     private const val KEY_OV_SCALE = "overlay_scale"
     private const val KEY_OV_FONT_SCALE = "overlay_font_scale"
@@ -202,7 +207,9 @@ object GpsRepository {
                 scale = scaleEnum,
                 fontScale = prefs.getFloat(KEY_OV_FONT_SCALE, 1.15f).coerceIn(0.85f, 1.60f),
                 showGForcePeakOnDial = prefs.getBoolean(KEY_OV_SHOW_PEAK_ON_DIAL, true),
-                gForcePeakHoldSeconds = prefs.getInt(KEY_OV_PEAK_HOLD_SEC, 60)
+                gForcePeakHoldSeconds = prefs.getInt(KEY_OV_PEAK_HOLD_SEC, 60),
+                showRideTimer = prefs.getBoolean(KEY_OV_SHOW_RIDE_TIMER, true),
+                rideMarkerIntervalMinutes = prefs.getInt(KEY_OV_RIDE_MARKER_MINUTES, 5).coerceIn(1, 60)
             )
             val finalOverlay = if (loadedOverlay.enabledCount > 0) loadedOverlay else OverlayDisplayConfig()
             _overlayConfig.value = finalOverlay
@@ -287,7 +294,8 @@ object GpsRepository {
         if (rawNext.enabledCount == 0) return false
         val next = rawNext.copy(
             backgroundAlpha = rawNext.backgroundAlpha.coerceIn(0.45f, 0.98f),
-            fontScale = rawNext.fontScale.coerceIn(0.85f, 1.60f)
+            fontScale = rawNext.fontScale.coerceIn(0.85f, 1.60f),
+            rideMarkerIntervalMinutes = rawNext.rideMarkerIntervalMinutes.coerceIn(1, 60)
         )
         _overlayConfig.value = next
         MotionSensorManager.setPeakHoldSeconds(next.gForcePeakHoldSeconds)
@@ -368,6 +376,8 @@ object GpsRepository {
             .putBoolean(KEY_OV_SHOW_BEARING, cfg.showBearing)
             .putBoolean(KEY_OV_SHOW_ACCURACY, cfg.showAccuracy)
             .putBoolean(KEY_OV_SHOW_COORDS, cfg.showCoordinates)
+            .putBoolean(KEY_OV_SHOW_RIDE_TIMER, cfg.showRideTimer)
+            .putInt(KEY_OV_RIDE_MARKER_MINUTES, cfg.rideMarkerIntervalMinutes)
             .putFloat(KEY_OV_BG_ALPHA, cfg.backgroundAlpha)
             .putString(KEY_OV_SCALE, cfg.scale.name)
             .putFloat(KEY_OV_FONT_SCALE, cfg.fontScale)

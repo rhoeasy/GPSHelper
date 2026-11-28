@@ -10,7 +10,6 @@ import android.graphics.ImageDecoder
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
@@ -52,6 +51,12 @@ enum class SocialOverlayBackdrop(val labelZh: String) {
     FROSTED("磨砂底板")
 }
 
+enum class SocialCardLayout {
+    COVER,
+    PHOTO_TOP,
+    PHOTO_SIDE
+}
+
 data class SocialCardConfig(
     val useImportedPhoto: Boolean = false,
     val bgPreset: SocialBgPreset = SocialBgPreset.OBSIDIAN,
@@ -70,7 +75,9 @@ data class SocialCardConfig(
     val showSurfaceComplexity: Boolean = false,
     val showBodyPerformance: Boolean = false,
     val showF1Sectors: Boolean = true,
-    val showMiniProfile: Boolean = true
+    val showMiniProfile: Boolean = true,
+    val layout: SocialCardLayout = SocialCardLayout.PHOTO_TOP,
+    val showSteps: Boolean = false
 )
 
 /**
@@ -345,7 +352,10 @@ object SocialCardBitmapRenderer {
         if (config.showPeakG && session.peakTotalG > 0.05f) {
             list.add(StatBadge("峰值 G 力", String.format(Locale.US, "%.2f G", session.peakTotalG), primaryAccent))
         }
-        return list.take(6)
+        if (config.showSteps && session.activityMode == ActivityMode.HIKING) {
+            session.stepCount?.let { list.add(StatBadge("步数", "$it 步", greenAccent)) }
+        }
+        return list
     }
 
     fun renderBitmap(
@@ -360,30 +370,50 @@ object SocialCardBitmapRenderer {
         } else {
             null
         }
-        val hasPhoto = activePhoto != null
-        val aspectRatio = if (activePhoto != null) {
-            (activePhoto.height.toFloat() / activePhoto.width.toFloat()).coerceIn(0.75f, 1.38f)
-        } else {
-            1.25f // Clean 4:5 portrait social poster
-        }
-        val width = targetWidth.coerceIn(480, 1440)
-        val height = (width * aspectRatio).roundToInt().coerceAtLeast(480)
-
-        val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val outputWidth = targetWidth.coerceIn(480, 1440)
+        val photoOnTop = activePhoto != null && config.layout == SocialCardLayout.PHOTO_TOP
+        val photoAtSide = activePhoto != null && config.layout == SocialCardLayout.PHOTO_SIDE
+        val hasPhoto = activePhoto != null && !photoOnTop && !photoAtSide
+        val isFrosted = config.overlayBackdrop == SocialOverlayBackdrop.FROSTED && (activePhoto == null || hasPhoto)
+        val panelLeft = if (photoAtSide) (outputWidth * 0.42f).roundToInt() else 0
+        val framePadding = outputWidth * (28f / 1080f)
+        val panelTop = if (photoOnTop && activePhoto != null) {
+            val ratio = activePhoto.height.toFloat() / activePhoto.width
+            (outputWidth * ratio.coerceIn(0.34f, 1.05f) + 2f * framePadding).roundToInt()
+        } else 0
+        // The data panel keeps its aspect ratio regardless of the source photo.
+        val width = outputWidth - panelLeft
+        val height = (width * 1.25f).roundToInt()
+        val out = Bitmap.createBitmap(outputWidth, panelTop + height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         val s = width / 1080f
 
         val inkPrimary = if (config.useLightInk) Color.WHITE else 0xFF171C24.toInt()
         val inkSecondary = if (config.useLightInk) 0xCCFFFFFF.toInt() else 0xB83C4554.toInt()
 
-        // 1. Background layer (Photo / Transparent PNG / Solid-Gradient color)
-        if (activePhoto != null) {
-            drawCenterCropPhoto(canvas, activePhoto, width, height)
+        if (activePhoto != null && !hasPhoto) {
+            out.eraseColor(if (config.useLightInk) 0xFF111821.toInt() else 0xFFF4F7FA.toInt())
+            val photoRight = if (photoAtSide) panelLeft else outputWidth
+            val photoBottom = if (photoOnTop) panelTop else out.height
+            val imageFrame = RectF(framePadding, framePadding, photoRight - framePadding, photoBottom - framePadding)
+            canvas.drawRect(imageFrame, Paint().apply {
+                color = if (config.useLightInk) 0xFF1C2633.toInt() else 0xFFE0E8EF.toInt()
+            })
+            drawPhotoInFrame(canvas, activePhoto, imageFrame, crop = false)
+        }
+        canvas.translate(panelLeft.toFloat(), panelTop.toFloat())
+        canvas.clipRect(0f, 0f, width.toFloat(), height.toFloat())
+
+        // Only cover mode paints data on top of the photo.
+        if (activePhoto != null && hasPhoto) {
+            drawPhotoInFrame(canvas, activePhoto, RectF(0f, 0f, width.toFloat(), height.toFloat()), crop = true)
             if (config.overlayBackdrop == SocialOverlayBackdrop.SCRIM) {
+                val topTint = if (config.useLightInk) 0x99000000.toInt() else 0xB3FFFFFF.toInt()
+                val bottomTint = if (config.useLightInk) 0xCC000000.toInt() else 0xE6FFFFFF.toInt()
                 val topScrim = Paint().apply {
                     shader = LinearGradient(
                         0f, 0f, 0f, height * 0.28f,
-                        0x99000000.toInt(), Color.TRANSPARENT,
+                        topTint, Color.TRANSPARENT,
                         Shader.TileMode.CLAMP
                     )
                 }
@@ -392,13 +422,13 @@ object SocialCardBitmapRenderer {
                 val bottomScrim = Paint().apply {
                     shader = LinearGradient(
                         0f, height * 0.48f, 0f, height.toFloat(),
-                        Color.TRANSPARENT, 0xCC000000.toInt(),
+                        Color.TRANSPARENT, bottomTint,
                         Shader.TileMode.CLAMP
                     )
                 }
                 canvas.drawRect(0f, height * 0.48f, width.toFloat(), height.toFloat(), bottomScrim)
             }
-        } else if (!config.bgPreset.isTransparent) {
+        } else if (activePhoto == null && !config.bgPreset.isTransparent) {
             out.eraseColor(config.bgPreset.topColorArgb)
             val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 shader = LinearGradient(
@@ -526,7 +556,7 @@ object SocialCardBitmapRenderer {
                 height - bottomPad + 16f * s
             )
 
-            if (config.overlayBackdrop == SocialOverlayBackdrop.FROSTED) {
+            if (isFrosted) {
                 val frostedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = if (config.useLightInk) 0xA6101620.toInt() else 0xD9FFFFFF.toInt()
                 }
@@ -547,7 +577,7 @@ object SocialCardBitmapRenderer {
                     lightInk = config.useLightInk,
                     inkPrimary = inkPrimary,
                     inkSecondary = inkSecondary,
-                    isFrosted = config.overlayBackdrop == SocialOverlayBackdrop.FROSTED
+                    isFrosted = isFrosted
                 )
                 cursorY += f1BlockHeight + if (analysisTags.isNotEmpty() || stats.isNotEmpty() || hasMiniProfile) 18f * s else 0f
             }
@@ -563,7 +593,7 @@ object SocialCardBitmapRenderer {
                     scale = s,
                     lightInk = config.useLightInk,
                     inkSecondary = inkSecondary,
-                    isFrosted = config.overlayBackdrop == SocialOverlayBackdrop.FROSTED
+                    isFrosted = isFrosted
                 )
                 cursorY += analysisBlockHeight + if (stats.isNotEmpty() || hasMiniProfile) 20f * s else 0f
             }
@@ -793,18 +823,20 @@ object SocialCardBitmapRenderer {
         }
     }
 
-    private fun drawCenterCropPhoto(canvas: Canvas, photo: Bitmap, dstW: Int, dstH: Int) {
-        val srcW = photo.width.toFloat()
-        val srcH = photo.height.toFloat()
-        val scale = max(dstW / srcW, dstH / srcH)
-        val cropW = (dstW / scale).roundToInt().coerceIn(1, photo.width)
-        val cropH = (dstH / scale).roundToInt().coerceIn(1, photo.height)
-        val left = ((photo.width - cropW) / 2).coerceAtLeast(0)
-        val top = ((photo.height - cropH) / 2).coerceAtLeast(0)
-        val srcRect = Rect(left, top, left + cropW, top + cropH)
-        val dstRect = Rect(0, 0, dstW, dstH)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        canvas.drawBitmap(photo, srcRect, dstRect, paint)
+    private fun drawPhotoInFrame(canvas: Canvas, photo: Bitmap, frame: RectF, crop: Boolean) {
+        val scaleX = frame.width() / photo.width
+        val scaleY = frame.height() / photo.height
+        val scale = if (crop) max(scaleX, scaleY) else min(scaleX, scaleY)
+        val halfWidth = photo.width * scale / 2f
+        val halfHeight = photo.height * scale / 2f
+        val destination = RectF(
+            frame.centerX() - halfWidth, frame.centerY() - halfHeight,
+            frame.centerX() + halfWidth, frame.centerY() + halfHeight
+        )
+        canvas.save()
+        canvas.clipRect(frame)
+        canvas.drawBitmap(photo, null, destination, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+        canvas.restore()
     }
 
     private fun drawRouteOverlay(
@@ -995,9 +1027,15 @@ object SocialCardBitmapRenderer {
             val col = idx % 3
             val x = left + col * colWidth
             val y = top + row * (112f * scale)
-            canvas.drawText(stat.label, x, y + 26f * scale, labelPaint)
+            val availableWidth = colWidth - 16f * scale
+            canvas.drawText(ellipsize(stat.label, labelPaint, availableWidth), x, y + 26f * scale, labelPaint)
             valuePaint.color = stat.accentArgb
-            val fitValue = ellipsize(stat.value, valuePaint, colWidth - 16f * scale)
+            valuePaint.textSize = 44f * scale
+            val valueWidth = valuePaint.measureText(stat.value)
+            if (valueWidth > availableWidth) {
+                valuePaint.textSize *= (availableWidth / valueWidth).coerceAtLeast(0.62f)
+            }
+            val fitValue = ellipsize(stat.value, valuePaint, availableWidth)
             canvas.drawText(fitValue, x, y + 80f * scale, valuePaint)
         }
     }
@@ -1166,7 +1204,7 @@ object SocialCardBitmapRenderer {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val file = File(dir, "${fileNamePrefix}_${stamp}.png")
         FileOutputStream(file).use { out ->
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) { "Could not encode PNG" }
         }
         return FileProvider.getUriForFile(
             context,
