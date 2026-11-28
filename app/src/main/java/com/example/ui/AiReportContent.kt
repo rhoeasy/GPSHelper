@@ -82,7 +82,11 @@ internal fun formatReportBlocks(raw: String): List<ReportBlock> {
     val lines = text.lines()
     if (lines.none { fence.matches(it) }) {
         val keys = lines.count { yamlKey.containsMatchIn(it.trimStart()) }
-        val isYaml = keys > 0 && (lines.first() == "---" || (keys >= 2 && yamlKey.containsMatchIn(lines.first())))
+        val isYaml = keys > 0 && (lines.first() == "---" || (keys >= 2 && yamlKey.containsMatchIn(lines.first()))) &&
+            lines.all { line ->
+                line.isBlank() || line.first().isWhitespace() || line == "..." || line == "---" ||
+                    line.startsWith("#") || yamlKey.containsMatchIn(line)
+            }
         return listOf(ReportBlock(if (isYaml) ReportFormat.YAML else ReportFormat.MARKDOWN, text))
     }
 
@@ -134,8 +138,7 @@ internal fun FormattedCoachReportText(rawMarkdown: String, modifier: Modifier = 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         for ((format, content) in blocks) {
             if (format == ReportFormat.MARKDOWN) {
-                val text = remember(content, cs.primary, cs.onSurface) { buildCoachAnnotatedString(content, cs.primary, cs.onSurface) }
-                Text(text, style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp))
+                AiMarkdownReport(content)
             } else {
                 Surface(
                     shape = RoundedCornerShape(8.dp),

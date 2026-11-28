@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.example.ui.theme.GpsHudTheme
@@ -21,6 +22,31 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class ReportAndExportUiTest {
     @get:Rule val composeRule = createComposeRule()
+
+    @Test
+    fun markdownRendersActualTableCellsAndADividerInsteadOfRawDelimiters() {
+        val markdown = """
+            ## Ride summary
+
+            | Metric | Result |
+            | :--- | ---: |
+            | **Average** | `42` |
+            | Legs \| climbs | 2 |
+
+            ---
+
+            Next section
+        """.trimIndent()
+        composeRule.setContent { GpsHudTheme { FormattedCoachReportText(markdown) } }
+
+        composeRule.onNodeWithTag("ai_markdown_table").assertIsDisplayed()
+        composeRule.onNodeWithText("Average").assertIsDisplayed()
+        composeRule.onNodeWithText("42").assertIsDisplayed()
+        composeRule.onNodeWithText("Legs | climbs").assertIsDisplayed()
+        composeRule.onNodeWithTag("ai_markdown_divider").assertIsDisplayed()
+        composeRule.onNodeWithText("Next section").assertIsDisplayed()
+        composeRule.onNodeWithText("---", substring = true).assertDoesNotExist()
+    }
 
     @Test
     fun exportMenuSharesTheSocialActionRowAndRoutesEachFormat() {
