@@ -92,6 +92,7 @@ import com.example.sensor.EnvironmentTelemetry
 import com.example.sensor.GForceData
 import com.example.track.ActivityMode
 import com.example.track.AiAnalysisRecordEntity
+import com.example.track.KartingTimingCourse
 import com.example.track.RecordingSnapshot
 import com.example.track.RecordingStatus
 import com.example.track.TrackEndpoints
@@ -184,6 +185,7 @@ fun GpsHudAppShell(
     onResumeRecording: () -> Unit,
     onFinishRecording: () -> Unit,
     onSetStartGate: () -> Unit,
+    onRecalculateKarting: (Long, KartingTimingCourse, (Boolean) -> Unit) -> Unit,
     onSelectSession: (Long) -> Unit,
     onCloseSessionDetail: () -> Unit,
     onEnterMergeMode: () -> Unit,
@@ -230,6 +232,9 @@ fun GpsHudAppShell(
             onExportGpx = { onExportGpx(selectedSessionDetail) },
             onShareSocialImage = { uri -> onShareSocialImage(uri, selectedSessionDetail.session.name) },
             onDeleteSession = { onDeleteSession(selectedSessionDetail.session.id) },
+            onRecalculateKarting = { course, completed ->
+                onRecalculateKarting(selectedSessionDetail.session.id, course, completed)
+            },
             onStartAiAnalysis = { onStartAiAnalysis(selectedSessionDetail) },
             onStopAiAnalysis = onStopAiAnalysis,
             onCopyAiReport = onCopyAiReport,

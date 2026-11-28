@@ -21,7 +21,7 @@ interface TrackDao {
     @Query("UPDATE track_sessions SET stepCount = :stepCount WHERE id = :sessionId AND stepCount IS NULL")
     suspend fun setMissingStepCount(sessionId: Long, stepCount: Int): Int
 
-    @Query("SELECT * FROM track_points WHERE sessionId = :sessionId ORDER BY timestampMs ASC")
+    @Query("SELECT * FROM track_points WHERE sessionId = :sessionId ORDER BY COALESCE(fixElapsedMs, timestampMs), id")
     suspend fun getPointsForSession(sessionId: Long): List<TrackPointEntity>
 
     @Query("SELECT * FROM track_laps WHERE sessionId = :sessionId ORDER BY lapNumber ASC")
@@ -35,6 +35,36 @@ interface TrackDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLaps(laps: List<TrackLapEntity>)
+
+    @Query("UPDATE track_sessions SET kartingCourseJson = :courseJson, lapCount = :lapCount, bestLapMs = :bestLapMs WHERE id = :sessionId AND mode = 'KARTING'")
+    suspend fun updateKartingTiming(sessionId: Long, courseJson: String, lapCount: Int, bestLapMs: Long?): Int
+
+    @Query("DELETE FROM track_laps WHERE sessionId = :sessionId")
+    suspend fun deleteLapsForSession(sessionId: Long)
+
+    @Query("UPDATE track_points SET lapNumber = 0 WHERE sessionId = :sessionId AND lapNumber != 0")
+    suspend fun clearPointLapNumbers(sessionId: Long)
+
+    @Query("UPDATE track_points SET lapNumber = :lapNumber WHERE sessionId = :sessionId AND id IN (:ids)")
+    suspend fun labelKartingPoints(sessionId: Long, lapNumber: Int, ids: List<Long>)
+
+    @Transaction
+    suspend fun replaceKartingTiming(
+        sessionId: Long,
+        courseJson: String,
+        laps: List<TrackLapEntity>,
+        pointIdsByLap: Map<Int, List<Long>>
+    ): Boolean {
+        val updated = updateKartingTiming(sessionId, courseJson, laps.size, laps.minOfOrNull { it.lapDurationMs })
+        if (updated != 1) return false
+        deleteLapsForSession(sessionId)
+        insertLaps(laps)
+        clearPointLapNumbers(sessionId)
+        for ((lapNumber, ids) in pointIdsByLap) {
+            for (chunk in ids.chunked(500)) labelKartingPoints(sessionId, lapNumber, chunk)
+        }
+        return true
+    }
 
     @Query("DELETE FROM track_sessions WHERE id = :sessionId")
     suspend fun deleteSessionById(sessionId: Long)

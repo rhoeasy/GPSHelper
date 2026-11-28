@@ -52,13 +52,14 @@ object GpxExporter {
                 sb.append(String.format(Locale.US, "        <ele>%.1f</ele>\n", alt))
             }
             sb.append("        <time>${isoFormat.format(Date(pt.timestampMs))}</time>\n")
-            if (pt.heartRateBpm != null || pt.speedMps > 0f) {
+            val speed = pt.measuredSpeedMps
+            if (pt.heartRateBpm != null || speed != null) {
                 sb.append("        <extensions>\n")
                 sb.append("          <gpxtpx:TrackPointExtension>\n")
                 pt.heartRateBpm?.let { hr ->
                     sb.append("            <gpxtpx:hr>$hr</gpxtpx:hr>\n")
                 }
-                sb.append(String.format(Locale.US, "            <gpxtpx:speed>%.2f</gpxtpx:speed>\n", pt.speedMps))
+                speed?.let { sb.append(String.format(Locale.US, "            <gpxtpx:speed>%.2f</gpxtpx:speed>\n", it)) }
                 sb.append("          </gpxtpx:TrackPointExtension>\n")
                 sb.append("        </extensions>\n")
             }

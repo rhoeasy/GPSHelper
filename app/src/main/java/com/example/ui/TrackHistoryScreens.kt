@@ -99,6 +99,9 @@ import com.example.ble.HeartRateState
 import com.example.gps.SpeedUnit
 import com.example.track.ActivityMode
 import com.example.track.KartingSectorEngine
+import com.example.track.KartingTimingCourse
+import com.example.track.decodeKartingCourse
+import com.example.track.usesGpsTimingClock
 import com.example.track.MergeJunctionQuality
 import com.example.track.OffroadAnalysisEngine
 import com.example.track.RecordingSnapshot
@@ -949,6 +952,7 @@ fun TrackDetailScreen(
     onExportGpx: () -> Unit,
     onShareSocialImage: (Uri) -> Unit,
     onDeleteSession: () -> Unit,
+    onRecalculateKarting: (KartingTimingCourse, (Boolean) -> Unit) -> Unit,
     onStartAiAnalysis: () -> Unit,
     onStopAiAnalysis: () -> Unit,
     onCopyAiReport: (String) -> Unit,
@@ -962,6 +966,7 @@ fun TrackDetailScreen(
     var includeAiPrompt by rememberSaveable { mutableStateOf(true) }
     var showSocialStudio by rememberSaveable(detail.session.id) { mutableStateOf(false) }
     var selectedPointIndex by remember(detail.session.id) { mutableStateOf<Int?>(null) }
+    var showKartingTiming by rememberSaveable(detail.session.id) { mutableStateOf(false) }
 
     if (showSocialStudio) {
         SocialShareCardScreen(
@@ -980,6 +985,11 @@ fun TrackDetailScreen(
 
     val session = detail.session
     val isKart = session.activityMode == ActivityMode.KARTING
+    val savedCourse = remember(session.kartingCourseJson) { decodeKartingCourse(session.kartingCourseJson) }
+    val hasGpsClock = remember(detail.points) { usesGpsTimingClock(detail.points) }
+    if (showKartingTiming) {
+        KartingTimingDialog(detail.points, savedCourse, hasGpsClock, onRecalculateKarting) { showKartingTiming = false }
+    }
     val altitudeSourceLabel = remember(detail.points) {
         val hasBarometer = detail.points.any { it.altitudeFromBarometer == true }
         val hasGps = detail.points.any { it.altitudeMeters != null && it.altitudeFromBarometer != true }
@@ -1196,6 +1206,20 @@ fun TrackDetailScreen(
     }
 
     val actionButtonsSection: @Composable () -> Unit = {
+        if (isKart && detail.points.size >= 2) {
+            Column(Modifier.fillMaxWidth()) {
+                TextButton(onClick = { showKartingTiming = true }, modifier = Modifier.testTag("edit_karting_timing")) {
+                    Text(stringResource(R.string.kart_edit_timing))
+                }
+                if (savedCourse != null) {
+                    Text(
+                        stringResource(if (hasGpsClock) R.string.kart_gps_clock else R.string.kart_estimated_clock),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.onSurfaceVariant
+                    )
+                }
+            }
+        }
         TrackDetailActions(
             onMakeSocialCard = { showSocialStudio = true },
             onExportJson = { showJsonExportDialog = true },

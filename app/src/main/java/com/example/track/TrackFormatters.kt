@@ -47,7 +47,8 @@ object TrackFormatters {
         }
     }
 
-    fun formatSpeed(speedMps: Float, unit: SpeedUnit): String {
+    fun formatSpeed(speedMps: Float?, unit: SpeedUnit): String {
+        if (speedMps == null) return "--"
         val converted = unit.convertFromMps(speedMps)
         return String.format(Locale.US, "%.1f %s", converted, unit.label)
     }

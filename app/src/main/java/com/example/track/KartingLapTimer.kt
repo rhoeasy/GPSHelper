@@ -24,7 +24,11 @@ internal data class KartingLineCrossing(val elapsedMs: Long, val fractionOfFixIn
 
 internal sealed interface KartingLapEvent {
     data class TimingStarted(val crossing: KartingLineCrossing) : KartingLapEvent
-    data class LapCompleted(val crossing: KartingLineCrossing, val durationMs: Long) : KartingLapEvent
+    data class LapCompleted(
+        val crossing: KartingLineCrossing,
+        val durationMs: Long,
+        val distanceMeters: Double
+    ) : KartingLapEvent
     data object TimingInterrupted : KartingLapEvent
 }
 
@@ -95,7 +99,7 @@ internal class KartingLapTimer(
             if (checkpoint != null && !checkedBeforeFinish) {
                 KartingLapEvent.TimingStarted(finishCrossing)
             } else {
-                KartingLapEvent.LapCompleted(finishCrossing, duration)
+                KartingLapEvent.LapCompleted(finishCrossing, duration, distance)
             }
         }
 

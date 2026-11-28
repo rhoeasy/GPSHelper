@@ -504,7 +504,8 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(
                             this,
                             getString(
-                                if (updated) R.string.toast_gate_updated else R.string.toast_gate_waiting_gps
+                                if (updated && viewModel.recordingSnapshot.value.hasStartGate) R.string.toast_gate_updated
+                                else if (updated) R.string.toast_gate_removed else R.string.toast_gate_waiting_gps
                             ),
                             Toast.LENGTH_SHORT
                         ).show()
@@ -512,6 +513,7 @@ class MainActivity : ComponentActivity() {
                     onSelectSession = { sessionId ->
                         viewModel.loadSessionDetail(sessionId)
                     },
+                    onRecalculateKarting = viewModel::recalculateKartingTiming,
                     onCloseSessionDetail = {
                         viewModel.closeSessionDetail()
                     },

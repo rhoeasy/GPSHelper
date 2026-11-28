@@ -52,6 +52,15 @@ class GpsRepositoryTest {
     }
 
     @Test
+    fun poorOrMissingSpeedDoesNotMasqueradeAsAStoppedReading() {
+        assertNull(usableGpsSpeed(null, null))
+        assertNull(usableGpsSpeed(12f, 2f))
+        assertNull(usableGpsSpeed(Float.NaN, 0.2f))
+        assertEquals(0f, requireNotNull(usableGpsSpeed(0f, 0.2f)), 0f)
+        assertEquals(12f, requireNotNull(usableGpsSpeed(12f, null)), 0f)
+    }
+
+    @Test
     fun `fix without speed or altitude does not reuse old readings`() {
         publish(speedMps = 5f, altitudeM = 120.0)
         assertReadings("18.0", "120 m")

@@ -700,7 +700,12 @@ object GpsRepository {
     }
 
     private fun applyLocationLocked(location: Location, isGpsPrimary: Boolean, fixElapsedMs: Long) {
-        val newSpeed = if (location.hasSpeed()) location.speed else null
+        val spdAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasSpeedAccuracy()) {
+            location.speedAccuracyMetersPerSecond
+        } else {
+            null
+        }
+        val newSpeed = usableGpsSpeed(if (location.hasSpeed()) location.speed else null, spdAcc)
         val newAltitude = if (location.hasAltitude()) location.altitude.takeIf { it.isFinite() } else null
         val vAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasVerticalAccuracy()) {
             location.verticalAccuracyMeters
@@ -709,7 +714,7 @@ object GpsRepository {
         }
         val altitude = liveAltitudeFilter.update(newAltitude, vAcc, isGpsPrimary, fixElapsedMs)
         _gpsData.update { current ->
-            val newAccuracy = if (location.hasAccuracy()) location.accuracy else current.accuracyMeters
+            val newAccuracy = if (location.hasAccuracy()) location.accuracy else null
             val newBearing = when {
                 location.hasBearing() && (location.bearing != 0f || (newSpeed ?: 0f) > 0.5f) -> location.bearing
                 location.hasBearing() && current.bearingDegrees == null -> location.bearing
@@ -733,11 +738,6 @@ object GpsRepository {
             )
         }
 
-        val spdAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasSpeedAccuracy()) {
-            location.speedAccuracyMetersPerSecond
-        } else {
-            null
-        }
         val brgAcc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasBearingAccuracy()) {
             location.bearingAccuracyDegrees
         } else {
