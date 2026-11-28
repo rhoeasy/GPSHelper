@@ -15,6 +15,7 @@ import android.widget.FrameLayout
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -147,15 +147,15 @@ fun OverlayWindow(
             config.showCoordinates ||
             config.showGForce
 
-        Surface(
+        val shape = RoundedCornerShape((22f * s).dp)
+        // Keep the translucent fill in one clipped layer over the app below it.
+        Box(
             modifier = modifier
-                .clip(RoundedCornerShape((22f * s).dp))
+                .clip(shape)
+                .background(containerColor)
+                .border(BorderStroke(if (alertState.isAnyAlert) 1.6.dp else 1.dp, borderColor), shape)
                 .clickable(onClick = onToggleMiniMode)
-                .testTag("overlay_window_root"),
-            shape = RoundedCornerShape((22f * s).dp),
-            color = containerColor,
-            border = BorderStroke(if (alertState.isAnyAlert) 1.6.dp else 1.dp, borderColor),
-            shadowElevation = 6.dp
+                .testTag("overlay_window_root")
         ) {
             Column(modifier = Modifier.padding(horizontal = (11f * s).dp, vertical = (8f * s).dp)) {
                 OverlayStatusRow(gpsData, config, previewRideElapsedMs, s, fs.coerceAtMost(1.7f))
@@ -761,12 +761,14 @@ class OverlayWindowController(
                 GpsRepository.saveOverlayPosition(context, params.x, params.y)
             }
         ).apply {
+            background = null
             setViewTreeLifecycleOwner(this@OverlayWindowController)
             setViewTreeSavedStateRegistryOwner(this@OverlayWindowController)
             setViewTreeViewModelStoreOwner(this@OverlayWindowController)
         }
 
         val composeView = ComposeView(context).apply {
+            background = null
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
             setContent {
                 val gForce by gForceFlow.collectAsStateWithLifecycle()
