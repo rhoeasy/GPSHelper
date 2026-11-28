@@ -197,6 +197,12 @@
     <string name="kart_timing_save_failed">没有保存计时结果，请重试</string>
     <string name="kart_gps_clock">圈速基于 GPS 采样时间估算</string>
     <string name="kart_estimated_clock">旧轨迹没有 GPS 采样时钟，圈速按存档时间估算</string>
+    <string name="moto_lean">车身倾角</string>
+    <string name="moto_lean_zero">直立归零</string>
+    <string name="moto_lean_sensor_missing">姿态传感器不可用</string>
+    <string name="moto_lean_left">左 %1$d°</string>
+    <string name="moto_lean_right">右 %1$d°</string>
+    <string name="overlay_moto_lean">倾角 %1$s</string>
     <string name="toast_track_saved">轨迹已保存至本地记录</string>
     <string name="toast_track_too_short">暂未采集到有效轨迹点，已取消保存</string>
     <string name="toast_gpx_export_failed">导出 GPX 失败，请重试</string>

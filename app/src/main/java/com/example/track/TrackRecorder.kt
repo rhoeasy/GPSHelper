@@ -10,6 +10,8 @@ import com.example.sensor.EnvironmentSensorManager
 import com.example.sensor.GForceRepository
 import com.example.sensor.HikingStepSensor
 import com.example.sensor.MotionSensorManager
+import com.example.sensor.MotorcycleLeanReadout
+import com.example.sensor.MotorcycleLeanSensor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -58,10 +60,14 @@ data class RecordingSnapshot(
     val peakTotalG: Float = 0f,
     val peakLateralG: Float = 0f,
     val pointCount: Int = 0,
-    val stepCount: Int? = null
+    val stepCount: Int? = null,
+    val motorcycleLean: MotorcycleLeanReadout = MotorcycleLeanReadout()
 ) {
     val isActive: Boolean
         get() = status != RecordingStatus.IDLE
+
+    val showMotorcycleLean: Boolean
+        get() = status == RecordingStatus.RECORDING && mode == ActivityMode.OFFROAD_CROSSING
 }
 
 /**
@@ -128,11 +134,13 @@ object TrackRecorder {
             val course = selectedKartingCourse.takeIf { mode == ActivityMode.KARTING }
             kartingTiming = course?.let { KartingTrackTiming(it) }
             if (mode == ActivityMode.HIKING) HikingStepSensor.start(context.applicationContext)
+            if (mode == ActivityMode.OFFROAD_CROSSING) MotorcycleLeanSensor.start(context.applicationContext)
             _snapshot.value = RecordingSnapshot(
                 status = RecordingStatus.RECORDING,
                 mode = mode,
                 hasStartGate = course != null,
-                stepCount = HikingStepSensor.currentCount()
+                stepCount = HikingStepSensor.currentCount(),
+                motorcycleLean = if (mode == ActivityMode.OFFROAD_CROSSING) MotorcycleLeanSensor.current() else MotorcycleLeanReadout()
             )
         }
 
@@ -198,6 +206,14 @@ object TrackRecorder {
             selectedKartingCourse = course
             publishSnapshotLocked()
             return true
+        }
+    }
+
+    fun zeroMotorcycleLean() {
+        synchronized(lock) {
+            if (!_snapshot.value.showMotorcycleLean) return
+            MotorcycleLeanSensor.zero()
+            publishSnapshotLocked()
         }
     }
 
@@ -274,6 +290,7 @@ object TrackRecorder {
             }
         } finally {
             HikingStepSensor.stop()
+            if (mode == ActivityMode.OFFROAD_CROSSING) MotorcycleLeanSensor.stop()
             FloatingGpsService.stopRecordingKeepAlive(context.applicationContext)
             synchronized(lock) {
                 resetStateLocked()
@@ -437,7 +454,8 @@ object TrackRecorder {
             peakTotalG = peakTotalG,
             peakLateralG = peakLateralG,
             pointCount = recordedPoints.size,
-            stepCount = HikingStepSensor.currentCount()
+            stepCount = HikingStepSensor.currentCount(),
+            motorcycleLean = if (_snapshot.value.showMotorcycleLean) MotorcycleLeanSensor.current() else MotorcycleLeanReadout()
         )
     }
 

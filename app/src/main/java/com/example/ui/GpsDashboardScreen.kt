@@ -163,6 +163,7 @@ fun GpsHudAppShell(
     onOpenFocusDialog: () -> Unit,
     onExitFocusLock: () -> Unit,
     onCalibrateGForceZero: () -> Unit,
+    onZeroMotorcycleLean: () -> Unit,
     onResetGForcePeak: () -> Unit,
     onOpenTelemetryDetail: (TelemetryDetailPage) -> Unit,
     onCloseTelemetryDetail: () -> Unit,
@@ -589,6 +590,8 @@ fun GpsHudAppShell(
                                         )
                                     }
 
+                                    MotorcycleLeanRow(recordingSnapshot, onZeroMotorcycleLean)
+
                                     // Hero Instrument Cluster: Maximized Speedometer (left) + Enlarged G-Force Radar (right)
                                     Row(
                                         modifier = Modifier
@@ -719,6 +722,8 @@ fun GpsHudAppShell(
                                             }
                                         )
                                     }
+
+                                    MotorcycleLeanRow(recordingSnapshot, onZeroMotorcycleLean)
 
                                     PrimarySpeedCard(
                                         gpsData = gpsData,

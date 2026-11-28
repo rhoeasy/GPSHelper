@@ -63,6 +63,8 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.R
+import com.example.track.TrackRecorder
+import com.example.ui.motorcycleLeanText
 import com.example.alert.SafetyAlertMonitor
 import com.example.alert.SafetyAlertState
 import com.example.ble.HeartRateState
@@ -104,6 +106,8 @@ fun OverlayWindow(
     isMiniMode: Boolean,
     onToggleMiniMode: () -> Unit,
     previewRideElapsedMs: Long? = null,
+    showMotorcycleLean: Boolean = false,
+    motorcycleLeanDegrees: Float? = null,
     modifier: Modifier = Modifier
 ) {
     GpsHudTheme(themeMode = themeMode, themePalette = themePalette) {
@@ -158,7 +162,10 @@ fun OverlayWindow(
                 .testTag("overlay_window_root")
         ) {
             Column(modifier = Modifier.padding(horizontal = (11f * s).dp, vertical = (8f * s).dp)) {
-                OverlayStatusRow(gpsData, config, previewRideElapsedMs, s, fs.coerceAtMost(1.7f))
+                OverlayStatusRow(
+                    gpsData, config, previewRideElapsedMs, s, fs.coerceAtMost(1.7f),
+                    showMotorcycleLean, motorcycleLeanDegrees
+                )
                 Row(
                     modifier = Modifier.padding(top = if (hasRightColumn) (5f * s).dp else 0.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -483,7 +490,9 @@ private fun OverlayStatusRow(
     config: OverlayDisplayConfig,
     previewRideElapsedMs: Long?,
     scale: Float,
-    fontScale: Float
+    fontScale: Float,
+    showMotorcycleLean: Boolean,
+    motorcycleLeanDegrees: Float?
 ) {
     val cs = MaterialTheme.colorScheme
     val signal = overlayGpsSignal(gpsData)
@@ -537,6 +546,15 @@ private fun OverlayStatusRow(
         }
         if (config.showRideTimer) {
             OverlayRideTimer(config.rideMarkerIntervalMinutes, config.showRideElapsedTime, previewRideElapsedMs, scale, fontScale)
+        }
+        if (showMotorcycleLean) {
+            Text(
+                text = stringResource(R.string.overlay_moto_lean, motorcycleLeanText(motorcycleLeanDegrees)),
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = (11f * fontScale).sp),
+                color = cs.onSurface,
+                maxLines = 1,
+                modifier = Modifier.testTag("overlay_motorcycle_lean")
+            )
         }
     }
 }
@@ -779,6 +797,7 @@ class OverlayWindowController(
                 val safetyAlertConfig by safetyAlertConfigFlow.collectAsStateWithLifecycle()
                 val themeMode by themeModeFlow.collectAsStateWithLifecycle()
                 val themePalette by themePaletteFlow.collectAsStateWithLifecycle()
+                val recording by TrackRecorder.snapshot.collectAsStateWithLifecycle()
 
                 val alertState = SafetyAlertMonitor.evaluate(gps, heartRate, safetyAlertConfig)
 
@@ -801,7 +820,9 @@ class OverlayWindowController(
                     themeMode = themeMode,
                     themePalette = themePalette,
                     isMiniMode = isMiniMode,
-                    onToggleMiniMode = { isMiniMode = !isMiniMode }
+                    onToggleMiniMode = { isMiniMode = !isMiniMode },
+                    showMotorcycleLean = recording.showMotorcycleLean,
+                    motorcycleLeanDegrees = recording.motorcycleLean.degrees
                 )
             }
         }
@@ -813,6 +834,15 @@ class OverlayWindowController(
                 FrameLayout.LayoutParams.WRAP_CONTENT
             )
         )
+        container.addOnLayoutChangeListener { view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left == oldRight - oldLeft && bottom - top == oldBottom - oldTop) return@addOnLayoutChangeListener
+            val x = params.x
+            val y = params.y
+            clampPosition(params, view)
+            if (params.x != x || params.y != y) {
+                view.post { if (isAttached) runCatching { windowManager.updateViewLayout(view, params) } }
+            }
+        }
 
         return try {
             windowManager.addView(container, params)

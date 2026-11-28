@@ -43,6 +43,7 @@ import com.example.overlay.appRideClock
 import com.example.sensor.HikingStepSensor
 import com.example.sensor.MotionSensorManager
 import com.example.track.ActivityMode
+import com.example.track.TrackRecorder
 import com.example.ui.BleDevicePickerDialog
 import com.example.ui.FocusModeDialog
 import com.example.ui.GpsDashboardViewModel
@@ -355,6 +356,7 @@ class MainActivity : ComponentActivity() {
                             Toast.LENGTH_SHORT
                         ).show()
                     },
+                    onZeroMotorcycleLean = TrackRecorder::zeroMotorcycleLean,
                     onResetGForcePeak = {
                         viewModel.resetGForcePeak()
                     },

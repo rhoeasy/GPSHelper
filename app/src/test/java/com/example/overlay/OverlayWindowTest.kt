@@ -16,6 +16,9 @@ import com.example.gps.GpsFixStatus
 import com.example.gps.OverlayDisplayConfig
 import com.example.gps.SpeedUnit
 import com.example.sensor.GForceData
+import com.example.track.ActivityMode
+import com.example.track.RecordingSnapshot
+import com.example.track.RecordingStatus
 import com.example.ui.theme.ThemeMode
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -92,6 +95,26 @@ class OverlayWindowTest {
         composeRule.onNodeWithText("00:30:00", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithContentDescription("\u7d2f\u8ba1 6 \u4e2a\u65f6\u95f4\u70b9", useUnmergedTree = true).assertDoesNotExist()
         composeRule.onNodeWithText("+1", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun leanReadoutFollowsTheActiveOffroadRecording() {
+        val recording = mutableStateOf(RecordingSnapshot(status = RecordingStatus.RECORDING, mode = ActivityMode.HIKING))
+        composeRule.setContent {
+            OverlayWindow(
+                gForceData = GForceData(), gpsData = GpsData(), speedUnit = SpeedUnit.KMH,
+                heartRateState = HeartRateState(), config = OverlayDisplayConfig(showRideTimer = false),
+                themeMode = ThemeMode.LIGHT, isMiniMode = true, onToggleMiniMode = {},
+                showMotorcycleLean = recording.value.showMotorcycleLean, motorcycleLeanDegrees = 28f
+            )
+        }
+        val lean = composeRule.onNodeWithTag("overlay_motorcycle_lean", useUnmergedTree = true)
+        lean.assertDoesNotExist()
+        composeRule.runOnIdle { recording.value = recording.value.copy(mode = ActivityMode.OFFROAD_CROSSING) }
+        lean.assertIsDisplayed()
+        composeRule.onNodeWithText("28°", substring = true, useUnmergedTree = true).assertIsDisplayed()
+        composeRule.runOnIdle { recording.value = recording.value.copy(status = RecordingStatus.PAUSED) }
+        lean.assertDoesNotExist()
     }
 
     private fun assertGpsStatus(description: String) {
