@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -54,6 +56,7 @@ import com.example.ui.theme.ThemeMode
  * Lets users pick from 6 curated global Material 3 color palettes inspired by the Social Share
  * Card background styles, plus Light/Dark/Auto mode, speed unit, keep-screen-on, and auto-focus.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun SettingsAppearanceContent(
     themePalette: AppThemePalette,
@@ -263,8 +266,9 @@ internal fun SettingsAppearanceContent(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(stringResource(R.string.settings_dashboard_speed_style), style = MaterialTheme.typography.bodyLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(
+                        DashboardSpeedStyle.AUTO_DIAL to R.string.dashboard_speed_auto,
                         DashboardSpeedStyle.NUMERIC to R.string.dashboard_speed_numeric,
                         DashboardSpeedStyle.DIAL to R.string.dashboard_speed_dial,
                         DashboardSpeedStyle.LOW_SPEED_DIAL to R.string.dashboard_speed_low_dial

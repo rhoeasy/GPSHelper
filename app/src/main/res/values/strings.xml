@@ -54,9 +54,11 @@
     <string name="theme_mode_ambient_full">随环境光切换</string>
     <string name="speed_label">当前速度</string>
     <string name="settings_dashboard_speed_style">速度卡片样式</string>
+    <string name="dashboard_speed_auto">自动量程</string>
     <string name="dashboard_speed_numeric">数字</string>
-    <string name="dashboard_speed_dial">指针</string>
+    <string name="dashboard_speed_dial">高速指针</string>
     <string name="dashboard_speed_low_dial">低速指针</string>
+    <string name="dashboard_speed_range">量程 0 至 %1$d %2$s</string>
     <string name="unit_kmh">km/h</string>
     <string name="unit_mph">mph</string>
     <string name="provider_gps_native">GNSS 原生卫星定位</string>

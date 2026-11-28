@@ -142,7 +142,7 @@ object GpsRepository {
     private val _speedUnit = MutableStateFlow(SpeedUnit.KMH)
     val speedUnit: StateFlow<SpeedUnit> = _speedUnit.asStateFlow()
 
-    private val _dashboardSpeedStyle = MutableStateFlow(DashboardSpeedStyle.NUMERIC)
+    private val _dashboardSpeedStyle = MutableStateFlow(DashboardSpeedStyle.AUTO_DIAL)
     val dashboardSpeedStyle: StateFlow<DashboardSpeedStyle> = _dashboardSpeedStyle.asStateFlow()
 
     private val _keepScreenOn = MutableStateFlow(true)
@@ -190,7 +190,7 @@ object GpsRepository {
             _speedUnit.value = runCatching { SpeedUnit.valueOf(savedUnit ?: SpeedUnit.KMH.name) }
                 .getOrDefault(SpeedUnit.KMH)
             val speedStyle = prefs.getString(KEY_DASHBOARD_SPEED_STYLE, null)
-            _dashboardSpeedStyle.value = DashboardSpeedStyle.entries.firstOrNull { it.name == speedStyle } ?: DashboardSpeedStyle.NUMERIC
+            _dashboardSpeedStyle.value = DashboardSpeedStyle.entries.firstOrNull { it.name == speedStyle } ?: DashboardSpeedStyle.AUTO_DIAL
             _keepScreenOn.value = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true)
             val savedTheme = prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name)
             _themeMode.value = runCatching { ThemeMode.valueOf(savedTheme ?: ThemeMode.AUTO.name) }

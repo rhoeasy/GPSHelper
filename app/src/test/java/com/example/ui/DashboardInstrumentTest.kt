@@ -5,6 +5,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -49,6 +52,40 @@ class DashboardInstrumentTest {
         composeRule.runOnIdle { style.value = DashboardSpeedStyle.NUMERIC }
         composeRule.onNodeWithTag("dashboard_speed_dial").assertDoesNotExist()
         composeRule.onNodeWithText("0.0").assertIsDisplayed()
+    }
+
+    @Test
+    fun defaultDialSwapsRangesWithHysteresisAndDoesNotTreatMissingGpsAsSlowingDown() {
+        val gps = mutableStateOf(GpsData())
+        val unit = mutableStateOf(SpeedUnit.KMH)
+        composeRule.setContent {
+            GpsHudTheme { PrimarySpeedCard(gps.value, unit.value, {}, {}) }
+        }
+        fun assertRange(maximum: Int, label: String) {
+            composeRule.onNodeWithTag("dashboard_speed_dial").assert(
+                SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "量程 0 至 $maximum $label")
+            )
+        }
+        fun speed(mps: Float) = composeRule.runOnIdle { gps.value = GpsData(hasFix = true, speedMps = mps) }
+
+        assertRange(20, "km/h")
+        speed(5.55f)
+        assertRange(20, "km/h")
+        speed(5.7f)
+        assertRange(160, "km/h")
+        speed(5.4f)
+        assertRange(160, "km/h")
+        composeRule.runOnIdle { gps.value = GpsData() }
+        assertRange(160, "km/h")
+        speed(5f)
+        assertRange(20, "km/h")
+
+        composeRule.runOnIdle { unit.value = SpeedUnit.MPH }
+        assertRange(100, "mph")
+        speed(4.2f)
+        assertRange(100, "mph")
+        speed(4f)
+        assertRange(10, "mph")
     }
 
     @Test

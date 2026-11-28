@@ -289,7 +289,7 @@ fun PrimarySpeedCard(
     onOpenLocationSettings: () -> Unit,
     isAlertActive: Boolean = false,
     isLandscape: Boolean = false,
-    style: DashboardSpeedStyle = DashboardSpeedStyle.NUMERIC,
+    style: DashboardSpeedStyle = DashboardSpeedStyle.AUTO_DIAL,
     modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
