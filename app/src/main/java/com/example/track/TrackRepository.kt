@@ -16,6 +16,8 @@ class TrackRepository(context: Context) {
     val allSessions: Flow<List<TrackSessionEntity>> = dao.observeAllSessions()
     val allAiAnalysisHistory: Flow<List<AiAnalysisRecordEntity>> = dao.observeAllAiAnalysisHistory()
 
+    internal suspend fun recentAnalysisExcerpts() = dao.recentAnalysisExcerpts()
+
     suspend fun ensureSampleTracksSeeded(): Boolean {
         return SampleTrackSeeder.seedOnceIfNeeded(appContext, dao)
     }

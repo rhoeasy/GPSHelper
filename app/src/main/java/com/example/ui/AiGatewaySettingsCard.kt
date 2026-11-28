@@ -59,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -70,6 +71,10 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.ai.AiConnectionState
 import com.example.ai.AiGatewayConfig
+import com.example.ai.AiGatewayWork
+import com.example.ai.GENERATION_WAIT_SECONDS
+import com.example.ai.GatewayTaskStatus
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.theme.JetBrainsMonoFontFamily
 
 @Composable
@@ -443,6 +448,8 @@ fun AiGatewaySettingsCard(
             }
 
             // Save & Clear Actions
+            GatewayGenerationControls(aiHistoryCount)
+
             val hasDraftContent = baseUrlDraft.isNotBlank() || apiKeyDraft.isNotBlank() || modelIdDraft.isNotBlank()
             val hasSavedContent = config.hasBaseUrl || config.apiKey.isNotBlank() || config.modelId.isNotBlank()
             Row(
@@ -528,6 +535,53 @@ fun AiGatewaySettingsCard(
             }
         }
     }
+}
+
+@Composable
+private fun GatewayGenerationControls(historyCount: Int) {
+    val context = LocalContext.current
+    val gateway = remember(context.applicationContext) { AiGatewayWork.get(context.applicationContext) }
+    val config by gateway.config.collectAsStateWithLifecycle()
+    val status by gateway.memoryStatus.collectAsStateWithLifecycle(initialValue = null)
+    val result by gateway.memoryResult.collectAsStateWithLifecycle()
+    var seconds by rememberSaveable(config.effectiveWaitSeconds) { mutableStateOf(config.effectiveWaitSeconds.toString()) }
+    var confirm by rememberSaveable { mutableStateOf(false) }
+    val wait = seconds.toIntOrNull()?.takeIf { it in GENERATION_WAIT_SECONDS }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = seconds, onValueChange = { seconds = it.filter(Char::isDigit).take(3) },
+            label = { Text("每段等待（秒）") }, singleLine = true,
+            isError = seconds.isNotEmpty() && wait == null,
+            supportingText = { Text("25–300 秒") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f).testTag("ai_generation_wait")
+        )
+        TextButton(
+            onClick = { wait?.let(gateway::setGenerationWait) },
+            enabled = wait != null && wait != config.effectiveWaitSeconds
+        ) { Text("应用") }
+    }
+    when (val task = status) {
+        is GatewayTaskStatus.Active -> {
+            Text(stringResource(gatewayStageLabel(task.stage)))
+            TextButton(onClick = gateway::cancelOrganizeMemory) { Text("取消整理") }
+        }
+        else -> {
+            OutlinedButton(
+                onClick = { confirm = true }, enabled = config.isConfigured && historyCount > 0,
+                modifier = Modifier.fillMaxWidth().testTag("ai_organize_memory")
+            ) { Icon(Icons.Rounded.Memory, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("整理记忆") }
+            if (task is GatewayTaskStatus.Failed) Text(task.message, color = MaterialTheme.colorScheme.error)
+            else result?.let { Text(if (it == 0) "没有新的可用记忆" else "已新增 $it 条本地记忆") }
+        }
+    }
+    if (confirm) AlertDialog(
+        onDismissRequest = { confirm = false },
+        title = { Text("整理记忆") },
+        text = { Text("将最近最多 6 份 AI 教练报告的片段发送给当前网关。生成的短条目只保存到本地记忆。") },
+        confirmButton = { TextButton(onClick = { confirm = false; gateway.organizeMemory() }) { Text("发送并整理") } },
+        dismissButton = { TextButton(onClick = { confirm = false }) { Text("取消") } }
+    )
 }
 
 @Composable

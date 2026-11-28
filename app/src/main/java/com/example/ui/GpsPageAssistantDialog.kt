@@ -2,6 +2,10 @@ package com.example.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.absoluteOffset
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -21,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -44,13 +47,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ai.ASSISTANT_MEMORY_COUNT_LIMIT
 import com.example.ai.ASSISTANT_MEMORY_TEXT_LIMIT
@@ -60,6 +67,7 @@ import com.example.ai.AssistantPage
 import com.example.ai.GatewayStage
 import com.example.ai.GatewayTaskStatus
 import com.example.ai.GpsPageAssistant
+import kotlin.math.roundToInt
 
 @Composable
 internal fun GpsPageAssistantHost(
@@ -77,20 +85,38 @@ internal fun GpsPageAssistantHost(
         }) {
             content()
         }
-        SmallFloatingActionButton(
-            onClick = { page = pages.active() ?: currentPage() },
-            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp).testTag("page_assistant_open"),
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-        ) {
-            Icon(Icons.Rounded.ChatBubbleOutline, "问 GPSHelper")
-        }
+        DraggablePageAssistantButton { page = pages.active() ?: currentPage() }
     }
     page?.let {
         PageAssistantDialog(it, assistant, gatewayConfigured, { page = null }, {
             page = null
             openGatewaySettings()
         })
+    }
+}
+
+@Composable
+private fun DraggablePageAssistantButton(open: () -> Unit) {
+    var x by rememberSaveable { mutableStateOf(1f) }
+    var y by rememberSaveable { mutableStateOf(0.5f) }
+    BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().padding(10.dp)) {
+        val density = LocalDensity.current
+        val travelX = with(density) { (maxWidth - 48.dp).toPx().coerceAtLeast(0f) }
+        val travelY = with(density) { (maxHeight - 48.dp).toPx().coerceAtLeast(0f) }
+        SmallFloatingActionButton(
+            onClick = open,
+            modifier = Modifier.absoluteOffset {
+                IntOffset((x * travelX).roundToInt(), (y * travelY).roundToInt())
+            }.testTag("page_assistant_open").pointerInput(travelX, travelY) {
+                detectDragGestures { change, delta ->
+                    change.consume()
+                    if (travelX > 0) x = (x + delta.x / travelX).coerceIn(0f, 1f)
+                    if (travelY > 0) y = (y + delta.y / travelY).coerceIn(0f, 1f)
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+        ) { Icon(Icons.Rounded.ChatBubbleOutline, "问 GPSHelper") }
     }
 }
 
@@ -212,18 +238,18 @@ private fun AssistantMemories(page: AssistantPage, assistant: GpsPageAssistant) 
     var text by remember { mutableStateOf("") }
     var pageId by remember { mutableStateOf<String?>(null) }
     var pinned by remember { mutableStateOf(false) }
-    fun edit(entry: AssistantMemory?) {
+    fun edit(entry: AssistantMemory) {
         selected = entry
-        text = entry?.text.orEmpty()
-        pageId = entry?.pageId
-        pinned = entry?.pinned ?: false
+        text = entry.text
+        pageId = entry.pageId
+        pinned = entry.pinned
         editing = true
     }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("${entries.size} / $ASSISTANT_MEMORY_COUNT_LIMIT 条", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
-            IconButton(onClick = { edit(null) }, enabled = !editing) { Icon(Icons.Rounded.Add, "添加记忆") }
         }
+        if (entries.isEmpty()) Text("还没有记忆，可在「设置 → AI 网关」整理已有的教练报告。")
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (editing) {
             OutlinedTextField(

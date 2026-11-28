@@ -582,6 +582,7 @@
     <string name="ai_coach_regenerate">重新分析</string>
     <string name="ai_coach_stop">取消分析</string>
     <string name="ai_coach_retry">重试</string>
+    <string name="ai_coach_can_leave">可离开此页面，完成后报告会自动写入这条轨迹。</string>
     <string name="ai_coach_copy">复制报告</string>
     <string name="ai_coach_waiting_token">正在连接模型并分析轨迹遥测数据…</string>
     <string name="ai_coach_meta_model">模型：%s</string>

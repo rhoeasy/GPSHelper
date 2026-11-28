@@ -87,6 +87,25 @@ internal class AssistantMemoryStore(path: File) {
     }
 
     @Synchronized
+    fun addOrganized(texts: List<String>, now: Long): Int {
+        load()
+        val current = _entries.value
+        val existing = current.mapTo(HashSet()) { it.text }
+        val fresh = texts.filter { it.isNotBlank() && it.length <= ASSISTANT_MEMORY_TEXT_LIMIT && existing.add(it) }
+            .take(8).map { AssistantMemory(UUID.randomUUID().toString(), it, null, false, now) }
+        if (fresh.isEmpty()) return 0
+        val next = (current + fresh).toMutableList()
+        while (next.size > ASSISTANT_MEMORY_COUNT_LIMIT || encode(next).size > MEMORY_FILE_LIMIT) {
+            val oldest = next.filterNot { it.pinned }.minByOrNull { it.usedAt } ?: break
+            next.remove(oldest)
+        }
+        val added = fresh.count { it in next }
+        if (added == 0) error("记忆已满，请取消置顶或删除一条后再试")
+        persist(next)
+        return added
+    }
+
+    @Synchronized
     fun recall(question: String, pageId: String?, now: Long): List<AssistantMemory> {
         load()
         val selected = selectAssistantMemories(_entries.value, question, pageId)

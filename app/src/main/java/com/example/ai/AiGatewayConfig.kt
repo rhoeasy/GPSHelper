@@ -1,5 +1,8 @@
 package com.example.ai
 
+internal const val DEFAULT_GENERATION_WAIT_SECONDS = 90
+internal val GENERATION_WAIT_SECONDS = 25..300
+
 /**
  * Configuration for the user's OpenAI-compatible AI gateway.
  * When [baseUrl] or [modelId] is blank, the app performs zero network requests
@@ -8,8 +11,10 @@ package com.example.ai
 data class AiGatewayConfig(
     val baseUrl: String = "",
     val apiKey: String = "",
-    val modelId: String = ""
+    val modelId: String = "",
+    val generationWaitSeconds: Int = DEFAULT_GENERATION_WAIT_SECONDS
 ) {
+    internal val effectiveWaitSeconds: Int get() = generationWaitSeconds.coerceIn(GENERATION_WAIT_SECONDS)
     val hasBaseUrl: Boolean
         get() = baseUrl.isNotBlank()
 

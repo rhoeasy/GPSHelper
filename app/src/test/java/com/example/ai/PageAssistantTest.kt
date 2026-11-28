@@ -20,6 +20,33 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class PageAssistantTest {
     @Test
+    fun organizedReportMemoriesAreDeduplicatedAndSavedAsSeparateEntries() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val path = File(context.cacheDir, "organized-memory-test.json").apply { delete() }
+        try {
+            val store = AssistantMemoryStore(path)
+            val result = parseOrganizedMemories("```json\n[\"先看 GPS 断流\",\"先看 GPS 断流\",42,\"注意下坡配速\"]\n```")
+            assertEquals(2, store.addOrganized(result, 1))
+            assertEquals(0, store.addOrganized(result, 2))
+            assertEquals(result, AssistantMemoryStore(path).apply { load() }.entries.value.map { it.text })
+        } finally {
+            path.delete()
+        }
+    }
+
+    @Test
+    fun generationWaitPersistsAndIsClampedLocally() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val storage = AiGatewaySecureStorage(context)
+        storage.clearAll()
+        assertEquals(90, storage.loadConfig().effectiveWaitSeconds)
+        storage.saveConfig(AiGatewayConfig(generationWaitSeconds = 135))
+        assertEquals(135, AiGatewaySecureStorage(context).loadConfig().effectiveWaitSeconds)
+        storage.saveConfig(AiGatewayConfig(generationWaitSeconds = 900))
+        assertEquals(300, storage.loadConfig().effectiveWaitSeconds)
+        storage.clearAll()
+    }
+    @Test
     fun memoryReloadsAndEvictsTheLeastRecentlyUsedUnpinnedEntry() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val path = File.createTempFile("assistant-test", ".json", context.cacheDir)

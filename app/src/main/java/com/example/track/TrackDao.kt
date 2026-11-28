@@ -128,6 +128,9 @@ interface TrackDao {
     @Query("SELECT * FROM ai_analysis_history ORDER BY generatedAtMs DESC")
     fun observeAllAiAnalysisHistory(): Flow<List<AiAnalysisRecordEntity>>
 
+    @Query("SELECT activityMode, substr(reportText, 1, 2400) AS reportText FROM ai_analysis_history ORDER BY generatedAtMs DESC, id DESC LIMIT 6")
+    suspend fun recentAnalysisExcerpts(): List<AiAnalysisExcerpt>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAiAnalysisRecord(record: AiAnalysisRecordEntity): Long
 

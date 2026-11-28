@@ -5,6 +5,8 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+data class AiAnalysisExcerpt(val activityMode: String, val reportText: String)
+
 enum class ActivityMode(val labelZh: String) {
     KARTING("卡丁车"),
     HIKING("徒步"),

@@ -56,9 +56,7 @@ object OpenAiGatewayClient {
     private val streamClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(20, TimeUnit.SECONDS)
-            .callTimeout(120, TimeUnit.SECONDS)
             .build()
     }
 
@@ -237,7 +235,12 @@ object OpenAiGatewayClient {
             requestBuilder.header("Authorization", "Bearer $key")
         }
 
-        return responseFlow(streamClient.newCall(requestBuilder.build())) { response ->
+        val waitSeconds = config.effectiveWaitSeconds.toLong()
+        val client = streamClient.newBuilder()
+            .readTimeout(waitSeconds + 5, TimeUnit.SECONDS)
+            .callTimeout(waitSeconds + 300, TimeUnit.SECONDS)
+            .build()
+        return responseFlow(client.newCall(requestBuilder.build())) { response ->
             val body = response.body
             if (!response.isSuccessful) {
                 if (trySendBlocking(GatewayChatEvent.Headers).isFailure) return@responseFlow

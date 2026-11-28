@@ -14,6 +14,7 @@ internal sealed interface GatewayTaskKey {
     data object Coordinates : GatewayTaskKey
     data object Models : GatewayTaskKey
     data object PageAssistant : GatewayTaskKey
+    data object OrganizeMemory : GatewayTaskKey
 }
 
 enum class GatewayStage { QUEUED, CONNECTING, WAITING_FOR_OUTPUT, RECEIVING, SAVING }

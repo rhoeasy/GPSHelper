@@ -32,7 +32,9 @@ class AiGatewaySecureStorage(context: Context) {
         return AiGatewayConfig(
             baseUrl = baseUrl,
             apiKey = apiKey,
-            modelId = modelId
+            modelId = modelId,
+            generationWaitSeconds = prefs.getInt(KEY_GENERATION_WAIT, DEFAULT_GENERATION_WAIT_SECONDS)
+                .coerceIn(GENERATION_WAIT_SECONDS)
         )
     }
 
@@ -44,6 +46,7 @@ class AiGatewaySecureStorage(context: Context) {
         val editor = prefs.edit()
             .putString(KEY_BASE_URL, cleanBaseUrl)
             .putString(KEY_MODEL_ID, cleanModelId)
+            .putInt(KEY_GENERATION_WAIT, config.effectiveWaitSeconds)
 
         if (cleanApiKey.isEmpty()) {
             editor.remove(KEY_API_KEY_ENC)
@@ -146,5 +149,6 @@ class AiGatewaySecureStorage(context: Context) {
         private const val KEY_MODEL_ID = "model_id"
         private const val KEY_API_KEY_ENC = "api_key_enc"
         private const val KEY_FETCHED_MODELS = "fetched_models"
+        private const val KEY_GENERATION_WAIT = "generation_wait_seconds"
     }
 }

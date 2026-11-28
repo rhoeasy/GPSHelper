@@ -210,6 +210,7 @@ fun TrackAiCoachCard(
                 }
 
                 is AiAnalysisState.Streaming -> {
+                    Text(stringResource(R.string.ai_coach_can_leave), style = MaterialTheme.typography.bodySmall)
                     LinearProgressIndicator(
                         modifier = Modifier
                             .fillMaxWidth()
