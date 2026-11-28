@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.RectF
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import com.example.gps.SpeedUnit
@@ -45,13 +46,6 @@ class SocialCardLayoutTest {
                 assertEquals(Color.MAGENTA, output.getPixel(width - 1, height - 1))
                 val overlay = changedArea(photo, output)
                 assertTrue("No data was drawn for ${layout.name}", !overlay.isEmpty)
-                when (layout) {
-                    SocialCardLayout.TOP -> assertTrue(overlay.centerY() < height / 2)
-                    SocialCardLayout.BOTTOM -> assertTrue(overlay.centerY() > height / 2)
-                    SocialCardLayout.LEFT -> assertTrue(overlay.centerX() < width / 2)
-                    SocialCardLayout.PHOTO_SIDE -> assertTrue(overlay.centerX() > width / 2)
-                    SocialCardLayout.COVER -> assertTrue(overlay.contains(width / 2, height / 2))
-                }
                 output.recycle()
             }
             photo.recycle()
@@ -72,7 +66,7 @@ class SocialCardLayoutTest {
             assertEquals(600, preview.width)
             preview.recycle()
 
-            val config = SocialCardConfig(useImportedPhoto = true, layout = SocialCardLayout.PHOTO_SIDE)
+            val config = SocialCardConfig(useImportedPhoto = true, layout = SocialCardLayout.SIDE_BY_SIDE)
             val rendered = SocialCardBitmapRenderer.renderExportBitmap(context, hike, SpeedUnit.KMH, config, sourceUri)
             exportedFile.outputStream().use { assertTrue(rendered.compress(Bitmap.CompressFormat.PNG, 100, it)) }
             rendered.recycle()
@@ -95,6 +89,82 @@ class SocialCardLayoutTest {
         assertTrue(stats.any { it.label == "\u6b65\u6570" })
         assertTrue(SocialCardBitmapRenderer.buildSelectedStats(hike, SpeedUnit.KMH, selected.copy(showSteps = false))
             .none { it.label == "\u6b65\u6570" })
+    }
+
+    @Test
+    fun enablingEveryMetricDoesNotShrinkOrMoveRouteArtwork() {
+        val compact = SocialCardConfig(showTitle = false, showDistance = false, showDuration = false, showElevation = false,
+            showSpeed = false, showHeartRate = false, showPeakG = false, showMiniProfile = false)
+        val dense = SocialCardConfig(showClimbDifficulty = true, showSurfaceComplexity = true, showBodyPerformance = true, showSteps = true)
+        for (preset in SocialCardLayout.entries) {
+            val compactConfig = compact.copy(layout = preset)
+            val denseConfig = dense.copy(layout = preset)
+            val minimal = SocialCardBitmapRenderer.renderPhotoPosterLayers(hike, SpeedUnit.KMH, compactConfig)
+            val detailed = SocialCardBitmapRenderer.renderPhotoPosterLayers(hike, SpeedUnit.KMH, denseConfig)
+            try {
+                val route = minimal.getValue(SocialPosterLayer.ROUTE)
+                val detailedRoute = detailed.getValue(SocialPosterLayer.ROUTE)
+                assertTrue(route.sameAs(detailedRoute))
+                assertTrue(SocialPosterLayer.DATA in detailed)
+                assertEquals(
+                    socialPosterFrame(720f, 1280f, route.width, route.height, SocialPosterLayer.ROUTE, compactConfig),
+                    socialPosterFrame(720f, 1280f, route.width, route.height, SocialPosterLayer.ROUTE, denseConfig)
+                )
+            } finally {
+                (minimal.values + detailed.values).forEach(Bitmap::recycle)
+            }
+        }
+    }
+
+    @Test
+    fun exportedRouteMovesAndScalesWithoutMovingOtherLayers() {
+        val photo = Bitmap.createBitmap(720, 900, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.DKGRAY) }
+        val config = SocialCardConfig(useImportedPhoto = true, showTitle = false, showDistance = false, showDuration = false,
+            showElevation = false, showSpeed = false, showHeartRate = false, showPeakG = false, showMiniProfile = false)
+        val initialConfig = config.copy(posterEdits = SocialPosterEdits(route = SocialLayerPlacement(0f, 0f, 0.5f)))
+        val enlargedConfig = config.copy(posterEdits = SocialPosterEdits(route = SocialLayerPlacement(1f, 1f, 1f)))
+        val first = SocialCardBitmapRenderer.renderBitmap(hike, SpeedUnit.KMH, initialConfig, photo)
+        val second = SocialCardBitmapRenderer.renderBitmap(hike, SpeedUnit.KMH, enlargedConfig, photo)
+        try {
+            val initial = changedArea(photo, first)
+            val enlarged = changedArea(photo, second)
+            assertTrue(enlarged.width() >= initial.width() * 1.8f)
+            assertTrue(enlarged.centerX() > initial.centerX())
+            assertTrue(enlarged.centerY() > initial.centerY())
+            val title = SocialPosterLayer.TITLE
+            assertEquals(socialPosterFrame(720f, 900f, 1000, 194, title, initialConfig),
+                socialPosterFrame(720f, 900f, 1000, 194, title, enlargedConfig))
+        } finally {
+            first.recycle()
+            second.recycle()
+            photo.recycle()
+        }
+    }
+
+    @Test
+    fun defaultPresetsGiveTitleRouteAndDataSeparateSpaceInEitherOrientation() {
+        for (preset in SocialCardLayout.entries) {
+            val config = SocialCardConfig(layout = preset, showSteps = true, showClimbDifficulty = true,
+                showBodyPerformance = true, showSurfaceComplexity = true)
+            val artwork = SocialCardBitmapRenderer.renderPhotoPosterLayers(hike, SpeedUnit.KMH, config)
+            try {
+                for ((width, height) in listOf(720f to 1280f, 1280f to 720f, 1900f to 310f)) {
+                    val frames = artwork.mapValues { (layer, bitmap) ->
+                        val frame = socialPosterFrame(width, height, bitmap.width, bitmap.height, layer, config)
+                        RectF(frame.left, frame.top, frame.left + frame.width, frame.top + frame.height)
+                    }
+                    val route = frames.getValue(SocialPosterLayer.ROUTE)
+                    val title = frames.getValue(SocialPosterLayer.TITLE)
+                    val data = frames.getValue(SocialPosterLayer.DATA)
+                    assertTrue(!RectF.intersects(route, title))
+                    assertTrue(!RectF.intersects(route, data))
+                    assertTrue(!RectF.intersects(title, data))
+                    assertTrue(route.width() > 0.35f * width || route.height() > 0.48f * height)
+                }
+            } finally {
+                artwork.values.forEach(Bitmap::recycle)
+            }
+        }
     }
 
     private fun changedArea(original: Bitmap, rendered: Bitmap): Rect {

@@ -84,7 +84,6 @@ import com.example.track.ActivityMode
 import com.example.track.SocialBgPreset
 import com.example.track.SocialCardBitmapRenderer
 import com.example.track.SocialCardConfig
-import com.example.track.SocialCardLayout
 import com.example.track.SocialOverlayBackdrop
 import com.example.track.TrackSessionDetail
 import kotlinx.coroutines.Dispatchers
@@ -170,14 +169,14 @@ fun SocialShareCardScreen(
         }
     }
 
-    // Re-render crisp WYSIWYG preview bitmap whenever options or photo change
-    LaunchedEffect(detail, speedUnit, config, importedPhoto) {
+    val standaloneConfig = config.takeUnless { it.useImportedPhoto && importedPhoto != null }
+    LaunchedEffect(detail, speedUnit, standaloneConfig) {
+        val options = standaloneConfig ?: return@LaunchedEffect
         val rendered = withContext(Dispatchers.Default) {
             SocialCardBitmapRenderer.renderBitmap(
                 detail = detail,
                 speedUnit = speedUnit,
-                config = config,
-                photoBitmap = importedPhoto?.preview,
+                config = options,
                 targetWidth = 760
             )
         }
@@ -235,63 +234,11 @@ fun SocialShareCardScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                if (config.useImportedPhoto && importedPhoto != null) {
-                    Text(stringResource(R.string.social_layout_title), style = MaterialTheme.typography.titleSmall)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val layouts = listOf(
-                            SocialCardLayout.BOTTOM to R.string.social_layout_bottom,
-                            SocialCardLayout.PHOTO_SIDE to R.string.social_layout_photo_side,
-                            SocialCardLayout.COVER to R.string.social_layout_cover,
-                            SocialCardLayout.TOP to R.string.social_layout_top,
-                            SocialCardLayout.LEFT to R.string.social_layout_left
-                        )
-                        layouts.forEach { (layout, label) ->
-                            FilterChip(
-                                selected = config.layout == layout,
-                                onClick = { config = config.copy(layout = layout) },
-                                label = { Text(stringResource(label)) },
-                                modifier = Modifier.testTag("social_layout_${layout.name.lowercase()}")
-                            )
-                        }
-                    }
-                }
-                // Live WYSIWYG Preview over checkerboard (reveals true alpha when Transparent PNG is active)
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    color = cs.surfaceContainerLow
-                ) {
-                    val bmp = previewBitmap
-                    val aspect = if (bmp != null && bmp.height > 0) {
-                        (bmp.width.toFloat() / bmp.height.toFloat()).coerceIn(0.45f, 2.5f)
-                    } else {
-                        0.8f
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .aspectRatio(aspect)
-                            .testTag("social_preview_container"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        TransparencyCheckerboard(modifier = Modifier.fillMaxSize())
-                        if (bmp != null) {
-                            Image(
-                                bitmap = bmp.asImageBitmap(),
-                                contentDescription = stringResource(R.string.social_title),
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(28.dp),
-                                strokeWidth = 2.5.dp,
-                                color = cs.primary
-                            )
-                        }
-                    }
+                val photo = importedPhoto?.preview?.takeIf { config.useImportedPhoto }
+                if (photo != null) {
+                    SocialPhotoPosterEditor(photo, detail, speedUnit, config) { config = it }
+                } else {
+                    StandaloneSocialPreview(previewBitmap)
                 }
 
                 // Photo Import Controls (Zero-permission Android Photo Picker)
@@ -748,6 +695,30 @@ fun SocialShareCardScreen(
 }
 
 @Composable
+private fun StandaloneSocialPreview(bitmap: Bitmap?) {
+    val cs = MaterialTheme.colorScheme
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = cs.surfaceContainerLow) {
+        Box(
+            Modifier.fillMaxWidth().padding(14.dp).clip(RoundedCornerShape(18.dp))
+                .aspectRatio(0.8f).testTag("social_preview_container"),
+            contentAlignment = Alignment.Center
+        ) {
+            TransparencyCheckerboard(Modifier.fillMaxSize())
+            if (bitmap != null) {
+                Image(
+                    remember(bitmap) { bitmap.asImageBitmap() },
+                    contentDescription = stringResource(R.string.social_title),
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp, color = cs.primary)
+            }
+        }
+    }
+}
+
+@Composable
 private fun BackgroundSwatchItem(
     label: String,
     selected: Boolean,
@@ -862,7 +833,7 @@ private fun CompactSegmentPill(
 }
 
 @Composable
-private fun TransparencyCheckerboard(
+internal fun TransparencyCheckerboard(
     modifier: Modifier = Modifier,
     cellDp: Float = 10f
 ) {

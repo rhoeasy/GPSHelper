@@ -51,14 +51,6 @@ enum class SocialOverlayBackdrop(val labelZh: String) {
     FROSTED("磨砂底板")
 }
 
-enum class SocialCardLayout {
-    COVER,
-    TOP,
-    BOTTOM,
-    LEFT,
-    PHOTO_SIDE
-}
-
 data class SocialCardConfig(
     val useImportedPhoto: Boolean = false,
     val bgPreset: SocialBgPreset = SocialBgPreset.OBSIDIAN,
@@ -78,8 +70,9 @@ data class SocialCardConfig(
     val showBodyPerformance: Boolean = false,
     val showF1Sectors: Boolean = true,
     val showMiniProfile: Boolean = true,
-    val layout: SocialCardLayout = SocialCardLayout.BOTTOM,
-    val showSteps: Boolean = false
+    val layout: SocialCardLayout = SocialCardLayout.ROUTE_FOCUS,
+    val showSteps: Boolean = false,
+    val posterEdits: SocialPosterEdits = SocialPosterEdits()
 )
 
 /**
@@ -369,7 +362,7 @@ object SocialCardBitmapRenderer {
     ): Bitmap {
         if (config.useImportedPhoto && photoBitmap != null && !photoBitmap.isRecycled) {
             val output = checkNotNull(photoBitmap.copy(Bitmap.Config.ARGB_8888, true))
-            drawTelemetry(output, detail, speedUnit, config, hasPhoto = true)
+            drawPhotoPoster(output, detail, speedUnit, config)
             return output
         }
 
@@ -386,7 +379,7 @@ object SocialCardBitmapRenderer {
             }
             Canvas(output).drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
         }
-        drawTelemetry(output, detail, speedUnit, config, hasPhoto = false)
+        drawStandaloneTelemetry(output, detail, speedUnit, config)
         return output
     }
 
@@ -403,7 +396,7 @@ object SocialCardBitmapRenderer {
         }
         // The decoded original belongs to this export, so no second full-size bitmap is needed.
         try {
-            drawTelemetry(photo, detail, speedUnit, config, hasPhoto = true)
+            drawPhotoPoster(photo, detail, speedUnit, config)
             return photo
         } catch (e: Throwable) {
             photo.recycle()
@@ -411,17 +404,152 @@ object SocialCardBitmapRenderer {
         }
     }
 
-    private fun drawTelemetry(
+    private data class PosterArtwork(
+        val layer: SocialPosterLayer,
+        val width: Int,
+        val height: Int,
+        val paint: (Canvas) -> Unit
+    )
+
+    // Render only when the artwork changes. Moving or scaling a layer reuses its preview bitmap.
+    internal fun renderPhotoPosterLayers(
+        detail: TrackSessionDetail,
+        speedUnit: SpeedUnit,
+        config: SocialCardConfig
+    ): Map<SocialPosterLayer, Bitmap> = photoPosterArtwork(detail, speedUnit, config).associate { art ->
+        art.layer to Bitmap.createBitmap(art.width, art.height, Bitmap.Config.ARGB_8888).also {
+            art.paint(Canvas(it))
+        }
+    }
+
+    private fun drawPhotoPoster(
         bitmap: Bitmap,
         detail: TrackSessionDetail,
         speedUnit: SpeedUnit,
-        config: SocialCardConfig,
-        hasPhoto: Boolean
+        config: SocialCardConfig
+    ) {
+        val canvas = Canvas(bitmap)
+        for (art in photoPosterArtwork(detail, speedUnit, config)) {
+            val frame = socialPosterFrame(
+                bitmap.width.toFloat(), bitmap.height.toFloat(), art.width, art.height, art.layer, config
+            )
+            val save = canvas.save()
+            canvas.translate(frame.left, frame.top)
+            val zoom = frame.width / art.width
+            canvas.scale(zoom, zoom)
+            canvas.clipRect(0f, 0f, art.width.toFloat(), art.height.toFloat())
+            art.paint(canvas)
+            canvas.restoreToCount(save)
+        }
+    }
+
+    private fun photoPosterArtwork(
+        detail: TrackSessionDetail,
+        speedUnit: SpeedUnit,
+        config: SocialCardConfig
+    ): List<PosterArtwork> = buildList {
+        val session = detail.session
+        val mode = session.activityMode
+        val hasTrack = detail.points.size >= 2
+        val primary = if (config.useLightInk) Color.WHITE else 0xFF171C24.toInt()
+        val secondary = if (config.useLightInk) 0xEAFFFFFF.toInt() else 0xFF3C4554.toInt()
+        val shadow = config.overlayBackdrop != SocialOverlayBackdrop.FROSTED && config.useLightInk
+        val f1 = if (mode == ActivityMode.KARTING && config.showF1Sectors) {
+            KartingSectorEngine.analyze(detail.points, detail.laps)
+        } else null
+        val bestLap = f1?.timingForLap(f1.bestLapNumber)
+
+        if (config.showRoute && hasTrack) {
+            val points = detail.points
+            val xSpan = (points.maxOf { it.longitude } - points.minOf { it.longitude }) *
+                cos(Math.toRadians(points.map { it.latitude }.average())).coerceIn(0.2, 1.0)
+            val ySpan = points.maxOf { it.latitude } - points.minOf { it.latitude }
+            val aspect = (xSpan.coerceAtLeast(1e-5) / ySpan.coerceAtLeast(1e-5)).coerceIn(0.24, 4.0)
+            val width = if (aspect >= 1) 1000 else (1000 * aspect).roundToInt()
+            val height = if (aspect >= 1) (1000 / aspect).roundToInt() else 1000
+            add(PosterArtwork(SocialPosterLayer.ROUTE, width, height) { canvas ->
+                drawRouteOverlay(
+                    canvas, RectF(0f, 0f, width.toFloat(), height.toFloat()), points, mode, speedUnit,
+                    scale = 0.64f, lightInk = config.useLightInk, addPhotoGlow = true,
+                    kartingF1 = f1, f1LapTiming = bestLap, posterInk = true
+                )
+            })
+        }
+
+        if (config.showTitle) {
+            add(PosterArtwork(SocialPosterLayer.TITLE, 1000, 194) { canvas ->
+                val title = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = primary
+                    textSize = 86f
+                    typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+                    setShadowLayer(10f, 0f, 2f, if (config.useLightInk) 0xA8000000.toInt() else 0x9AFFFFFF.toInt())
+                }
+                val kicker = Paint(title).apply {
+                    textSize = 30f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                }
+                val date = SimpleDateFormat("yyyy.MM.dd", Locale.US).format(Date(session.startTimeMs))
+                canvas.drawText("${mode.labelZh}   /   $date", 20f, 54f, kicker)
+                val name = session.name
+                val width = title.measureText(name)
+                if (width > 960f) title.textSize *= (960f / width).coerceAtLeast(0.71f)
+                canvas.drawText(ellipsize(name, title, 960f), 18f, 157f, title)
+            })
+        }
+
+        val stats = buildSelectedStats(detail, speedUnit, config)
+        val tags = buildAnalysisOverlayTags(detail, config)
+        val showProfile = config.showMiniProfile && hasTrack
+        if (stats.isNotEmpty() || tags.isNotEmpty() || bestLap != null || showProfile) {
+            val isSide = config.layout == SocialCardLayout.SIDE_BY_SIDE
+            val width = if (isSide) 770 else 1140
+            val columns = if (isSide) 2 else 3
+            val groups = listOfNotNull(
+                if (stats.isNotEmpty()) ((stats.size + columns - 1) / columns) * 88 else null,
+                if (bestLap != null) 142 else null,
+                if (tags.isNotEmpty()) 114 else null,
+                if (showProfile) 88 else null
+            )
+            val height = 44 + groups.sum() + (groups.size - 1) * 14
+            add(PosterArtwork(SocialPosterLayer.DATA, width, height) { canvas ->
+                val panelWidth = width - 48f
+                val isFrosted = config.overlayBackdrop == SocialOverlayBackdrop.FROSTED
+                drawPhotoBackdrop(canvas, width.toFloat(), height.toFloat(), config)
+                var top = 22f
+                if (stats.isNotEmpty()) {
+                    drawStatsGrid(
+                        canvas, stats, 24f, top, panelWidth, 1f, secondary, shadow,
+                        columns = columns, compact = true
+                    )
+                    top += ((stats.size + columns - 1) / columns) * 88f + 14f
+                }
+                if (f1 != null && bestLap != null) {
+                    drawF1SectorStrip(canvas, f1, bestLap, 24f, top, panelWidth, 142f, 1f,
+                        config.useLightInk, primary, secondary, isFrosted)
+                    top += 156f
+                }
+                if (tags.isNotEmpty()) {
+                    drawAnalysisRatingPills(canvas, tags, 24f, top, panelWidth, 114f, 1f,
+                        config.useLightInk, secondary, isFrosted)
+                    top += 128f
+                }
+                if (showProfile) {
+                    drawMiniProfileCurve(canvas, RectF(24f, top, width - 24f, top + 88f), detail.points, mode,
+                        speedUnit, 1f, config.useLightInk, secondary)
+                }
+            })
+        }
+    }
+
+    private fun drawStandaloneTelemetry(
+        bitmap: Bitmap,
+        detail: TrackSessionDetail,
+        speedUnit: SpeedUnit,
+        config: SocialCardConfig
     ) {
         val session = detail.session
         val showRoute = config.showRoute && detail.points.size >= 2
         val isFrosted = config.overlayBackdrop == SocialOverlayBackdrop.FROSTED
-        // Measure the data panel in logical units before fitting it to the photo.
         val kartingF1 = if (session.activityMode == ActivityMode.KARTING && config.showF1Sectors) {
             KartingSectorEngine.analyze(detail.points, detail.laps)
         } else {
@@ -450,32 +578,16 @@ object SocialCardBitmapRenderer {
         }
         if (!config.showTitle && !showRoute && bottomPanelHeight == 0f) return
 
-        val region = if (hasPhoto) {
-            photoOverlayArea(bitmap.width.toFloat(), bitmap.height.toFloat(), config.layout)
-        } else {
-            RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat())
-        }
         val titleRoom = if (config.showTitle) 138f else 0f
         val routeRoom = if (showRoute) 196f else 0f
         val minHeight = 64f + titleRoom + routeRoom + bottomPanelHeight + bottomPad
-        val fit = min(region.width() / 1080f, region.height() / minHeight)
-        val width = (region.width() / fit).coerceAtMost(1600f)
-        val height = if (!hasPhoto || config.layout == SocialCardLayout.COVER) region.height() / fit else minHeight
-        val left = when (config.layout.takeIf { hasPhoto }) {
-            SocialCardLayout.PHOTO_SIDE -> region.right - width * fit
-            SocialCardLayout.LEFT -> region.left
-            else -> region.centerX() - width * fit / 2f
-        }
-        val top = when (config.layout.takeIf { hasPhoto }) {
-            SocialCardLayout.TOP -> region.top
-            SocialCardLayout.BOTTOM -> region.bottom - height * fit
-            else -> region.centerY() - height * fit / 2f
-        }
+        val fit = min(bitmap.width / 1080f, bitmap.height / minHeight)
+        val width = (bitmap.width / fit).coerceAtMost(1600f)
+        val height = bitmap.height / fit
         val canvas = Canvas(bitmap)
-        canvas.translate(left, top)
+        canvas.translate((bitmap.width - width * fit) / 2f, 0f)
         canvas.scale(fit, fit)
         canvas.clipRect(0f, 0f, width, height)
-        if (hasPhoto) drawPhotoBackdrop(canvas, width, height, config)
         val inkPrimary = if (config.useLightInk) Color.WHITE else 0xFF171C24.toInt()
         val inkSecondary = if (config.useLightInk) 0xCCFFFFFF.toInt() else 0xB83C4554.toInt()
 
@@ -527,9 +639,6 @@ object SocialCardBitmapRenderer {
                 color = inkPrimary
                 textSize = 46f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                if (hasPhoto && config.useLightInk) {
-                    setShadowLayer(8f, 0f, 2f, 0x80000000.toInt())
-                }
             }
             val displayTitle = ellipsize(session.name, titlePaint, width - padX * 2f)
             canvas.drawText(displayTitle, padX, topCursorY + 38f, titlePaint)
@@ -550,7 +659,7 @@ object SocialCardBitmapRenderer {
                 speedUnit = speedUnit,
                 scale = 1f,
                 lightInk = config.useLightInk,
-                addPhotoGlow = hasPhoto || config.bgPreset.isTransparent,
+                addPhotoGlow = config.bgPreset.isTransparent,
                 kartingF1 = kartingF1,
                 f1LapTiming = f1BestLapTiming
             )
@@ -565,7 +674,7 @@ object SocialCardBitmapRenderer {
                 height - bottomPad + 16f
             )
 
-            if (isFrosted && !hasPhoto) {
+            if (isFrosted) {
                 val frostedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = if (config.useLightInk) 0xA6101620.toInt() else 0xD9FFFFFF.toInt()
                 }
@@ -616,7 +725,7 @@ object SocialCardBitmapRenderer {
                     width = width - padX * 2f,
                     scale = 1f,
                     inkSecondary = inkSecondary,
-                    addShadow = hasPhoto && config.overlayBackdrop != SocialOverlayBackdrop.FROSTED && config.useLightInk
+                    addShadow = false
                 )
                 cursorY += statsBlockHeight
             }
@@ -638,20 +747,6 @@ object SocialCardBitmapRenderer {
         }
     }
 
-    private fun photoOverlayArea(width: Float, height: Float, layout: SocialCardLayout): RectF {
-        val padding = min(width, height) * 0.045f
-        val area = RectF(padding, padding, width - padding, height - padding)
-        val sideFraction = if (width >= height) 0.53f else 0.70f
-        when (layout) {
-            SocialCardLayout.COVER -> Unit
-            SocialCardLayout.TOP -> area.bottom = area.top + area.height() * 0.65f
-            SocialCardLayout.BOTTOM -> area.top = area.bottom - area.height() * 0.65f
-            SocialCardLayout.LEFT -> area.right = area.left + area.width() * sideFraction
-            SocialCardLayout.PHOTO_SIDE -> area.left = area.right - area.width() * sideFraction
-        }
-        return area
-    }
-
     private fun drawPhotoBackdrop(canvas: Canvas, width: Float, height: Float, config: SocialCardConfig) {
         if (config.overlayBackdrop == SocialOverlayBackdrop.CLEAR) return
         val dark = config.useLightInk
@@ -659,8 +754,8 @@ object SocialCardBitmapRenderer {
             if (config.overlayBackdrop == SocialOverlayBackdrop.SCRIM) {
                 shader = LinearGradient(
                     0f, 0f, 0f, height,
-                    if (dark) 0x9810171E.toInt() else 0xB3FFFFFF.toInt(),
-                    if (dark) 0xCE10171E.toInt() else 0xE6FFFFFF.toInt(),
+                    if (dark) 0x5010171E else 0x90FFFFFF.toInt(),
+                    if (dark) 0xBA10171E.toInt() else 0xD9FFFFFF.toInt(),
                     Shader.TileMode.CLAMP
                 )
             } else {
@@ -872,7 +967,8 @@ object SocialCardBitmapRenderer {
         lightInk: Boolean,
         addPhotoGlow: Boolean,
         kartingF1: KartingF1SectorAnalysis? = null,
-        f1LapTiming: KartingLapSectorTiming? = null
+        f1LapTiming: KartingLapSectorTiming? = null,
+        posterInk: Boolean = false
     ) {
         val avgLat = points.map { it.latitude }.average()
         val lonScale = cos(Math.toRadians(avgLat)).coerceIn(0.2, 1.0)
@@ -917,10 +1013,12 @@ object SocialCardBitmapRenderer {
             }
             val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
-                strokeWidth = 18f * scale
+                strokeWidth = (if (posterInk) 25f else 18f) * scale
                 strokeCap = Paint.Cap.ROUND
                 strokeJoin = Paint.Join.ROUND
-                color = if (lightInk) 0x66000000 else 0x55FFFFFF
+                color = if (posterInk) {
+                    if (lightInk) 0xA8000000.toInt() else 0xB8FFFFFF.toInt()
+                } else if (lightInk) 0x66000000 else 0x55FFFFFF
             }
             canvas.drawPath(outlinePath, glowPaint)
         }
@@ -932,12 +1030,11 @@ object SocialCardBitmapRenderer {
 
         val segPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 11f * scale
+            strokeWidth = (if (posterInk) 16f else 11f) * scale
             strokeCap = Paint.Cap.ROUND
         }
 
-        val useF1Coloring = mode == ActivityMode.KARTING && kartingF1 != null && f1LapTiming != null
-        if (useF1Coloring && kartingF1 != null && f1LapTiming != null) {
+        if (mode == ActivityMode.KARTING && kartingF1 != null && f1LapTiming != null) {
             // Draw ghost track base first, then crisp F1 Purple/Green/Yellow best-lap sectors on top
             val ghostPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
@@ -1029,9 +1126,11 @@ object SocialCardBitmapRenderer {
         width: Float,
         scale: Float,
         inkSecondary: Int,
-        addShadow: Boolean
+        addShadow: Boolean,
+        columns: Int = 3,
+        compact: Boolean = false
     ) {
-        val cols = min(3, stats.size)
+        val cols = min(columns, stats.size)
         val colWidth = width / cols.toFloat()
 
         val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1046,20 +1145,20 @@ object SocialCardBitmapRenderer {
         }
 
         stats.forEachIndexed { idx, stat ->
-            val row = idx / 3
-            val col = idx % 3
+            val row = idx / cols
+            val col = idx % cols
             val x = left + col * colWidth
-            val y = top + row * (112f * scale)
+            val y = top + row * ((if (compact) 88f else 112f) * scale)
             val availableWidth = colWidth - 16f * scale
             canvas.drawText(ellipsize(stat.label, labelPaint, availableWidth), x, y + 26f * scale, labelPaint)
-            valuePaint.color = stat.accentArgb
-            valuePaint.textSize = 44f * scale
+            valuePaint.color = if (compact && idx > 0) inkSecondary else stat.accentArgb
+            valuePaint.textSize = (if (compact && idx == 0) 51f else 44f) * scale
             val valueWidth = valuePaint.measureText(stat.value)
             if (valueWidth > availableWidth) {
                 valuePaint.textSize *= (availableWidth / valueWidth).coerceAtLeast(0.62f)
             }
             val fitValue = ellipsize(stat.value, valuePaint, availableWidth)
-            canvas.drawText(fitValue, x, y + 80f * scale, valuePaint)
+            canvas.drawText(fitValue, x, y + (if (compact) 76f else 80f) * scale, valuePaint)
         }
     }
 
